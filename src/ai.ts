@@ -90,9 +90,6 @@ export class GogoAI {
           completedDepth = depth;
         }
       } catch (error) {
-        while (position.ply > startPly) {
-          position.undo();
-        }
         if (error !== this.timeoutSignal) {
           throw error;
         }
@@ -173,8 +170,12 @@ export class GogoAI {
           continue;
         }
         legalCount += 1;
-        const score = -this.search(position, depth - 1, -beta, -alpha, 1);
-        position.undo();
+        let score = 0;
+        try {
+          score = -this.search(position, depth - 1, -beta, -alpha, 1);
+        } finally {
+          position.undo();
+        }
         if (score > bestScore) {
           bestScore = score;
           bestMove = move;
@@ -219,8 +220,12 @@ export class GogoAI {
           continue;
         }
         legalCount += 1;
-        const score = -this.search(position, depth - 1, -beta, -alpha, ply + 1);
-        position.undo();
+        let score = 0;
+        try {
+          score = -this.search(position, depth - 1, -beta, -alpha, ply + 1);
+        } finally {
+          position.undo();
+        }
         if (score > bestScore) {
           bestScore = score;
         }
@@ -274,8 +279,12 @@ export class GogoAI {
         continue;
       }
       legalCount += 1;
-      const score = -this.quiescence(position, -beta, -alpha, ply + 1, remainingDepth - 1);
-      position.undo();
+      let score = 0;
+      try {
+        score = -this.quiescence(position, -beta, -alpha, ply + 1, remainingDepth - 1);
+      } finally {
+        position.undo();
+      }
       if (score > bestScore) {
         bestScore = score;
       }
