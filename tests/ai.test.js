@@ -323,7 +323,7 @@ test('scoreMove deduplicates adjacent groups that wrap around the candidate from
   // Opponent (WHITE) L-shaped group {(2,1),(3,1),(2,2)} has exactly 1 liberty at
   // candidate (3,2).  The group is adjacent from both left and above, so without
   // dedup the capturePressure of 5900 (CAPTURE_BONUS + 3*300) would be counted
-  // twice.  Expected score with correct dedup: 7286.
+  // twice.  Expected score with correct dedup: 7318.
   const oppDedup = rawPosition([
     'XXXXX....',
     'XXOOX....',
@@ -341,7 +341,7 @@ test('scoreMove deduplicates adjacent groups that wrap around the candidate from
   // Player (BLACK) L-shaped group {(2,1),(3,1),(2,2)} has exactly 1 liberty at
   // candidate (3,2).  The group is adjacent from both left and above, so without
   // dedup the escapePressure of 4250 (ESCAPE_BONUS + 3*250) would be counted
-  // twice.  Expected score with correct dedup: 6032.
+  // twice.  Expected score with correct dedup: 6080.
   const playerDedup = rawPosition([
     '..OO.....',
     'OOXXO....',

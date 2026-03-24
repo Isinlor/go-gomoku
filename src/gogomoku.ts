@@ -200,7 +200,7 @@ export class GogoPosition {
   private readonly libertyMarks: Uint32Array;
   private readonly adjacentGroupMarks: Uint32Array;
   private readonly groupStack: Int16Array;
-  private readonly groupBuffer: Int16Array;
+  readonly groupBuffer: Int16Array;
   private groupVisitEpoch = 1;
   private libertyEpoch = 1;
   private adjacentGroupEpoch = 1;
