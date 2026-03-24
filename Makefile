@@ -8,6 +8,3 @@ test:
 
 build:
 	npm run build
-	mkdir -p dist
-	cp -r browser-demo dist/
-	cp -r build dist/

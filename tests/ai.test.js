@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { BLACK, EMPTY, GogoAI, GogoPosition, WHITE } from '../build/src/index.js';
+import { BLACK, EMPTY, GogoAI, GogoPosition, WHITE } from '../browser-demo/build/src/index.js';
 
 function position(rows, toMove = BLACK) {
   return GogoPosition.fromAscii(rows, toMove);
