@@ -1,5 +1,6 @@
 /node_modules
 /v8cov
 /build
+/dist
 latest-code.zip
 latest-code.patch
