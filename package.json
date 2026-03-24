@@ -8,7 +8,7 @@
   "scripts": {
     "test": "npm run build && node --test tests/*.test.js",
     "build": "npx tsc -p tsconfig.json",
-    "coverage": "npm run build && node --test --experimental-test-coverage --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 --test-coverage-include=build/src/** tests/*.test.js",
+    "coverage": "npm run build && node --test --experimental-test-coverage --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 --test-coverage-include=browser-demo/build/src/** tests/*.test.js",
     "check": "npm run coverage",
     "archive": "git archive -o latest-code.zip HEAD",
     "patch": "git format-patch --root master --stdout > latest-code.patch",
