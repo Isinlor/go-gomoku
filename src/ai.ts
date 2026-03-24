@@ -43,6 +43,8 @@ export class GogoAI {
   private history = new Int32Array(0);
   private candidateMarks = new Uint32Array(0);
   private candidateEpoch = 1;
+  private scorerGroupMarks = new Uint32Array(0);
+  private scorerGroupEpoch = 1;
   private bufferArea = 0;
   private deadline = 0;
   private nodesVisited = 0;
@@ -122,6 +124,8 @@ export class GogoAI {
     this.history = new Int32Array(area * 2);
     this.candidateMarks = new Uint32Array(area);
     this.candidateEpoch = 1;
+    this.scorerGroupMarks = new Uint32Array(area);
+    this.scorerGroupEpoch = 1;
   }
 
   private pickFallbackMove(position: GogoPosition): number {
@@ -432,21 +436,28 @@ export class GogoAI {
     let escapePressure = 0;
     const neighbors = meta.neighbors4;
     const neighborBase = move * 4;
+    this.scorerGroupEpoch += 1;
     for (let offset = 0; offset < 4; offset += 1) {
       const neighbor = neighbors[neighborBase + offset];
       if (neighbor === -1) {
         continue;
       }
       const cell = board[neighbor];
-      if (cell === opponent) {
+      if (cell === opponent && this.scorerGroupMarks[neighbor] !== this.scorerGroupEpoch) {
         const liberties = position.scanGroup(neighbor, opponent);
+        for (let i = 0; i < position.scanGroupSize; i += 1) {
+          this.scorerGroupMarks[position.groupBuffer[i]] = this.scorerGroupEpoch;
+        }
         if (liberties === 1) {
           capturePressure += CAPTURE_BONUS + (position.scanGroupSize * 300);
         } else if (liberties === 2) {
           capturePressure += position.scanGroupSize * 30;
         }
-      } else if (cell === player) {
+      } else if (cell === player && this.scorerGroupMarks[neighbor] !== this.scorerGroupEpoch) {
         const liberties = position.scanGroup(neighbor, player);
+        for (let i = 0; i < position.scanGroupSize; i += 1) {
+          this.scorerGroupMarks[position.groupBuffer[i]] = this.scorerGroupEpoch;
+        }
         if (liberties === 1) {
           escapePressure += ESCAPE_BONUS + (position.scanGroupSize * 250);
         } else if (liberties === 2) {

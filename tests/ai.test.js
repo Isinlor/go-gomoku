@@ -315,3 +315,44 @@ test('white-box AI helpers cover generation, evaluation, quiescence, search fall
   anyAI.nodesVisited = 1;
   assert.doesNotThrow(() => anyAI.checkTime(false));
 });
+
+test('scoreMove deduplicates adjacent groups that wrap around the candidate from multiple sides', () => {
+  const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = /** @type {any} */ (ai);
+
+  // Opponent (WHITE) L-shaped group {(2,1),(3,1),(2,2)} has exactly 1 liberty at
+  // candidate (3,2).  The group is adjacent from both left and above, so without
+  // dedup the capturePressure of 5900 (CAPTURE_BONUS + 3*300) would be counted
+  // twice.  Expected score with correct dedup: 7318.
+  const oppDedup = rawPosition([
+    'XXXXX....',
+    'XXOOX....',
+    'XXO......',
+    'XXXX.....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  anyAI.ensureBuffers(oppDedup.area);
+  assert.equal(anyAI.scoreMove(oppDedup, oppDedup.index(3, 2), -1, false), 7318);
+
+  // Player (BLACK) L-shaped group {(2,1),(3,1),(2,2)} has exactly 1 liberty at
+  // candidate (3,2).  The group is adjacent from both left and above, so without
+  // dedup the escapePressure of 4250 (ESCAPE_BONUS + 3*250) would be counted
+  // twice.  Expected score with correct dedup: 6080.
+  const playerDedup = rawPosition([
+    '..OO.....',
+    'OOXXO....',
+    'OOX......',
+    '..O......',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  anyAI.ensureBuffers(playerDedup.area);
+  assert.equal(anyAI.scoreMove(playerDedup, playerDedup.index(3, 2), -1, false), 6080);
+});
