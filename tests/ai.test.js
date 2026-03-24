@@ -91,6 +91,46 @@ test('AI finds immediate wins, blocks forced replies at depth one, and returns b
   assert.equal(timeout.depth, 1);
 });
 
+test('AI restores position state after a mid-search timeout so the board is not corrupted', () => {
+  // One stone gives the search real candidates to explore but keeps depth-1 well under 128 nodes,
+  // so the non-forced timeout (fires every 128 nodes) hits inside the depth-2 subtree with
+  // multiple outstanding position.play() calls that must be unwound.
+  const pos = new GogoPosition(9);
+  pos.playXY(4, 4);
+
+  const boardBefore = Array.from(pos.board);
+  const toMoveBefore = pos.toMove;
+  const plyBefore = pos.ply;
+
+  // now() is called:
+  //  1 – deadline computation in findBestMove
+  //  2 – early-return guard in findBestMove
+  //  3 – forced check at the start of searchRoot(depth=1)  (nodesVisited=1)
+  //  4 – forced check at the start of searchRoot(depth=2)  (nodesVisited≈50 after depth-1)
+  //  5 – first non-forced check when nodesVisited reaches 128, mid depth-2 subtree
+  // Returning 1000 from call 5 onwards triggers the non-forced timeout with outstanding plays.
+  let nowCalls = 0;
+  const ai = new GogoAI({
+    maxDepth: 6,
+    quiescenceDepth: 2,
+    now: () => {
+      nowCalls += 1;
+      return nowCalls > 4 ? 1000 : 0;
+    },
+  });
+
+  const result = ai.findBestMove(pos, 1);
+  assert.equal(result.timedOut, true);
+  assert.ok(result.depth >= 1);
+
+  // The position must be identical to before the search.
+  assert.equal(pos.ply, plyBefore);
+  assert.equal(pos.toMove, toMoveBefore);
+  assert.deepEqual(Array.from(pos.board), boardBefore);
+  // And it must still be playable.
+  assert.equal(pos.playXY(3, 3), true);
+});
+
 test('AI rethrows unexpected root errors instead of masking them as timeouts', () => {
   const ai = new GogoAI({ maxDepth: 1 });
   const anyAI = /** @type {any} */ (ai);

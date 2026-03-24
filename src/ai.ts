@@ -76,6 +76,7 @@ export class GogoAI {
     let bestScore = 0;
     let completedDepth = 0;
     let hintMove = fallbackMove;
+    const startPly = position.ply;
 
     for (let depth = 1; depth <= this.maxDepth; depth += 1) {
       try {
@@ -87,6 +88,9 @@ export class GogoAI {
           completedDepth = depth;
         }
       } catch (error) {
+        while (position.ply > startPly) {
+          position.undo();
+        }
         if (error !== this.timeoutSignal) {
           throw error;
         }
