@@ -129,3 +129,7 @@ A few ambiguities were fixed explicitly:
 - five-in-a-row overrides suicide legality, but not ko illegality
 - captures are resolved before the final suicide check
 - a move that makes five wins immediately, even if the resulting group has no liberties
+
+## Agents
+
+If you are a code agent, then follow AGENTS.md
