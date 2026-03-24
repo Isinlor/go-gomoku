@@ -1,0 +1,25 @@
+{
+  "name": "gogomoku",
+  "version": "1.0.0",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "npm run build && node --test tests/*.test.js",
+    "build": "npx tsc -p tsconfig.json",
+    "coverage": "npm run build && node --test --experimental-test-coverage --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 --test-coverage-include=build/src/** tests/*.test.js",
+    "check": "npm run coverage",
+    "archive": "git archive -o latest-code.zip HEAD",
+    "patch": "git format-patch --root master --stdout > latest-code.patch",
+    "latest-code": "npm run archive && npm run patch"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "type": "module",
+  "dependencies": {
+    "typescript": "^6.0.2"
+  }
+}
