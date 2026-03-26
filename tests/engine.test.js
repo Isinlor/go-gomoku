@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { BLACK, EMPTY, GogoPosition, WHITE, playerName } from '../browser-demo/build/src/index.js';
+import { BLACK, EMPTY, GogoPosition, WHITE, playerName, encodeMove, decodeMove, decodeGame } from '../browser-demo/build/src/index.js';
 
 function position(rows, toMove = BLACK, options = {}) {
   return GogoPosition.fromAscii(rows, toMove, options);
@@ -305,4 +305,81 @@ test('white-box internals cover helper branches that are otherwise hard to trigg
   assert.equal(game.checkFiveFrom(game.index(3, 3), BLACK), false);
   game.board[game.index(4, 4)] = BLACK;
   assert.equal(game.checkFiveFrom(game.index(4, 4), BLACK), true);
+});
+
+test('encodeMove converts a board index to column-letter + row-number notation', () => {
+  const game9 = new GogoPosition(9);
+  assert.equal(encodeMove(0, game9.meta), 'a1');
+  assert.equal(encodeMove(8, game9.meta), 'i1');
+  assert.equal(encodeMove(9, game9.meta), 'a2');
+  assert.equal(encodeMove(40, game9.meta), 'e5');
+  assert.equal(encodeMove(80, game9.meta), 'i9');
+
+  const game13 = new GogoPosition(13);
+  assert.equal(encodeMove(0, game13.meta), 'a1');
+  assert.equal(encodeMove(12, game13.meta), 'm1');
+  assert.equal(encodeMove(156, game13.meta), 'a13');
+  assert.equal(encodeMove(168, game13.meta), 'm13');
+});
+
+test('decodeMove parses column-letter + row-number to board index and rejects invalid inputs', () => {
+  assert.equal(decodeMove('a1', 9), 0);
+  assert.equal(decodeMove('i1', 9), 8);
+  assert.equal(decodeMove('a2', 9), 9);
+  assert.equal(decodeMove('e5', 9), 40);
+  assert.equal(decodeMove('i9', 9), 80);
+  assert.equal(decodeMove('A1', 9), 0);
+  assert.equal(decodeMove('E5', 9), 40);
+  assert.equal(decodeMove('a13', 13), 156);
+  assert.equal(decodeMove('m13', 13), 168);
+
+  assert.equal(decodeMove('', 9), -1);
+  assert.equal(decodeMove('a', 9), -1);
+  assert.equal(decodeMove('1a', 9), -1);
+  assert.equal(decodeMove('{1', 9), -1);
+  assert.equal(decodeMove('!1', 9), -1);
+  assert.equal(decodeMove('a1b', 9), -1);
+  assert.equal(decodeMove('a0', 9), -1);
+  assert.equal(decodeMove('j1', 9), -1);
+  assert.equal(decodeMove('a10', 9), -1);
+});
+
+test('encodeGame serialises game history and decodeGame rebuilds a position from the string', () => {
+  const empty9 = new GogoPosition(9);
+  assert.equal(empty9.encodeGame(), 'B9');
+
+  const game11 = new GogoPosition(11);
+  game11.playXY(5, 5);
+  game11.playXY(4, 4);
+  assert.equal(game11.encodeGame(), 'B11 f6 e5');
+
+  const loaded11 = decodeGame('B11 f6 e5');
+  assert.equal(loaded11.size, 11);
+  assert.equal(loaded11.ply, 2);
+  assert.equal(loaded11.at(5, 5), BLACK);
+  assert.equal(loaded11.at(4, 4), WHITE);
+  assert.equal(loaded11.toMove, BLACK);
+
+  const game13 = new GogoPosition(13);
+  game13.playXY(6, 6);
+  game13.playXY(7, 7);
+  game13.playXY(5, 5);
+  const encoded13 = game13.encodeGame();
+  assert.equal(encoded13, 'B13 g7 h8 f6');
+  const decoded13 = decodeGame(encoded13);
+  assert.equal(decoded13.ply, 3);
+  assert.equal(decoded13.at(6, 6), BLACK);
+  assert.equal(decoded13.at(7, 7), WHITE);
+  assert.equal(decoded13.at(5, 5), BLACK);
+
+  const empty13 = decodeGame('B13');
+  assert.equal(empty13.size, 13);
+  assert.equal(empty13.ply, 0);
+});
+
+test('decodeGame throws on invalid board size token, unrecognised move, and illegal move', () => {
+  assert.throws(() => decodeGame(''), /Invalid board size token/);
+  assert.throws(() => decodeGame('B10 e5'), /Invalid board size token/);
+  assert.throws(() => decodeGame('B9 z1'), /Invalid move/);
+  assert.throws(() => decodeGame('B9 e5 e5'), /Illegal move/);
 });

@@ -62,6 +62,45 @@
         max-width: 72ch;
         line-height: 1.45;
       }
+      .game-record-section {
+        display: grid;
+        gap: 6px;
+        max-width: 52ch;
+      }
+      .game-record-row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      #game-record {
+        flex: 1;
+        font-family: monospace;
+        font-size: 13px;
+        resize: vertical;
+        min-height: 48px;
+      }
+      .load-section {
+        display: grid;
+        gap: 6px;
+        max-width: 52ch;
+      }
+      #load-input {
+        width: 100%;
+        font-family: monospace;
+        font-size: 13px;
+        resize: vertical;
+        min-height: 48px;
+        box-sizing: border-box;
+      }
+      .load-row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      #load-error {
+        color: #c0392b;
+        font-size: 13px;
+      }
     </style>
   </head>
   <body>
@@ -84,12 +123,30 @@
 
     <div id="status"></div>
     <div id="board" aria-label="GoGomoku board"></div>
+
+    <div class="game-record-section">
+      <label><strong>Game record</strong></label>
+      <div class="game-record-row">
+        <textarea id="game-record" readonly rows="2" aria-label="Game record in move notation"></textarea>
+        <button id="copy-url" type="button">Copy URL</button>
+      </div>
+    </div>
+
+    <div class="load-section">
+      <label for="load-input"><strong>Load game</strong></label>
+      <textarea id="load-input" rows="2" placeholder="e.g. B9 e5 d4 f4 ..."></textarea>
+      <div class="load-row">
+        <button id="load-game-btn" type="button">Load game</button>
+        <span id="load-error"></span>
+      </div>
+    </div>
+
     <div class="hint">
       You play <strong>black</strong>. The demo uses the same engine and AI exported by the package. Serve this folder with any static HTTP server and open this file in a browser.
     </div>
 
     <script type="module">
-      import { BLACK, GogoAI, GogoPosition, WHITE, playerName } from './build/src/index.js';
+      import { BLACK, GogoAI, GogoPosition, WHITE, playerName, decodeGame } from './build/src/index.js';
 
       const boardElement = document.querySelector('#board');
       const statusElement = document.querySelector('#status');
@@ -97,10 +154,23 @@
       const timeLimitInput = document.querySelector('#time-limit');
       const newGameButton = document.querySelector('#new-game');
       const undoButton = document.querySelector('#undo');
+      const gameRecordTextarea = document.querySelector('#game-record');
+      const copyUrlButton = document.querySelector('#copy-url');
+      const loadInput = document.querySelector('#load-input');
+      const loadGameButton = document.querySelector('#load-game-btn');
+      const loadError = document.querySelector('#load-error');
 
       let game = new GogoPosition(9);
-      let ai = new GogoAI({ maxDepth: 6, quiescenceDepth: 6, maxPly: 80 });
+      let ai = makeAI(9);
       let aiThinking = false;
+
+      function makeAI(size) {
+        return new GogoAI({ maxDepth: size === 13 ? 5 : 6, quiescenceDepth: 6, maxPly: 96 });
+      }
+
+      function gameUrl(record) {
+        return location.href.split('#')[0] + '#' + encodeURIComponent(record);
+      }
 
       function describeStatus(extra = '') {
         if (game.winner !== 0) {
@@ -112,6 +182,12 @@
           return;
         }
         statusElement.textContent = `${playerName(game.toMove)} to move${extra ? ` — ${extra}` : ''}`;
+      }
+
+      function updateGameRecord() {
+        const record = game.encodeGame();
+        gameRecordTextarea.value = record;
+        window.history.replaceState(null, '', gameUrl(record));
       }
 
       function renderBoard() {
@@ -136,12 +212,13 @@
             boardElement.appendChild(button);
           }
         }
+        updateGameRecord();
       }
 
       function newGame() {
         const size = Number(sizeSelect.value);
         game = new GogoPosition(size);
-        ai = new GogoAI({ maxDepth: size === 13 ? 5 : 6, quiescenceDepth: 6, maxPly: 96 });
+        ai = makeAI(size);
         aiThinking = false;
         renderBoard();
         describeStatus();
@@ -193,7 +270,57 @@
         describeStatus();
       });
 
-      newGame();
+      copyUrlButton.addEventListener('click', () => {
+        const url = gameUrl(game.encodeGame());
+        navigator.clipboard.writeText(url).catch(() => {
+          prompt('Copy this URL:', url);
+        });
+      });
+
+      loadGameButton.addEventListener('click', () => {
+        loadError.textContent = '';
+        const text = loadInput.value.trim();
+        if (!text) {
+          return;
+        }
+        try {
+          const loaded = decodeGame(text);
+          game = loaded;
+          ai = makeAI(loaded.size);
+          sizeSelect.value = String(loaded.size);
+          aiThinking = false;
+          renderBoard();
+          describeStatus();
+          maybeRunAI();
+        } catch (err) {
+          loadError.textContent = err.message;
+        }
+      });
+
+      function tryLoadFromUrl() {
+        const hash = location.hash.slice(1);
+        if (!hash) {
+          return false;
+        }
+        try {
+          const text = decodeURIComponent(hash);
+          const loaded = decodeGame(text);
+          game = loaded;
+          ai = makeAI(loaded.size);
+          sizeSelect.value = String(loaded.size);
+          aiThinking = false;
+          renderBoard();
+          describeStatus();
+          maybeRunAI();
+          return true;
+        } catch (_) {
+          return false;
+        }
+      }
+
+      if (!tryLoadFromUrl()) {
+        newGame();
+      }
     </script>
   </body>
 </html>
