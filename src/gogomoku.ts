@@ -524,6 +524,14 @@ export class GogoPosition {
     this.captureTop = captureStart;
   }
 
+  encodeGame(): string {
+    const moves: string[] = [];
+    for (let i = 0; i < this.ply; i += 1) {
+      moves.push(encodeMove(this.historyMoves[i], this.meta));
+    }
+    return `B${this.size}${moves.length > 0 ? ' ' + moves.join(' ') : ''}`;
+  }
+
   private checkFiveFrom(index: number, color: Player): boolean {
     const x = this.meta.xs[index];
     const y = this.meta.ys[index];
@@ -568,4 +576,51 @@ export class GogoPosition {
 
 export function playerName(player: Player): 'black' | 'white' {
   return player === BLACK ? 'black' : 'white';
+}
+
+export function encodeMove(index: number, meta: BoardMeta): string {
+  const x = meta.xs[index];
+  const y = meta.ys[index];
+  return String.fromCharCode('a'.charCodeAt(0) + x) + String(y + 1);
+}
+
+export function decodeMove(move: string, size: SupportedSize): number {
+  if (move.length < 2) {
+    return -1;
+  }
+  const colChar = move[0].toLowerCase();
+  if (colChar < 'a' || colChar > 'z') {
+    return -1;
+  }
+  const rowStr = move.slice(1);
+  if (!/^\d+$/.test(rowStr)) {
+    return -1;
+  }
+  const x = colChar.charCodeAt(0) - 'a'.charCodeAt(0);
+  const y = parseInt(rowStr, 10) - 1;
+  if (x >= size || y < 0 || y >= size) {
+    return -1;
+  }
+  return y * size + x;
+}
+
+export function decodeGame(encoded: string): GogoPosition {
+  const parts = encoded.trim().split(/\s+/);
+  const sizeToken = parts[0];
+  if (!/^B(9|11|13)$/.test(sizeToken)) {
+    throw new Error(`Invalid board size token: ${sizeToken}`);
+  }
+  const size = parseInt(sizeToken.slice(1), 10) as SupportedSize;
+  const position = new GogoPosition(size);
+  for (let i = 1; i < parts.length; i += 1) {
+    const moveStr = parts[i];
+    const index = decodeMove(moveStr, size);
+    if (index === -1) {
+      throw new Error(`Invalid move: ${moveStr}`);
+    }
+    if (!position.play(index)) {
+      throw new Error(`Illegal move: ${moveStr}`);
+    }
+  }
+  return position;
 }
