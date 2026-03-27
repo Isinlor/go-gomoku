@@ -101,10 +101,35 @@
         color: #c0392b;
         font-size: 13px;
       }
+      .player-fieldset {
+        border: 1px solid #9b7a3e;
+        border-radius: 6px;
+        padding: 2px 10px 6px;
+        margin: 0;
+        font-size: 14px;
+      }
+      .player-fieldset legend {
+        padding: 0 4px;
+        font-size: 13px;
+        font-weight: 600;
+      }
+      .player-fieldset label {
+        margin-right: 8px;
+      }
     </style>
   </head>
   <body>
     <div class="toolbar">
+      <fieldset class="player-fieldset">
+        <legend>● Black</legend>
+        <label><input type="radio" name="black-mode" value="human" checked> Human</label>
+        <label><input type="radio" name="black-mode" value="ai"> AI</label>
+      </fieldset>
+      <fieldset class="player-fieldset">
+        <legend>○ White</legend>
+        <label><input type="radio" name="white-mode" value="human"> Human</label>
+        <label><input type="radio" name="white-mode" value="ai" checked> AI</label>
+      </fieldset>
       <label>
         Board size
         <select id="board-size">
@@ -118,7 +143,7 @@
         <input id="time-limit" type="number" min="1" step="1" value="75" />
       </label>
       <button id="new-game">New game</button>
-      <button id="undo">Undo pair</button>
+      <button id="undo">Undo</button>
     </div>
 
     <div id="status"></div>
@@ -142,7 +167,7 @@
     </div>
 
     <div class="hint">
-      You play <strong>black</strong>. The demo uses the same engine and AI exported by the package. Serve this folder with any static HTTP server and open this file in a browser.
+      Select <strong>Human</strong> or <strong>AI</strong> for each player above. You can switch modes at any time during the game — switching a player to AI immediately triggers the AI to play. The demo uses the same engine and AI exported by the package. Serve this folder with any static HTTP server and open this file in a browser.
     </div>
 
     <script type="module">
@@ -163,6 +188,8 @@
       let game = new GogoPosition(9);
       let ai = makeAI(9);
       let aiThinking = false;
+      let blackIsAI = false;
+      let whiteIsAI = true;
 
       function makeAI(size) {
         return new GogoAI({ maxDepth: size === 13 ? 5 : 6, quiescenceDepth: 6, maxPly: 96 });
@@ -170,6 +197,20 @@
 
       function gameUrl(record) {
         return location.href.split('#')[0] + '#' + encodeURIComponent(record);
+      }
+
+      function isCurrentPlayerHuman() {
+        return game.toMove === BLACK ? !blackIsAI : !whiteIsAI;
+      }
+
+      function isAITurn() {
+        if (game.winner !== 0 || !game.hasAnyLegalMove()) return false;
+        return game.toMove === BLACK ? blackIsAI : whiteIsAI;
+      }
+
+      function playerLabel(player) {
+        const isAI = player === BLACK ? blackIsAI : whiteIsAI;
+        return `${playerName(player)}${isAI ? ' (AI)' : ''}`;
       }
 
       function describeStatus(extra = '') {
@@ -181,7 +222,7 @@
           statusElement.textContent = `draw${extra ? ` — ${extra}` : ''}`;
           return;
         }
-        statusElement.textContent = `${playerName(game.toMove)} to move${extra ? ` — ${extra}` : ''}`;
+        statusElement.textContent = `${playerLabel(game.toMove)} to move${extra ? ` — ${extra}` : ''}`;
       }
 
       function updateGameRecord() {
@@ -193,6 +234,7 @@
       function renderBoard() {
         boardElement.style.gridTemplateColumns = `repeat(${game.size}, 36px)`;
         boardElement.textContent = '';
+        const humanCanPlay = !aiThinking && isCurrentPlayerHuman() && game.winner === 0;
         for (let y = 0; y < game.size; y += 1) {
           for (let x = 0; x < game.size; x += 1) {
             const index = game.index(x, y);
@@ -200,7 +242,7 @@
             const button = document.createElement('button');
             button.className = 'cell';
             button.type = 'button';
-            button.disabled = aiThinking || value !== 0 || game.winner !== 0;
+            button.disabled = !humanCanPlay || value !== 0;
             button.dataset.index = String(index);
             button.textContent = value === BLACK ? '●' : value === WHITE ? '●' : '';
             if (value === BLACK) {
@@ -222,18 +264,22 @@
         aiThinking = false;
         renderBoard();
         describeStatus();
+        maybeRunAI();
       }
 
       function maybeRunAI() {
-        if (game.winner !== 0 || game.toMove !== WHITE || aiThinking) {
-          renderBoard();
-          describeStatus();
+        if (!isAITurn() || aiThinking) {
           return;
         }
         aiThinking = true;
         renderBoard();
         describeStatus('AI searching');
-        queueMicrotask(() => {
+        const pendingGame = game;
+        setTimeout(() => {
+          if (game !== pendingGame || !isAITurn()) {
+            aiThinking = false;
+            return;
+          }
           const timeLimitMs = Math.max(1, Number(timeLimitInput.value) || 75);
           const result = ai.findBestMove(game, timeLimitMs);
           if (result.move !== -1) {
@@ -242,11 +288,12 @@
           aiThinking = false;
           renderBoard();
           describeStatus(`AI depth ${result.depth}, nodes ${result.nodes}`);
-        });
+          maybeRunAI();
+        }, 0);
       }
 
       function onHumanMove(index) {
-        if (aiThinking || game.toMove !== BLACK || game.winner !== 0) {
+        if (aiThinking || !isCurrentPlayerHuman() || game.winner !== 0) {
           return;
         }
         if (!game.play(index)) {
@@ -261,13 +308,17 @@
 
       newGameButton.addEventListener('click', newGame);
       undoButton.addEventListener('click', () => {
-        if (aiThinking) {
-          return;
+        if (aiThinking) return;
+        if (game.ply === 0) return;
+        game.undo();
+        // If there is a human player and it is now an AI's turn, undo one more move
+        const hasHumanPlayer = !blackIsAI || !whiteIsAI;
+        if (hasHumanPlayer && !isCurrentPlayerHuman() && game.ply > 0) {
+          game.undo();
         }
-        game.undo();
-        game.undo();
         renderBoard();
         describeStatus();
+        maybeRunAI();
       });
 
       copyUrlButton.addEventListener('click', () => {
@@ -295,6 +346,20 @@
         } catch (err) {
           loadError.textContent = err.message;
         }
+      });
+
+      function onModeChange() {
+        blackIsAI = document.querySelector('input[name="black-mode"][value="ai"]').checked;
+        whiteIsAI = document.querySelector('input[name="white-mode"][value="ai"]').checked;
+        if (!aiThinking) {
+          renderBoard();
+          describeStatus();
+          maybeRunAI();
+        }
+      }
+
+      document.querySelectorAll('input[name="black-mode"], input[name="white-mode"]').forEach(input => {
+        input.addEventListener('change', onModeChange);
       });
 
       function tryLoadFromUrl() {
