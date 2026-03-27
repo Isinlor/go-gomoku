@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { BLACK, EMPTY, GogoAI, GogoPosition, WHITE } from '../browser-demo/build/src/index.js';
+import { BLACK, EMPTY, GogoAI, GogoPosition, TT_ALPHA, TT_BETA, TT_EXACT, TranspositionTable, WHITE } from '../browser-demo/build/src/index.js';
 
 function position(rows, toMove = BLACK) {
   return GogoPosition.fromAscii(rows, toMove);
@@ -355,4 +355,140 @@ test('scoreMove deduplicates adjacent groups that wrap around the candidate from
   ], BLACK);
   anyAI.ensureBuffers(playerDedup.area);
   assert.equal(anyAI.scoreMove(playerDedup, playerDedup.index(3, 2), -1, false), 6080);
+});
+
+test('TranspositionTable covers all probe branches, and recomputeZobristHash includes the ko-point key', () => {
+  // --- TranspositionTable unit tests (size=16 for fast initialisation) ---
+  const tt = new TranspositionTable(16);
+
+  // 1. Hash miss: slot is empty.
+  assert.equal(tt.probe(1, 2, 1, -100, 100), false);
+  assert.equal(tt.probeMove, -1);
+
+  // 2. TT_EXACT hit: score read and returned directly.
+  tt.store(1, 2, 3, 500, TT_EXACT, 5);
+  assert.equal(tt.probe(1, 2, 3, -100, 100), true);
+  assert.equal(tt.probeScore, 500);
+  assert.equal(tt.probeMove, 5);
+
+  // 3. Depth miss: stored depth (3) < requested depth (4), but move hint is still set.
+  assert.equal(tt.probe(1, 2, 4, -100, 100), false);
+  assert.equal(tt.probeMove, 5);
+
+  // 4. TT_ALPHA hit: stored score (-150) <= alpha (-100) => return alpha.
+  tt.store(3, 4, 2, -150, TT_ALPHA, 7);
+  assert.equal(tt.probe(3, 4, 2, -100, 100), true);
+  assert.equal(tt.probeScore, -100);
+  assert.equal(tt.probeMove, 7);
+
+  // 5. TT_ALPHA miss: stored score (50) > alpha (-100) => no cutoff, falls through to return false.
+  tt.store(5, 6, 2, 50, TT_ALPHA, 8);
+  assert.equal(tt.probe(5, 6, 2, -100, 100), false);
+
+  // 6. TT_BETA hit: stored score (200) >= beta (100) => return beta.
+  tt.store(7, 8, 2, 200, TT_BETA, 9);
+  assert.equal(tt.probe(7, 8, 2, -100, 100), true);
+  assert.equal(tt.probeScore, 100);
+  assert.equal(tt.probeMove, 9);
+
+  // 7. TT_BETA miss: stored score (50) < beta (100) => no cutoff, falls through to return false.
+  tt.store(9, 10, 2, 50, TT_BETA, 10);
+  assert.equal(tt.probe(9, 10, 2, -100, 100), false);
+
+  // 8. clear() wipes all entries.
+  tt.clear();
+  assert.equal(tt.probe(1, 2, 3, -100, 100), false);
+  assert.equal(tt.probeMove, -1);
+
+  // --- recomputeZobristHash with an active ko point ---
+  const pos = new GogoPosition(9);
+  pos.playXY(4, 4);
+  const hashHiNoKo = pos.zobristHi;
+  const hashLoNoKo = pos.zobristLo;
+
+  // Manually enable ko and recompute: the hash must change.
+  pos.koPoint = pos.index(3, 3);
+  pos.recomputeZobristHash();
+  assert.ok(pos.zobristHi !== hashHiNoKo || pos.zobristLo !== hashLoNoKo);
+
+  // Clearing ko and recomputing must restore the original hash.
+  pos.koPoint = -1;
+  pos.recomputeZobristHash();
+  assert.equal(pos.zobristHi, hashHiNoKo);
+  assert.equal(pos.zobristLo, hashLoNoKo);
+});
+
+test('search returns a cached TT score on a probe hit, and TT reduces nodes in a mid-game benchmark', () => {
+  // --- White-box: direct TT hit inside search() ---
+  // Create an AI with a small TT and a frozen clock so it never times out.
+  const ttAI = new GogoAI({ maxDepth: 2, useTT: true, ttSize: 1 << 16, now: () => 0 });
+  const anyTTAI = /** @type {any} */ (ttAI);
+  anyTTAI.ensureBuffers(81);
+  anyTTAI.deadline = 1_000_000;
+  anyTTAI.nodesVisited = 0;
+  anyTTAI.timedOut = false;
+
+  const pos = new GogoPosition(9);
+  pos.playXY(4, 4);
+
+  // Pre-load an exact TT entry for the current position at depth 2.
+  const cachedScore = 77;
+  ttAI.tt.store(pos.zobristHi, pos.zobristLo, 2, cachedScore, TT_EXACT, pos.index(3, 3));
+  assert.equal(anyTTAI.search(pos, 2, -1_000, 1_000, 1), cachedScore);
+
+  // --- Benchmark: TT reduces the number of nodes searched ---
+  //
+  // Potential pitfalls and how we avoid them:
+  //   1. JIT cold start: both AI variants are warmed up with a shallow search before measurement.
+  //   2. Timer granularity: we compare *node counts*, not wall-clock time, so millisecond
+  //      precision is irrelevant and results are fully reproducible.
+  //   3. Dead-code elimination: assert on result.move so the compiler cannot elide the search.
+  //   4. GC interference: the engine already uses typed arrays throughout the hot path, so
+  //      no heap allocations occur during the search itself.
+  //   5. Ordering bias: the no-TT variant runs first so the TT variant cannot benefit from
+  //      any residual JIT advantage gained by the first run.
+  //   6. Incomplete search: both AIs use a frozen clock (now: () => 0) so they always
+  //      finish all iterations up to maxDepth, making the comparison fair.
+  //   7. Sample size: for deterministic comparison a single run suffices because the node
+  //      count is a pure function of the position and depth when time is unlimited.
+
+  const midgameRows = [
+    '.........',
+    '.........',
+    '...X.....',
+    '..XOX....',
+    '...OXO...',
+    '....OX...',
+    '.........',
+    '.........',
+    '.........',
+  ];
+
+  const warmupPos = () => GogoPosition.fromAscii(midgameRows, BLACK);
+
+  // Warm-up pass to trigger JIT compilation for both code paths (pitfall 1).
+  new GogoAI({ maxDepth: 2, useTT: false, now: () => 0 }).findBestMove(warmupPos(), 1_000_000);
+  new GogoAI({ maxDepth: 2, useTT: true,  now: () => 0 }).findBestMove(warmupPos(), 1_000_000);
+
+  // Measured runs at a deeper depth where transpositions are plentiful.
+  // quiescenceDepth:1 keeps the node count modest so coverage mode stays fast while
+  // still generating the 4-ply transpositions that TT benefits from.
+  const searchDepth = 4;
+  const aiNoTT = new GogoAI({ maxDepth: searchDepth, quiescenceDepth: 1, useTT: false, now: () => 0 });
+  const aiWithTT = new GogoAI({ maxDepth: searchDepth, quiescenceDepth: 1, useTT: true,  now: () => 0 });
+
+  const noTTResult = aiNoTT.findBestMove(warmupPos(), 1_000_000);
+  const ttResult  = aiWithTT.findBestMove(warmupPos(), 1_000_000);
+
+  // Ensure the result is used so the search cannot be optimised away (pitfall 3).
+  assert.ok(noTTResult.move >= 0);
+  assert.ok(ttResult.move >= 0);
+  assert.equal(noTTResult.depth, searchDepth);
+  assert.equal(ttResult.depth, searchDepth);
+
+  // The TT must produce fewer nodes than the plain search at the same depth.
+  assert.ok(
+    ttResult.nodes < noTTResult.nodes,
+    `TT searched ${ttResult.nodes} nodes but no-TT searched ${noTTResult.nodes}; expected TT < no-TT`,
+  );
 });

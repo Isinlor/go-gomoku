@@ -24,6 +24,12 @@ export interface BoardMeta {
   readonly windowsByPointOffsets: Uint16Array;
   readonly windowsByPoint: Int16Array;
   readonly centerBias: Int16Array;
+  readonly zobristStoneHi: Int32Array;
+  readonly zobristStoneLo: Int32Array;
+  readonly zobristWhiteToMoveHi: number;
+  readonly zobristWhiteToMoveLo: number;
+  readonly zobristKoHi: Int32Array;
+  readonly zobristKoLo: Int32Array;
 }
 
 const SUPPORTED_SIZES = new Set<number>([9, 11, 13]);
@@ -31,6 +37,15 @@ const META_CACHE = new Map<number, BoardMeta>();
 
 function otherPlayer(player: Player): Player {
   return player === BLACK ? WHITE : BLACK;
+}
+
+function nextRand32(state: Uint32Array): number {
+  let x = state[0];
+  x ^= x << 13;
+  x ^= x >>> 17;
+  x ^= x << 5;
+  state[0] = x;
+  return x | 0;
 }
 
 function createBoardMeta(size: SupportedSize): BoardMeta {
@@ -117,6 +132,23 @@ function createBoardMeta(size: SupportedSize): BoardMeta {
     windowsByPoint.set(windowsBucket[i], windowsByPointOffsets[i]);
   }
 
+  // Zobrist hashing: deterministic keys seeded by board size
+  const randState = new Uint32Array([((size * 0x9E3779B9) | 1) >>> 0]);
+  const zobristStoneHi = new Int32Array(area * 2);
+  const zobristStoneLo = new Int32Array(area * 2);
+  for (let i = 0; i < area * 2; i += 1) {
+    zobristStoneHi[i] = nextRand32(randState);
+    zobristStoneLo[i] = nextRand32(randState);
+  }
+  const zobristWhiteToMoveHi = nextRand32(randState);
+  const zobristWhiteToMoveLo = nextRand32(randState);
+  const zobristKoHi = new Int32Array(area);
+  const zobristKoLo = new Int32Array(area);
+  for (let i = 0; i < area; i += 1) {
+    zobristKoHi[i] = nextRand32(randState);
+    zobristKoLo[i] = nextRand32(randState);
+  }
+
   return {
     size,
     area,
@@ -130,6 +162,12 @@ function createBoardMeta(size: SupportedSize): BoardMeta {
     windowsByPointOffsets,
     windowsByPoint,
     centerBias,
+    zobristStoneHi,
+    zobristStoneLo,
+    zobristWhiteToMoveHi,
+    zobristWhiteToMoveLo,
+    zobristKoHi,
+    zobristKoLo,
   };
 }
 
@@ -186,6 +224,8 @@ export class GogoPosition {
   stoneCount = 0;
   lastMove = -1;
   lastCapturedCount = 0;
+  zobristHi = 0;
+  zobristLo = 0;
 
   private historyMoves: Int16Array;
   private historyPlayers: Uint8Array;
@@ -193,6 +233,8 @@ export class GogoPosition {
   private historyWinner: Uint8Array;
   private historyCaptureStart: Int32Array;
   private historyCaptureCount: Int16Array;
+  private historyZobristHi: Int32Array;
+  private historyZobristLo: Int32Array;
   private capturePositions: Int16Array;
   private captureTop = 0;
 
@@ -224,6 +266,8 @@ export class GogoPosition {
     this.historyWinner = new Uint8Array(historyCapacity);
     this.historyCaptureStart = new Int32Array(historyCapacity);
     this.historyCaptureCount = new Int16Array(historyCapacity);
+    this.historyZobristHi = new Int32Array(historyCapacity);
+    this.historyZobristLo = new Int32Array(historyCapacity);
     this.capturePositions = new Int16Array(captureCapacity);
 
     this.groupVisitMarks = new Uint32Array(this.area);
@@ -267,6 +311,7 @@ export class GogoPosition {
     }
 
     position.winner = position.detectExistingWinner();
+    position.recomputeZobristHash();
     return position;
   }
 
@@ -387,7 +432,39 @@ export class GogoPosition {
     this.historyWinner[this.ply] = this.winner;
     this.historyCaptureStart[this.ply] = captureStart;
     this.historyCaptureCount[this.ply] = capturedCount;
+    this.historyZobristHi[this.ply] = this.zobristHi;
+    this.historyZobristLo[this.ply] = this.zobristLo;
     this.ply += 1;
+
+    // Update Zobrist hash incrementally
+    const meta = this.meta;
+    let newHashHi = this.zobristHi;
+    let newHashLo = this.zobristLo;
+    if (player === WHITE) {
+      newHashHi ^= meta.zobristWhiteToMoveHi;
+      newHashLo ^= meta.zobristWhiteToMoveLo;
+    }
+    if (this.koPoint !== -1) {
+      newHashHi ^= meta.zobristKoHi[this.koPoint];
+      newHashLo ^= meta.zobristKoLo[this.koPoint];
+    }
+    newHashHi ^= meta.zobristStoneHi[index * 2 + player - 1];
+    newHashLo ^= meta.zobristStoneLo[index * 2 + player - 1];
+    for (let i = captureStart; i < this.captureTop; i += 1) {
+      const point = this.capturePositions[i];
+      newHashHi ^= meta.zobristStoneHi[point * 2 + opponent - 1];
+      newHashLo ^= meta.zobristStoneLo[point * 2 + opponent - 1];
+    }
+    if (nextKo !== -1) {
+      newHashHi ^= meta.zobristKoHi[nextKo];
+      newHashLo ^= meta.zobristKoLo[nextKo];
+    }
+    if (opponent === WHITE) {
+      newHashHi ^= meta.zobristWhiteToMoveHi;
+      newHashLo ^= meta.zobristWhiteToMoveLo;
+    }
+    this.zobristHi = newHashHi;
+    this.zobristLo = newHashLo;
 
     this.koPoint = nextKo;
     this.toMove = opponent;
@@ -421,6 +498,8 @@ export class GogoPosition {
     this.winner = this.historyWinner[this.ply] as Cell;
     this.lastMove = this.ply === 0 ? -1 : this.historyMoves[this.ply - 1];
     this.lastCapturedCount = this.ply === 0 ? 0 : this.historyCaptureCount[this.ply - 1];
+    this.zobristHi = this.historyZobristHi[this.ply];
+    this.zobristLo = this.historyZobristLo[this.ply];
     return true;
   }
 
@@ -504,6 +583,8 @@ export class GogoPosition {
     this.historyWinner = growUint8Array(this.historyWinner, minimumLength);
     this.historyCaptureStart = growInt32Array(this.historyCaptureStart, minimumLength);
     this.historyCaptureCount = growInt16Array(this.historyCaptureCount, minimumLength);
+    this.historyZobristHi = growInt32Array(this.historyZobristHi, minimumLength);
+    this.historyZobristLo = growInt32Array(this.historyZobristLo, minimumLength);
   }
 
   private ensureCaptureCapacity(minimumLength: number): void {
@@ -522,6 +603,29 @@ export class GogoPosition {
     }
     this.stoneCount += capturedCount;
     this.captureTop = captureStart;
+  }
+
+  recomputeZobristHash(): void {
+    const meta = this.meta;
+    let hi = 0;
+    let lo = 0;
+    for (let i = 0; i < this.area; i += 1) {
+      const stone = this.board[i];
+      if (stone !== EMPTY) {
+        hi ^= meta.zobristStoneHi[i * 2 + stone - 1];
+        lo ^= meta.zobristStoneLo[i * 2 + stone - 1];
+      }
+    }
+    if (this.toMove === WHITE) {
+      hi ^= meta.zobristWhiteToMoveHi;
+      lo ^= meta.zobristWhiteToMoveLo;
+    }
+    if (this.koPoint !== -1) {
+      hi ^= meta.zobristKoHi[this.koPoint];
+      lo ^= meta.zobristKoLo[this.koPoint];
+    }
+    this.zobristHi = hi;
+    this.zobristLo = lo;
   }
 
   encodeGame(): string {
