@@ -274,7 +274,7 @@
         aiThinking = true;
         renderBoard();
         describeStatus('AI searching');
-        queueMicrotask(() => {
+        setTimeout(() => {
           const timeLimitMs = Math.max(1, Number(timeLimitInput.value) || 75);
           const result = ai.findBestMove(game, timeLimitMs);
           if (result.move !== -1) {
@@ -284,7 +284,7 @@
           renderBoard();
           describeStatus(`AI depth ${result.depth}, nodes ${result.nodes}`);
           maybeRunAI();
-        });
+        }, 0);
       }
 
       function onHumanMove(index) {

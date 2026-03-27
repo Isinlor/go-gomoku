@@ -20,7 +20,7 @@
   "license": "ISC",
   "description": "",
   "type": "module",
-  "dependencies": {
+  "devDependencies": {
     "typescript": "^6.0.2"
   }
 }
