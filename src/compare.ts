@@ -8,7 +8,7 @@ export interface AIPlayer {
 
 export interface CompareOptions {
   timeLimitMs: number;
-  numGames: number;
+  numPairs: number;
   boardSize: SupportedSize;
   now?: () => number;
 }
@@ -111,18 +111,19 @@ export function compareAIs(
     results: [],
   };
 
-  for (let i = 0; i < options.numGames; i++) {
-    const ai1 = factory();
-    const ai2 = factory();
-    const ai1Color: 1 | 2 = i % 2 === 0 ? 1 : 2;
-    const position = positionFactory(options.boardSize);
-    const gameResult = playGame(ai1, ai2, options.timeLimitMs, ai1Color, position, now);
-    result.results.push(gameResult);
-    result.totalGames++;
-    if (gameResult.invalidMove) result.invalidMoves++;
-    if (gameResult.winner === 1) result.ai1Wins++;
-    else if (gameResult.winner === 2) result.ai2Wins++;
-    else result.draws++;
+  for (let i = 0; i < options.numPairs; i++) {
+    for (const ai1Color of [1, 2] as const) {
+      const ai1 = factory();
+      const ai2 = factory();
+      const position = positionFactory(options.boardSize);
+      const gameResult = playGame(ai1, ai2, options.timeLimitMs, ai1Color, position, now);
+      result.results.push(gameResult);
+      result.totalGames++;
+      if (gameResult.invalidMove) result.invalidMoves++;
+      if (gameResult.winner === 1) result.ai1Wins++;
+      else if (gameResult.winner === 2) result.ai2Wins++;
+      else result.draws++;
+    }
   }
 
   return result;
@@ -130,16 +131,16 @@ export function compareAIs(
 
 export function parseArgs(args: string[]): CompareOptions {
   let timeLimitMs = 100;
-  let numGames = 10;
+  let numPairs = 5;
   let boardSize: SupportedSize = 9;
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--time') timeLimitMs = parseInt(args[++i], 10);
-    else if (args[i] === '--games') numGames = parseInt(args[++i], 10);
+    else if (args[i] === '--pairs') numPairs = parseInt(args[++i], 10);
     else if (args[i] === '--size') boardSize = parseInt(args[++i], 10) as SupportedSize;
   }
 
-  return { timeLimitMs, numGames, boardSize };
+  return { timeLimitMs, numPairs, boardSize };
 }
 
 export function formatResults(result: CompareResult): string {
@@ -160,7 +161,7 @@ export function formatResults(result: CompareResult): string {
 export function main(args: string[], createAI?: () => AIPlayer): void {
   const options = parseArgs(args);
   console.log(
-    `Comparing AIs: ${options.numGames} games, ${options.timeLimitMs}ms per move, ` +
+    `Comparing AIs: ${options.numPairs} pairs (${options.numPairs * 2} games), ${options.timeLimitMs}ms per move, ` +
     `${options.boardSize}x${options.boardSize} board`,
   );
   const result = compareAIs(options, createAI);

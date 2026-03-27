@@ -135,12 +135,12 @@ test('playGame - AI2 timeout: time limit triggered on AI2 turn', () => {
 });
 
 test('compareAIs - AI1 wins and AI2 wins outcomes with mock factory', () => {
-  // Game 0 (i=0, ai1Color=BLACK=1): AI1 is BLACK → plays BLACK_WIN → AI1 wins
-  // Game 1 (i=1, ai1Color=WHITE=2): AI1 is WHITE, AI2 is BLACK → AI2 plays BLACK_WIN → AI2 wins
+  // Pair 0, game A (ai1Color=1): AI1 is BLACK → plays BLACK_WIN → AI1 wins
+  // Pair 0, game B (ai1Color=2): AI1 is WHITE, AI2 is BLACK → AI2 plays BLACK_WIN → AI2 wins
   let callIdx = 0;
   const ais = [seqAI(BLACK_WIN), seqAI(WHITE_IDLE), seqAI(WHITE_IDLE), seqAI(BLACK_WIN)];
   const result = compareAIs(
-    { timeLimitMs: 100, numGames: 2, boardSize: 9 },
+    { timeLimitMs: 100, numPairs: 1, boardSize: 9 },
     () => ais[callIdx++],
   );
   assert.equal(result.ai1Wins, 1);
@@ -148,68 +148,75 @@ test('compareAIs - AI1 wins and AI2 wins outcomes with mock factory', () => {
   assert.equal(result.draws, 0);
   assert.equal(result.totalGames, 2);
   assert.equal(result.invalidMoves, 0);
-  // Verify alternating colors for fairness
+  // Verify both colors played within the pair
   assert.equal(result.results[0].ai1Color, 1);
   assert.equal(result.results[1].ai1Color, 2);
 });
 
 test('compareAIs - draw outcome via full board with no winner', () => {
   // Inject the pre-filled board so hasAnyLegalMove() returns false immediately.
+  // numPairs:1 → 2 games, both draws.
   const result = compareAIs(
-    { timeLimitMs: 100, numGames: 1, boardSize: 9 },
+    { timeLimitMs: 100, numPairs: 1, boardSize: 9 },
     () => seqAI([]),
     () => FULL_BOARD_NO_WINNER,
   );
-  assert.equal(result.draws, 1);
+  assert.equal(result.draws, 2);
   assert.equal(result.ai1Wins, 0);
   assert.equal(result.ai2Wins, 0);
-  assert.equal(result.totalGames, 1);
+  assert.equal(result.totalGames, 2);
   assert.equal(result.invalidMoves, 0);
 });
 
 test('compareAIs - counts invalid moves and records them in results', () => {
-  // Game 0 (i=0, ai1Color=BLACK): AI1 is BLACK, immediately returns -1 (refused)
+  // Pair 0, game A (ai1Color=1): AI1 is BLACK, returns illegal move immediately.
+  // Pair 0, game B (ai1Color=2): clean game: AI1 WHITE, AI2 BLACK wins legitimately.
   let callIdx = 0;
+  const ais = [seqAI([9999]), seqAI(WHITE_IDLE), seqAI(WHITE_IDLE), seqAI(BLACK_WIN)];
   const result = compareAIs(
-    { timeLimitMs: 100, numGames: 1, boardSize: 9 },
-    () => callIdx++ === 0 ? seqAI([-1]) : seqAI([]),
+    { timeLimitMs: 100, numPairs: 1, boardSize: 9 },
+    () => ais[callIdx++],
   );
   assert.equal(result.invalidMoves, 1);
-  assert.equal(result.ai2Wins, 1);
+  assert.equal(result.totalGames, 2);
   assert.ok(result.results[0].invalidMove !== undefined);
-  assert.equal(result.results[0].invalidMove.reason, 'refused');
+  assert.equal(result.results[0].invalidMove.reason, 'illegal');
+  assert.equal(result.results[1].invalidMove, undefined);
 });
 
 test('compareAIs - uses default GogoAI factory when none provided', () => {
-  const result = compareAIs({ timeLimitMs: 10, numGames: 1, boardSize: 9 });
-  assert.equal(result.totalGames, 1);
-  assert.equal(result.ai1Wins + result.ai2Wins + result.draws, 1);
+  const result = compareAIs({ timeLimitMs: 10, numPairs: 1, boardSize: 9 });
+  assert.equal(result.totalGames, 2);
+  assert.equal(result.ai1Wins + result.ai2Wins + result.draws, 2);
 });
 
 test('compareAIs - passes options.now clock to playGame for timeout enforcement', () => {
   // Make every AI call appear to violate the time limit.
+  // numPairs:1 → 2 games, each game's first AI call times out → 2 invalid moves.
   let call = 0;
   const clock = () => (call++ % 2 === 0 ? 0 : 1000);
   let callIdx = 0;
+  const ais = [seqAI([0]), seqAI([]), seqAI([0]), seqAI([])];
   const result = compareAIs(
-    { timeLimitMs: 100, numGames: 1, boardSize: 9, now: clock },
-    () => callIdx++ === 0 ? seqAI([0]) : seqAI([]),
+    { timeLimitMs: 100, numPairs: 1, boardSize: 9, now: clock },
+    () => ais[callIdx++],
   );
-  assert.equal(result.invalidMoves, 1);
+  assert.equal(result.invalidMoves, 2);
   assert.ok(result.results[0].invalidMove?.reason === 'timeout');
+  assert.ok(result.results[1].invalidMove?.reason === 'timeout');
 });
 
 test('parseArgs - all flags parsed correctly, unknown flags ignored', () => {
-  const opts = parseArgs(['--unknown', '--time', '50', '--games', '5', '--size', '11']);
+  const opts = parseArgs(['--unknown', '--time', '50', '--pairs', '3', '--size', '11']);
   assert.equal(opts.timeLimitMs, 50);
-  assert.equal(opts.numGames, 5);
+  assert.equal(opts.numPairs, 3);
   assert.equal(opts.boardSize, 11);
 });
 
 test('parseArgs - defaults when no args provided', () => {
   const opts = parseArgs([]);
   assert.equal(opts.timeLimitMs, 100);
-  assert.equal(opts.numGames, 10);
+  assert.equal(opts.numPairs, 5);
   assert.equal(opts.boardSize, 9);
 });
 
@@ -244,10 +251,13 @@ test('formatResults - zero totalGames returns 0.0% for all', () => {
 
 test('main - runs successfully when no invalid moves occur', (t) => {
   t.mock.method(console, 'log', () => {});
+  // Pair 0, game A (ai1Color=1): AI1 BLACK plays BLACK_WIN → AI1 wins.
+  // Pair 0, game B (ai1Color=2): AI2 BLACK plays BLACK_WIN → AI2 wins.
   let callIdx = 0;
+  const ais = [seqAI(BLACK_WIN), seqAI(WHITE_IDLE), seqAI(WHITE_IDLE), seqAI(BLACK_WIN)];
   main(
-    ['--games', '1', '--time', '100', '--size', '9'],
-    () => callIdx++ === 0 ? seqAI(BLACK_WIN) : seqAI(WHITE_IDLE),
+    ['--pairs', '1', '--time', '100', '--size', '9'],
+    () => ais[callIdx++],
   );
   // No invalid moves → process.exit is never called; reaching here is success
 });
@@ -257,7 +267,7 @@ test('main - calls process.exit(1) when invalid moves are detected', (t) => {
   t.mock.method(console, 'error', () => {});
   const exitMock = t.mock.method(process, 'exit', () => {});
 
-  main(['--games', '1', '--size', '9'], () => seqAI([-1]));
+  main(['--pairs', '1', '--size', '9'], () => seqAI([-1]));
 
   assert.equal(exitMock.mock.calls.length, 1);
   assert.equal(exitMock.mock.calls[0].arguments[0], 1);
