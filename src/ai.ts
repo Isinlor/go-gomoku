@@ -13,6 +13,8 @@ export interface GogoAIOptions {
   quiescenceDepth?: number;
   maxPly?: number;
   now?: () => number;
+  useTT?: boolean;
+  ttSize?: number;
 }
 
 const WIN_SCORE = 1_000_000_000;
@@ -28,6 +30,80 @@ const CAPTURE_BONUS = 5_000;
 const ESCAPE_BONUS = 3_500;
 const NO_SCORE = Number.NEGATIVE_INFINITY;
 
+export const TT_EXACT = 0 as const;
+export const TT_ALPHA = 1 as const;
+export const TT_BETA = 2 as const;
+const TT_DEFAULT_SIZE = 1 << 20;
+
+export class TranspositionTable {
+  private readonly keyHi: Int32Array;
+  private readonly keyLo: Int32Array;
+  private readonly ttDepth: Int8Array;
+  private readonly ttScore: Int32Array;
+  private readonly ttFlag: Uint8Array;
+  private readonly ttMove: Int16Array;
+  private readonly mask: number;
+
+  probeScore = 0;
+  probeMove = -1;
+
+  constructor(size = TT_DEFAULT_SIZE) {
+    this.mask = size - 1;
+    this.keyHi = new Int32Array(size);
+    this.keyLo = new Int32Array(size);
+    this.ttDepth = new Int8Array(size);
+    this.ttScore = new Int32Array(size);
+    this.ttFlag = new Uint8Array(size);
+    this.ttMove = new Int16Array(size);
+  }
+
+  clear(): void {
+    this.keyHi.fill(0);
+    this.keyLo.fill(0);
+    this.ttDepth.fill(0);
+    this.ttScore.fill(0);
+    this.ttFlag.fill(0);
+    this.ttMove.fill(-1);
+  }
+
+  probe(hi: number, lo: number, depth: number, alpha: number, beta: number): boolean {
+    const slot = lo & this.mask;
+    this.probeMove = -1;
+    if (this.keyHi[slot] !== hi || this.keyLo[slot] !== lo) {
+      return false;
+    }
+    this.probeMove = this.ttMove[slot];
+    if (this.ttDepth[slot] < depth) {
+      return false;
+    }
+    const s = this.ttScore[slot];
+    const f = this.ttFlag[slot];
+    if (f === TT_EXACT) {
+      this.probeScore = s;
+      return true;
+    }
+    if (f === TT_ALPHA && s <= alpha) {
+      this.probeScore = alpha;
+      return true;
+    }
+    if (f === TT_BETA && s >= beta) {
+      this.probeScore = beta;
+      return true;
+    }
+    return false;
+  }
+
+  store(hi: number, lo: number, depth: number, score: number, flag: number, move: number): void {
+    const slot = lo & this.mask;
+    this.keyHi[slot] = hi;
+    this.keyLo[slot] = lo;
+    this.ttDepth[slot] = depth;
+    this.ttScore[slot] = score;
+    this.ttFlag[slot] = flag;
+    this.ttMove[slot] = move;
+  }
+}
+
 function otherPlayer(player: Player): Player {
   return player === BLACK ? WHITE : BLACK;
 }
@@ -36,6 +112,7 @@ export class GogoAI {
   readonly maxDepth: number;
   readonly quiescenceDepth: number;
   readonly maxPly: number;
+  readonly tt: TranspositionTable | null;
 
   private readonly now: () => number;
   private moveBuffers: Int16Array[] = [];
@@ -56,6 +133,8 @@ export class GogoAI {
     this.quiescenceDepth = Math.max(0, options.quiescenceDepth ?? 6);
     this.maxPly = Math.max(2, options.maxPly ?? 64);
     this.now = options.now ?? (() => performance.now());
+    const useTT = options.useTT ?? true;
+    this.tt = useTT ? new TranspositionTable(options.ttSize ?? TT_DEFAULT_SIZE) : null;
   }
 
   findBestMove(position: GogoPosition, timeLimitMs: number): SearchResult {
@@ -64,6 +143,9 @@ export class GogoAI {
     this.deadline = this.now() + Math.max(0, timeLimitMs);
     this.nodesVisited = 0;
     this.timedOut = false;
+    if (this.tt !== null) {
+      this.tt.clear();
+    }
 
     if (position.winner !== EMPTY) {
       return { move: -1, score: -WIN_SCORE, depth: 0, nodes: 0, timedOut: false };
@@ -206,12 +288,23 @@ export class GogoAI {
       return this.quiescence(position, alpha, beta, ply, this.quiescenceDepth);
     }
 
+    const tt = this.tt;
+    const initialAlpha = alpha;
+    let ttHintMove = -1;
+    if (tt !== null) {
+      if (tt.probe(position.zobristHi, position.zobristLo, depth, alpha, beta)) {
+        return tt.probeScore;
+      }
+      ttHintMove = tt.probeMove;
+    }
+
     const moves = this.moveBuffers[ply];
     const scores = this.scoreBuffers[ply];
-    let count = this.generateOrderedMoves(position, moves, scores, -1, false);
+    let count = this.generateOrderedMoves(position, moves, scores, ttHintMove, false);
     let usedFullBoard = false;
     let legalCount = 0;
     let bestScore = -WIN_SCORE;
+    let bestMove = -1;
 
     for (;;) {
       for (let i = 0; i < count; i += 1) {
@@ -228,11 +321,15 @@ export class GogoAI {
         }
         if (score > bestScore) {
           bestScore = score;
+          bestMove = move;
         }
         if (score > alpha) {
           alpha = score;
           if (alpha >= beta) {
             this.history[(position.toMove - 1) * this.bufferArea + move] += depth * depth * HISTORY_SCALE;
+            if (tt !== null) {
+              tt.store(position.zobristHi, position.zobristLo, depth, score, TT_BETA, move);
+            }
             return score;
           }
         }
@@ -240,11 +337,18 @@ export class GogoAI {
       if (legalCount !== 0 || usedFullBoard) {
         break;
       }
-      count = this.generateFullBoardMoves(position, moves, scores, -1, false);
+      count = this.generateFullBoardMoves(position, moves, scores, ttHintMove, false);
       usedFullBoard = true;
     }
 
-    return legalCount === 0 ? 0 : bestScore;
+    if (legalCount === 0) {
+      return 0;
+    }
+    if (tt !== null) {
+      const flag = bestScore <= initialAlpha ? TT_ALPHA : TT_EXACT;
+      tt.store(position.zobristHi, position.zobristLo, depth, bestScore, flag, bestMove);
+    }
+    return bestScore;
   }
 
   private quiescence(position: GogoPosition, alpha: number, beta: number, ply: number, remainingDepth: number): number {
