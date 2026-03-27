@@ -365,7 +365,7 @@ test('evaluate awards shape control bonuses for tiger-mouth and full-eye pattern
   anyAI.ensureBuffers(cshapeWhite.area);
   assert.equal(anyAI.evaluate(cshapeWhite), -1854);
 
-  // White full eye: empty (1,1) has 4 white neighbors → SHAPE_CONTROL_4 penalty (from WHITE's perspective, score is positive)
+  // White full eye: empty (1,1) has 4 white neighbors → SHAPE_CONTROL_4 bonus (from WHITE's perspective, score is positive)
   const eyeWhite = rawPosition([
     '.O.......',
     'O.O......',

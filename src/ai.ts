@@ -500,6 +500,7 @@ export class GogoAI {
           escapePressure += position.scanGroupSize * 20;
         }
       } else if (cell === opponent) {
+        // Already-marked group member: still counts for spatial enclosure
         enemyNeighbors += 1;
       } else if (cell === player) {
         friendlyNeighbors += 1;
