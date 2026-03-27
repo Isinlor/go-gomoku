@@ -316,6 +316,114 @@ test('white-box AI helpers cover generation, evaluation, quiescence, search fall
   assert.doesNotThrow(() => anyAI.checkTime(false));
 });
 
+test('searchRoot uses PVS: null-window for non-first moves, full re-search on null-window fail-high', () => {
+  // Replace the private `search` method with a stub to control return values precisely.
+  // call 0: first legal move, full window  → return  100 (score = -100, alpha becomes -100)
+  // call 1: second move, null window       → return -200 (score = 200 > -100 = alpha → fail-high!)
+  // call 2: second move, full re-search    → return -150 (score = 150 > -100; new best)
+  // call 3+: remaining candidates          → return    0
+  const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 0, now: () => 0 });
+  const anyAI = /** @type {any} */ (ai);
+  const pos = new GogoPosition(9);
+  pos.playXY(4, 4);
+  anyAI.ensureBuffers(pos.area);
+  anyAI.history.fill(0);
+  anyAI.deadline = 1;
+  anyAI.nodesVisited = 0;
+
+  const calls = [];
+  anyAI.search = function (_p, depth, alpha, beta, _ply) {
+    const idx = calls.length;
+    calls.push({ depth, alpha, beta });
+    if (idx === 0) return 100;
+    if (idx === 1) return -200;
+    if (idx === 2) return -150;
+    return 0;
+  };
+  try {
+    const result = anyAI.searchRoot(pos, 2, -1);
+    // At least 3 sub-search calls: full-window, null-window, full re-search.
+    assert.ok(calls.length >= 3, 'PVS re-search was not triggered');
+    // call 0: full window (-WIN_SCORE … WIN_SCORE)
+    assert.equal(calls[0].alpha, -1_000_000_000);
+    assert.equal(calls[0].beta,   1_000_000_000);
+    // call 1: null window after alpha = -100; child sees (99, 100)
+    assert.equal(calls[1].alpha, 99);
+    assert.equal(calls[1].beta,  100);
+    // call 2: full re-search; child sees (-WIN_SCORE, 100) = (-1e9, -alpha)
+    assert.equal(calls[2].alpha, -1_000_000_000);
+    assert.equal(calls[2].beta,   100);
+    assert.ok(result.move !== -1);
+  } finally {
+    delete anyAI.search;
+  }
+});
+
+test('search applies LMR for late quiet moves: covers canReduce=true with both score>alpha and score<=alpha branches', () => {
+  // A single quiet stone at the centre guarantees that ALL candidate moves are
+  // non-tactical (attack < TACTICAL_PATTERN_THRESHOLD) so LMR fires for legalCount>3.
+  //
+  // To cover the `if (score > alpha)` TRUE branch (lines 211-212) we intercept the
+  // very first LMR reduced-depth call (depth === 1, ply === 1) and return beta-1,
+  // which makes  score = -(beta-1) = alpha+1 > alpha  so the full-depth null-window
+  // on line 211 is reached.  All subsequent interceptable calls fall through to the
+  // real implementation which exercises the FALSE branch (score <= alpha) naturally.
+  const ai = new GogoAI({ maxDepth: 4, quiescenceDepth: 0, now: () => 0 });
+  const anyAI = /** @type {any} */ (ai);
+
+  const pos = rawPosition([
+    '.........',
+    '.........',
+    '.........',
+    '....X....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  anyAI.ensureBuffers(pos.area);
+  anyAI.history.fill(0);
+  anyAI.nodesVisited = 0;
+  anyAI.timedOut = false;
+  anyAI.deadline = 1;
+
+  let intercepted = false;
+  anyAI.search = function (position, depth, alpha, beta, ply) {
+    // The LMR reduced-depth call from search(pos, 3, ..., ply=0) is the only
+    // call that arrives with depth=1 AND ply=1 (all other depth-1 calls are at ply≥2).
+    // Returning beta-1 forces score = -(beta-1) = alpha+1 > alpha → B1=true.
+    if (!intercepted && depth === 1 && ply === 1) {
+      intercepted = true;
+      return beta - 1;
+    }
+    return Object.getPrototypeOf(this).search.call(this, position, depth, alpha, beta, ply);
+  };
+  try {
+    const score = anyAI.search(pos, 3, -1_000_000_000, 1_000_000_000, 0);
+    assert.ok(intercepted, 'LMR reduced-depth call was not intercepted');
+    assert.ok(typeof score === 'number');
+  } finally {
+    delete anyAI.search;
+  }
+
+  // A separate direct call (no wrapper) lets the real implementation run at depth=3,
+  // exercising the canReduce=true path and the score<=alpha branch (B1=false) naturally.
+  anyAI.history.fill(0);
+  anyAI.nodesVisited = 0;
+  anyAI.timedOut = false;
+  const score2 = anyAI.search(pos, 3, -1_000_000_000, 1_000_000_000, 0);
+  assert.ok(typeof score2 === 'number');
+  assert.ok(score2 > -1_000_000_000);
+
+  // findBestMove at depth 4 also exercises LMR inside the iterative-deepening loop.
+  anyAI.nodesVisited = 0;
+  anyAI.timedOut = false;
+  const result = ai.findBestMove(pos, 1000);
+  assert.ok(result.move !== -1);
+  assert.ok(result.depth >= 1);
+});
+
 test('scoreMove deduplicates adjacent groups that wrap around the candidate from multiple sides', () => {
   const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
   const anyAI = /** @type {any} */ (ai);

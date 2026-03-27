@@ -27,6 +27,9 @@ const HISTORY_SCALE = 1;
 const CAPTURE_BONUS = 5_000;
 const ESCAPE_BONUS = 3_500;
 const NO_SCORE = Number.NEGATIVE_INFINITY;
+const LMR_MIN_DEPTH = 3;
+const LMR_FULL_WINDOW_MOVES = 3;
+const LMR_REDUCTION = 1;
 
 function otherPlayer(player: Player): Player {
   return player === BLACK ? WHITE : BLACK;
@@ -172,7 +175,14 @@ export class GogoAI {
         legalCount += 1;
         let score = 0;
         try {
-          score = -this.search(position, depth - 1, -beta, -alpha, 1);
+          if (legalCount === 1) {
+            score = -this.search(position, depth - 1, -beta, -alpha, 1);
+          } else {
+            score = -this.search(position, depth - 1, -alpha - 1, -alpha, 1);
+            if (score > alpha && score < beta) {
+              score = -this.search(position, depth - 1, -beta, -alpha, 1);
+            }
+          }
         } finally {
           position.undo();
         }
@@ -222,7 +232,25 @@ export class GogoAI {
         legalCount += 1;
         let score = 0;
         try {
-          score = -this.search(position, depth - 1, -beta, -alpha, ply + 1);
+          if (legalCount === 1) {
+            score = -this.search(position, depth - 1, -beta, -alpha, ply + 1);
+          } else {
+            const canReduce =
+              depth >= LMR_MIN_DEPTH &&
+              legalCount > LMR_FULL_WINDOW_MOVES &&
+              scores[i] < TACTICAL_PATTERN_THRESHOLD;
+            if (canReduce) {
+              score = -this.search(position, depth - 1 - LMR_REDUCTION, -alpha - 1, -alpha, ply + 1);
+              if (score > alpha) {
+                score = -this.search(position, depth - 1, -alpha - 1, -alpha, ply + 1);
+              }
+            } else {
+              score = -this.search(position, depth - 1, -alpha - 1, -alpha, ply + 1);
+            }
+            if (score > alpha && score < beta) {
+              score = -this.search(position, depth - 1, -beta, -alpha, ply + 1);
+            }
+          }
         } finally {
           position.undo();
         }
