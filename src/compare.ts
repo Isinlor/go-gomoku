@@ -6,22 +6,17 @@ export interface AIPlayer {
   findBestMove(position: GogoPosition, timeLimitMs: number): { move: number };
 }
 
-export interface AIConfig {
-  maxDepth?: number;
-  quiescenceDepth?: number;
-}
-
 export interface CompareOptions {
-  ai1Config: AIConfig;
-  ai2Config: AIConfig;
   timeLimitMs: number;
   numGames: number;
   boardSize: SupportedSize;
+  now?: () => number;
 }
 
 export interface InvalidMoveInfo {
   ai: 1 | 2;
   move: number;
+  reason: 'illegal' | 'refused' | 'timeout';
 }
 
 export interface GameResult {
@@ -40,46 +35,51 @@ export interface CompareResult {
   results: GameResult[];
 }
 
-export function parseAIConfig(spec: string): AIConfig {
-  const config: AIConfig = {};
-  if (!spec || spec === 'default') return config;
-  for (const part of spec.split(',')) {
-    const colonIdx = part.indexOf(':');
-    if (colonIdx === -1) continue;
-    const key = part.slice(0, colonIdx).trim();
-    const val = parseInt(part.slice(colonIdx + 1).trim(), 10);
-    if (key === 'maxDepth' || key === 'depth') {
-      config.maxDepth = val;
-    } else if (key === 'quiescenceDepth' || key === 'quiescence') {
-      config.quiescenceDepth = val;
-    }
-  }
-  return config;
-}
-
 export function playGame(
   ai1: AIPlayer,
   ai2: AIPlayer,
   timeLimitMs: number,
   ai1Color: 1 | 2,
-  boardSize: SupportedSize,
+  position: GogoPosition,
+  now: () => number = () => Date.now(),
 ): GameResult {
-  const position = new GogoPosition(boardSize);
   let moves = 0;
 
   while (position.winner === 0) {
+    if (!position.hasAnyLegalMove()) break;
+
     const currentAINum: 1 | 2 = position.toMove === ai1Color ? 1 : 2;
     const currentAI = currentAINum === 1 ? ai1 : ai2;
-    const result = currentAI.findBestMove(position, timeLimitMs);
+    const opponent: 1 | 2 = currentAINum === 1 ? 2 : 1;
 
-    if (result.move === -1) break;
+    const start = now();
+    const result = currentAI.findBestMove(position, timeLimitMs);
+    const elapsed = now() - start;
+
+    if (elapsed > timeLimitMs) {
+      return {
+        winner: opponent,
+        moves,
+        ai1Color,
+        invalidMove: { ai: currentAINum, move: result.move, reason: 'timeout' },
+      };
+    }
+
+    if (result.move === -1) {
+      return {
+        winner: opponent,
+        moves,
+        ai1Color,
+        invalidMove: { ai: currentAINum, move: -1, reason: 'refused' },
+      };
+    }
 
     if (!position.isLegal(result.move)) {
       return {
-        winner: currentAINum === 1 ? 2 : 1,
+        winner: opponent,
         moves,
         ai1Color,
-        invalidMove: { ai: currentAINum, move: result.move },
+        invalidMove: { ai: currentAINum, move: result.move, reason: 'illegal' },
       };
     }
 
@@ -96,9 +96,12 @@ export function playGame(
 
 export function compareAIs(
   options: CompareOptions,
-  createAI?: (config: AIConfig) => AIPlayer,
+  createAI?: () => AIPlayer,
+  createPosition?: (size: SupportedSize) => GogoPosition,
 ): CompareResult {
-  const factory = createAI ?? ((config: AIConfig) => new GogoAI(config));
+  const factory = createAI ?? (() => new GogoAI());
+  const positionFactory = createPosition ?? ((size: SupportedSize) => new GogoPosition(size));
+  const now = options.now ?? (() => Date.now());
   const result: CompareResult = {
     ai1Wins: 0,
     ai2Wins: 0,
@@ -109,10 +112,11 @@ export function compareAIs(
   };
 
   for (let i = 0; i < options.numGames; i++) {
-    const ai1 = factory(options.ai1Config);
-    const ai2 = factory(options.ai2Config);
+    const ai1 = factory();
+    const ai2 = factory();
     const ai1Color: 1 | 2 = i % 2 === 0 ? 1 : 2;
-    const gameResult = playGame(ai1, ai2, options.timeLimitMs, ai1Color, options.boardSize);
+    const position = positionFactory(options.boardSize);
+    const gameResult = playGame(ai1, ai2, options.timeLimitMs, ai1Color, position, now);
     result.results.push(gameResult);
     result.totalGames++;
     if (gameResult.invalidMove) result.invalidMoves++;
@@ -125,27 +129,17 @@ export function compareAIs(
 }
 
 export function parseArgs(args: string[]): CompareOptions {
-  let ai1Spec = 'default';
-  let ai2Spec = 'default';
   let timeLimitMs = 100;
   let numGames = 10;
   let boardSize: SupportedSize = 9;
 
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--ai1') ai1Spec = args[++i];
-    else if (args[i] === '--ai2') ai2Spec = args[++i];
-    else if (args[i] === '--time') timeLimitMs = parseInt(args[++i], 10);
+    if (args[i] === '--time') timeLimitMs = parseInt(args[++i], 10);
     else if (args[i] === '--games') numGames = parseInt(args[++i], 10);
     else if (args[i] === '--size') boardSize = parseInt(args[++i], 10) as SupportedSize;
   }
 
-  return {
-    ai1Config: parseAIConfig(ai1Spec),
-    ai2Config: parseAIConfig(ai2Spec),
-    timeLimitMs,
-    numGames,
-    boardSize,
-  };
+  return { timeLimitMs, numGames, boardSize };
 }
 
 export function formatResults(result: CompareResult): string {
@@ -163,7 +157,7 @@ export function formatResults(result: CompareResult): string {
   return lines.join('\n');
 }
 
-export function main(args: string[], createAI?: (config: AIConfig) => AIPlayer): void {
+export function main(args: string[], createAI?: () => AIPlayer): void {
   const options = parseArgs(args);
   console.log(
     `Comparing AIs: ${options.numGames} games, ${options.timeLimitMs}ms per move, ` +

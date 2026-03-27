@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import { GogoPosition } from '../browser-demo/build/src/index.js';
 import {
-  parseAIConfig,
   playGame,
   compareAIs,
   parseArgs,
@@ -10,7 +10,7 @@ import {
   main,
 } from '../browser-demo/build/src/compare.js';
 
-// Helper: create a mock AI that plays a fixed sequence of moves (returns -1 when exhausted)
+// Helper: create a mock AI that plays a fixed sequence of moves
 function seqAI(moves) {
   let i = 0;
   return { findBestMove: () => ({ move: moves[i++] ?? -1 }) };
@@ -22,38 +22,25 @@ function seqAI(moves) {
 const BLACK_WIN = [0, 1, 2, 3, 4];
 const WHITE_IDLE = [9, 18, 27, 36];
 
-test('parseAIConfig handles all branches', () => {
-  // !spec true (empty string)
-  assert.deepEqual(parseAIConfig(''), {});
-
-  // spec === 'default'
-  assert.deepEqual(parseAIConfig('default'), {});
-
-  // key === 'maxDepth' (first || arm true)
-  assert.deepEqual(parseAIConfig('maxDepth:6'), { maxDepth: 6 });
-
-  // key === 'depth' (first || arm false, second arm true)
-  assert.deepEqual(parseAIConfig('depth:4'), { maxDepth: 4 });
-
-  // key === 'quiescenceDepth' (second if first arm true)
-  assert.deepEqual(parseAIConfig('quiescenceDepth:3'), { quiescenceDepth: 3 });
-
-  // key === 'quiescence' (second if first arm false, second arm true)
-  assert.deepEqual(parseAIConfig('quiescence:2'), { quiescenceDepth: 2 });
-
-  // unknown key (both conditions false)
-  assert.deepEqual(parseAIConfig('unknown:5'), {});
-
-  // part without colon (colonIdx === -1, continue branch)
-  assert.deepEqual(parseAIConfig('nocolon'), {});
-
-  // multiple parts: verify accumulation
-  assert.deepEqual(parseAIConfig('maxDepth:6,quiescence:2'), { maxDepth: 6, quiescenceDepth: 2 });
-});
+// A completely filled 9×9 board with no 5-in-a-row in any direction.
+// Pattern: color(r,c) = ((c + 2r) mod 5 < 4) ? X : O
+// This guarantees exactly one O per every 5-window in all four directions,
+// so no five consecutive same-color stones can ever occur.
+const FULL_BOARD_NO_WINNER = GogoPosition.fromAscii([
+  'XXXXOXXXX',
+  'XXOXXXXOX',
+  'OXXXXOXXX',
+  'XXXOXXXXO',
+  'XOXXXXOXX',
+  'XXXXOXXXX',
+  'XXOXXXXOX',
+  'OXXXXOXXX',
+  'XXXOXXXXO',
+]);
 
 test('playGame - AI1 wins when playing BLACK and completing a five-in-a-row', () => {
-  // ai1Color=BLACK=1; AI1 plays 0,1,2,3,4 (row 0), AI2 plays non-winning moves
-  const result = playGame(seqAI(BLACK_WIN), seqAI(WHITE_IDLE), 100, 1, 9);
+  // AI1 (BLACK) plays cells 0-4 to form a horizontal five-in-a-row.
+  const result = playGame(seqAI(BLACK_WIN), seqAI(WHITE_IDLE), 100, 1, new GogoPosition(9));
   assert.equal(result.winner, 1);
   assert.equal(result.ai1Color, 1);
   assert.equal(result.moves, 9);
@@ -61,111 +48,159 @@ test('playGame - AI1 wins when playing BLACK and completing a five-in-a-row', ()
 });
 
 test('playGame - AI2 wins when playing BLACK (ai1Color=WHITE)', () => {
-  // ai1Color=WHITE=2; BLACK goes first → AI2 plays first
-  const result = playGame(seqAI(WHITE_IDLE), seqAI(BLACK_WIN), 100, 2, 9);
+  // AI1 is WHITE; BLACK (= AI2) goes first and wins.
+  const result = playGame(seqAI(WHITE_IDLE), seqAI(BLACK_WIN), 100, 2, new GogoPosition(9));
   assert.equal(result.winner, 2);
   assert.equal(result.ai1Color, 2);
   assert.equal(result.invalidMove, undefined);
 });
 
-test('playGame - draw when both AIs immediately pass', () => {
-  const result = playGame(seqAI([-1]), seqAI([-1]), 100, 1, 9);
+test('playGame - draw when no legal moves remain before any AI is called', () => {
+  // Full board with no winner: hasAnyLegalMove() is false on the very first loop
+  // iteration, so the loop breaks immediately and the game is a draw.
+  // A fresh GogoPosition is needed here only for the ai1Color parameter; the board
+  // state actually checked is FULL_BOARD_NO_WINNER.
+  const result = playGame(seqAI([]), seqAI([]), 100, 1, FULL_BOARD_NO_WINNER);
   assert.equal(result.winner, 0);
   assert.equal(result.moves, 0);
   assert.equal(result.invalidMove, undefined);
 });
 
-test('playGame - AI1 invalid move on first turn gives win to AI2', () => {
-  // AI1 returns an out-of-bounds index on its very first move
-  const result = playGame(seqAI([9999]), seqAI(WHITE_IDLE), 100, 1, 9);
+test('playGame - AI1 invalid move: returns -1 when legal moves exist (refused)', () => {
+  // On an empty board legal moves exist, so returning -1 is a protocol violation.
+  const result = playGame(seqAI([-1]), seqAI(WHITE_IDLE), 100, 1, new GogoPosition(9));
+  assert.equal(result.winner, 2);
+  assert.equal(result.moves, 0);
+  assert.ok(result.invalidMove !== undefined);
+  assert.equal(result.invalidMove.ai, 1);
+  assert.equal(result.invalidMove.move, -1);
+  assert.equal(result.invalidMove.reason, 'refused');
+});
+
+test('playGame - AI2 invalid move: returns -1 when legal moves exist (refused)', () => {
+  // AI1 plays one valid move, then AI2 refuses to play on an otherwise legal board.
+  const result = playGame(seqAI([0]), seqAI([-1]), 100, 1, new GogoPosition(9));
+  assert.equal(result.winner, 1);
+  assert.equal(result.moves, 1);
+  assert.ok(result.invalidMove !== undefined);
+  assert.equal(result.invalidMove.ai, 2);
+  assert.equal(result.invalidMove.reason, 'refused');
+});
+
+test('playGame - AI1 invalid move: returns an illegal move index', () => {
+  // Out-of-bounds index is never legal.
+  const result = playGame(seqAI([9999]), seqAI(WHITE_IDLE), 100, 1, new GogoPosition(9));
   assert.equal(result.winner, 2);
   assert.equal(result.moves, 0);
   assert.ok(result.invalidMove !== undefined);
   assert.equal(result.invalidMove.ai, 1);
   assert.equal(result.invalidMove.move, 9999);
+  assert.equal(result.invalidMove.reason, 'illegal');
 });
 
-test('playGame - AI2 invalid move (occupied cell) gives win to AI1', () => {
-  // AI1 plays cell 0 (valid), then AI2 tries to play cell 0 (occupied → illegal)
-  const result = playGame(seqAI([0]), seqAI([0]), 100, 1, 9);
+test('playGame - AI2 invalid move: plays an occupied cell', () => {
+  // AI1 plays cell 0 (valid), then AI2 attempts to play the same cell.
+  const result = playGame(seqAI([0]), seqAI([0]), 100, 1, new GogoPosition(9));
   assert.equal(result.winner, 1);
   assert.equal(result.moves, 1);
   assert.ok(result.invalidMove !== undefined);
   assert.equal(result.invalidMove.ai, 2);
   assert.equal(result.invalidMove.move, 0);
+  assert.equal(result.invalidMove.reason, 'illegal');
 });
 
-test('compareAIs - covers all winner outcomes with mock factory', () => {
-  const ai1Config = { maxDepth: 1 };
-  const ai2Config = { maxDepth: 2 };
+test('playGame - AI1 timeout: wall clock exceeds limit before result is used', () => {
+  // Mock clock: start=0, then jumps to 1000 after findBestMove returns.
+  // elapsed = 1000 - 0 = 1000 > timeLimitMs=100 → timeout for AI1.
+  let call = 0;
+  const clock = () => (call++ === 0 ? 0 : 1000);
+  const result = playGame(seqAI([0]), seqAI([0]), 100, 1, new GogoPosition(9), clock);
+  assert.equal(result.winner, 2);
+  assert.equal(result.moves, 0);
+  assert.ok(result.invalidMove !== undefined);
+  assert.equal(result.invalidMove.ai, 1);
+  assert.equal(result.invalidMove.reason, 'timeout');
+});
 
-  // Game 0 (i=0, ai1Color=BLACK): AI1 wins
-  // Game 1 (i=1, ai1Color=WHITE): AI2 wins (AI2 is BLACK, plays first, wins)
-  // Game 2 (i=2, ai1Color=BLACK): draw (both pass)
-  const ai1Seqs = [BLACK_WIN, WHITE_IDLE, [-1]];
-  const ai2Seqs = [WHITE_IDLE, BLACK_WIN, [-1]];
+test('playGame - AI2 timeout: time limit triggered on AI2 turn', () => {
+  // AI1 plays one valid move (clock at 0→0, no timeout), then AI2 exceeds the limit.
+  let call = 0;
+  // Calls: start_ai1=0, end_ai1=0 (ok), start_ai2=0, end_ai2=1000 (timeout)
+  const clock = () => [0, 0, 0, 1000][call++] ?? 0;
+  const result = playGame(seqAI([0]), seqAI([40]), 100, 1, new GogoPosition(9), clock);
+  assert.equal(result.winner, 1);
+  assert.ok(result.invalidMove !== undefined);
+  assert.equal(result.invalidMove.ai, 2);
+  assert.equal(result.invalidMove.reason, 'timeout');
+});
 
-  let ai1Idx = 0;
-  let ai2Idx = 0;
-  const factory = (config) => {
-    if (config === ai1Config) return seqAI(ai1Seqs[ai1Idx++]);
-    return seqAI(ai2Seqs[ai2Idx++]);
-  };
-
-  const result = compareAIs({ ai1Config, ai2Config, timeLimitMs: 100, numGames: 3, boardSize: 9 }, factory);
-
+test('compareAIs - AI1 wins and AI2 wins outcomes with mock factory', () => {
+  // Game 0 (i=0, ai1Color=BLACK=1): AI1 is BLACK → plays BLACK_WIN → AI1 wins
+  // Game 1 (i=1, ai1Color=WHITE=2): AI1 is WHITE, AI2 is BLACK → AI2 plays BLACK_WIN → AI2 wins
+  let callIdx = 0;
+  const ais = [seqAI(BLACK_WIN), seqAI(WHITE_IDLE), seqAI(WHITE_IDLE), seqAI(BLACK_WIN)];
+  const result = compareAIs(
+    { timeLimitMs: 100, numGames: 2, boardSize: 9 },
+    () => ais[callIdx++],
+  );
   assert.equal(result.ai1Wins, 1);
   assert.equal(result.ai2Wins, 1);
-  assert.equal(result.draws, 1);
-  assert.equal(result.totalGames, 3);
+  assert.equal(result.draws, 0);
+  assert.equal(result.totalGames, 2);
   assert.equal(result.invalidMoves, 0);
-  assert.equal(result.results.length, 3);
   // Verify alternating colors for fairness
   assert.equal(result.results[0].ai1Color, 1);
   assert.equal(result.results[1].ai1Color, 2);
-  assert.equal(result.results[2].ai1Color, 1);
+});
+
+test('compareAIs - draw outcome via full board with no winner', () => {
+  // Inject the pre-filled board so hasAnyLegalMove() returns false immediately.
+  const result = compareAIs(
+    { timeLimitMs: 100, numGames: 1, boardSize: 9 },
+    () => seqAI([]),
+    () => FULL_BOARD_NO_WINNER,
+  );
+  assert.equal(result.draws, 1);
+  assert.equal(result.ai1Wins, 0);
+  assert.equal(result.ai2Wins, 0);
+  assert.equal(result.totalGames, 1);
+  assert.equal(result.invalidMoves, 0);
 });
 
 test('compareAIs - counts invalid moves and records them in results', () => {
-  const badConfig = { maxDepth: 99 };
-  const goodConfig = { maxDepth: 1 };
-
-  // Game 0 (i=0, ai1Color=BLACK): AI1 returns invalid move immediately
+  // Game 0 (i=0, ai1Color=BLACK): AI1 is BLACK, immediately returns -1 (refused)
+  let callIdx = 0;
   const result = compareAIs(
-    { ai1Config: badConfig, ai2Config: goodConfig, timeLimitMs: 100, numGames: 1, boardSize: 9 },
-    (config) => config === badConfig ? seqAI([9999]) : seqAI([-1]),
+    { timeLimitMs: 100, numGames: 1, boardSize: 9 },
+    () => callIdx++ === 0 ? seqAI([-1]) : seqAI([]),
   );
-
   assert.equal(result.invalidMoves, 1);
   assert.equal(result.ai2Wins, 1);
   assert.ok(result.results[0].invalidMove !== undefined);
+  assert.equal(result.results[0].invalidMove.reason, 'refused');
 });
 
 test('compareAIs - uses default GogoAI factory when none provided', () => {
-  // numGames:1 forces the lambda inside the ?? to be called, creating a real GogoAI
-  const result = compareAIs({
-    ai1Config: { maxDepth: 1 },
-    ai2Config: { maxDepth: 1 },
-    timeLimitMs: 10,
-    numGames: 1,
-    boardSize: 9,
-  });
+  const result = compareAIs({ timeLimitMs: 10, numGames: 1, boardSize: 9 });
   assert.equal(result.totalGames, 1);
   assert.equal(result.ai1Wins + result.ai2Wins + result.draws, 1);
 });
 
-test('parseArgs - all flags parsed correctly', () => {
-  // Include an unknown flag to cover the all-false branch of the if/else-if chain
-  const opts = parseArgs([
-    '--unknown',
-    '--ai1', 'depth:3',
-    '--ai2', 'quiescence:2',
-    '--time', '50',
-    '--games', '5',
-    '--size', '11',
-  ]);
-  assert.deepEqual(opts.ai1Config, { maxDepth: 3 });
-  assert.deepEqual(opts.ai2Config, { quiescenceDepth: 2 });
+test('compareAIs - passes options.now clock to playGame for timeout enforcement', () => {
+  // Make every AI call appear to violate the time limit.
+  let call = 0;
+  const clock = () => (call++ % 2 === 0 ? 0 : 1000);
+  let callIdx = 0;
+  const result = compareAIs(
+    { timeLimitMs: 100, numGames: 1, boardSize: 9, now: clock },
+    () => callIdx++ === 0 ? seqAI([0]) : seqAI([]),
+  );
+  assert.equal(result.invalidMoves, 1);
+  assert.ok(result.results[0].invalidMove?.reason === 'timeout');
+});
+
+test('parseArgs - all flags parsed correctly, unknown flags ignored', () => {
+  const opts = parseArgs(['--unknown', '--time', '50', '--games', '5', '--size', '11']);
   assert.equal(opts.timeLimitMs, 50);
   assert.equal(opts.numGames, 5);
   assert.equal(opts.boardSize, 11);
@@ -173,8 +208,6 @@ test('parseArgs - all flags parsed correctly', () => {
 
 test('parseArgs - defaults when no args provided', () => {
   const opts = parseArgs([]);
-  assert.deepEqual(opts.ai1Config, {});
-  assert.deepEqual(opts.ai2Config, {});
   assert.equal(opts.timeLimitMs, 100);
   assert.equal(opts.numGames, 10);
   assert.equal(opts.boardSize, 9);
@@ -211,11 +244,10 @@ test('formatResults - zero totalGames returns 0.0% for all', () => {
 
 test('main - runs successfully when no invalid moves occur', (t) => {
   t.mock.method(console, 'log', () => {});
-  // Use distinct maxDepth values so the factory can route each AI to the right sequence.
-  // ai1Config will have maxDepth:1 (BLACK wins sequence), ai2Config maxDepth:2 (idle sequence).
+  let callIdx = 0;
   main(
-    ['--games', '1', '--time', '100', '--size', '9', '--ai1', 'maxDepth:1', '--ai2', 'maxDepth:2'],
-    (config) => config.maxDepth === 1 ? seqAI(BLACK_WIN) : seqAI(WHITE_IDLE),
+    ['--games', '1', '--time', '100', '--size', '9'],
+    () => callIdx++ === 0 ? seqAI(BLACK_WIN) : seqAI(WHITE_IDLE),
   );
   // No invalid moves → process.exit is never called; reaching here is success
 });
@@ -225,7 +257,7 @@ test('main - calls process.exit(1) when invalid moves are detected', (t) => {
   t.mock.method(console, 'error', () => {});
   const exitMock = t.mock.method(process, 'exit', () => {});
 
-  main(['--games', '1', '--size', '9'], () => seqAI([9999]));
+  main(['--games', '1', '--size', '9'], () => seqAI([-1]));
 
   assert.equal(exitMock.mock.calls.length, 1);
   assert.equal(exitMock.mock.calls[0].arguments[0], 1);
