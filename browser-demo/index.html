@@ -124,11 +124,13 @@
         <legend>● Black</legend>
         <label><input type="radio" name="black-mode" value="human" checked> Human</label>
         <label><input type="radio" name="black-mode" value="ai"> AI</label>
+        <label>AI time (ms) <input id="black-time-limit" type="number" min="1" step="1" value="75" /></label>
       </fieldset>
       <fieldset class="player-fieldset">
         <legend>○ White</legend>
         <label><input type="radio" name="white-mode" value="human"> Human</label>
         <label><input type="radio" name="white-mode" value="ai" checked> AI</label>
+        <label>AI time (ms) <input id="white-time-limit" type="number" min="1" step="1" value="75" /></label>
       </fieldset>
       <label>
         Board size
@@ -137,10 +139,6 @@
           <option value="11">11x11</option>
           <option value="13">13x13</option>
         </select>
-      </label>
-      <label>
-        AI time limit (ms)
-        <input id="time-limit" type="number" min="1" step="1" value="75" />
       </label>
       <button id="new-game">New game</button>
       <button id="undo">Undo</button>
@@ -176,7 +174,8 @@
       const boardElement = document.querySelector('#board');
       const statusElement = document.querySelector('#status');
       const sizeSelect = document.querySelector('#board-size');
-      const timeLimitInput = document.querySelector('#time-limit');
+      const blackTimeLimitInput = document.querySelector('#black-time-limit');
+      const whiteTimeLimitInput = document.querySelector('#white-time-limit');
       const newGameButton = document.querySelector('#new-game');
       const undoButton = document.querySelector('#undo');
       const gameRecordTextarea = document.querySelector('#game-record');
@@ -280,6 +279,7 @@
             aiThinking = false;
             return;
           }
+          const timeLimitInput = game.toMove === BLACK ? blackTimeLimitInput : whiteTimeLimitInput;
           const timeLimitMs = Math.max(1, Number(timeLimitInput.value) || 75);
           const result = ai.findBestMove(game, timeLimitMs);
           if (result.move !== -1) {
