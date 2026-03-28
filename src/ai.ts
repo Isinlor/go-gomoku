@@ -27,6 +27,9 @@ const HISTORY_SCALE = 1;
 const CAPTURE_BONUS = 5_000;
 const ESCAPE_BONUS = 3_500;
 const NO_SCORE = Number.NEGATIVE_INFINITY;
+const SHAPE_CONTROL_3 = 1_500;
+const SHAPE_CONTROL_4 = 3_000;
+const SELF_ATARI_PENALTY = 20_000;
 
 function otherPlayer(player: Player): Player {
   return player === BLACK ? WHITE : BLACK;
@@ -324,11 +327,31 @@ export class GogoAI {
     const neighbors = meta.neighbors4;
     for (let point = 0; point < position.area; point += 1) {
       const cell = board[point];
+      const neighborBase = point * 4;
+
       if (cell === EMPTY) {
+        let blackNeighbors = 0;
+        let whiteNeighbors = 0;
+        for (let offset = 0; offset < 4; offset += 1) {
+          const neighbor = neighbors[neighborBase + offset];
+          if (neighbor !== -1) {
+            const nCell = board[neighbor];
+            if (nCell === BLACK) {
+              blackNeighbors += 1;
+            } else if (nCell === WHITE) {
+              whiteNeighbors += 1;
+            }
+          }
+        }
+        if (blackNeighbors >= 3 && whiteNeighbors === 0) {
+          score += blackNeighbors === 3 ? SHAPE_CONTROL_3 : SHAPE_CONTROL_4;
+        } else if (whiteNeighbors >= 3 && blackNeighbors === 0) {
+          score -= whiteNeighbors === 3 ? SHAPE_CONTROL_3 : SHAPE_CONTROL_4;
+        }
         continue;
       }
+
       let localLiberties = 0;
-      const neighborBase = point * 4;
       for (let offset = 0; offset < 4; offset += 1) {
         const neighbor = neighbors[neighborBase + offset];
         localLiberties += neighbor !== -1 && board[neighbor] === EMPTY ? 1 : 0;
@@ -443,6 +466,8 @@ export class GogoAI {
 
     let capturePressure = 0;
     let escapePressure = 0;
+    let friendlyNeighbors = 0;
+    let enemyNeighbors = 0;
     const neighbors = meta.neighbors4;
     const neighborBase = move * 4;
     this.scorerGroupEpoch += 1;
@@ -453,6 +478,7 @@ export class GogoAI {
       }
       const cell = board[neighbor];
       if (cell === opponent && this.scorerGroupMarks[neighbor] !== this.scorerGroupEpoch) {
+        enemyNeighbors += 1;
         const liberties = position.scanGroup(neighbor, opponent);
         for (let i = 0; i < position.scanGroupSize; i += 1) {
           this.scorerGroupMarks[position.groupBuffer[i]] = this.scorerGroupEpoch;
@@ -463,6 +489,7 @@ export class GogoAI {
           capturePressure += position.scanGroupSize * 30;
         }
       } else if (cell === player && this.scorerGroupMarks[neighbor] !== this.scorerGroupEpoch) {
+        friendlyNeighbors += 1;
         const liberties = position.scanGroup(neighbor, player);
         for (let i = 0; i < position.scanGroupSize; i += 1) {
           this.scorerGroupMarks[position.groupBuffer[i]] = this.scorerGroupEpoch;
@@ -472,6 +499,11 @@ export class GogoAI {
         } else if (liberties === 2) {
           escapePressure += position.scanGroupSize * 20;
         }
+      } else if (cell === opponent) {
+        // Already-marked group member: still counts for spatial enclosure
+        enemyNeighbors += 1;
+      } else if (cell === player) {
+        friendlyNeighbors += 1;
       }
     }
 
@@ -486,6 +518,9 @@ export class GogoAI {
     }
 
     let score = attack + defense + capturePressure + escapePressure;
+    if (enemyNeighbors >= 3 && friendlyNeighbors === 0 && capturePressure === 0) {
+      score -= SELF_ATARI_PENALTY;
+    }
     score += meta.centerBias[move] * CENTER_MULTIPLIER;
     score += this.history[(player - 1) * this.bufferArea + move];
     if (move === hintMove) {

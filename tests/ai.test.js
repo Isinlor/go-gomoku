@@ -316,6 +316,107 @@ test('white-box AI helpers cover generation, evaluation, quiescence, search fall
   assert.doesNotThrow(() => anyAI.checkTime(false));
 });
 
+test('evaluate awards shape control bonuses for tiger-mouth and full-eye patterns', () => {
+  const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = /** @type {any} */ (ai);
+
+  // Black C-shape: empty (1,1) has 3 black neighbors → SHAPE_CONTROL_3 bonus
+  const cshapeBlack = rawPosition([
+    '.X.......',
+    'X.X......',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  anyAI.ensureBuffers(cshapeBlack.area);
+  assert.equal(anyAI.evaluate(cshapeBlack), 1854);
+
+  // Black full eye: empty (1,1) has 4 black neighbors → SHAPE_CONTROL_4 bonus
+  const eyeBlack = rawPosition([
+    '.X.......',
+    'X.X......',
+    '.X.......',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  anyAI.ensureBuffers(eyeBlack.area);
+  assert.equal(anyAI.evaluate(eyeBlack), 3528);
+
+  // White C-shape: empty (1,1) has 3 white neighbors → SHAPE_CONTROL_3 penalty (from BLACK's perspective)
+  const cshapeWhite = rawPosition([
+    '.O.......',
+    'O.O......',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  anyAI.ensureBuffers(cshapeWhite.area);
+  assert.equal(anyAI.evaluate(cshapeWhite), -1854);
+
+  // White full eye: empty (1,1) has 4 white neighbors → SHAPE_CONTROL_4 bonus (from WHITE's perspective, score is positive)
+  const eyeWhite = rawPosition([
+    '.O.......',
+    'O.O......',
+    '.O.......',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], WHITE);
+  anyAI.ensureBuffers(eyeWhite.area);
+  assert.equal(anyAI.evaluate(eyeWhite), 3528);
+});
+
+test('scoreMove applies self-atari penalty when move enters a tiger-mouth trap', () => {
+  const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = /** @type {any} */ (ai);
+
+  // BLACK to move at (1,1) with 3 white neighbors (all separate groups with many liberties)
+  // → 0 capture pressure, 0 friendly neighbors, 3 enemy neighbors → SELF_ATARI_PENALTY applied
+  const selfAtari = rawPosition([
+    '.O.......',
+    'O.O......',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  anyAI.ensureBuffers(selfAtari.area);
+  assert.equal(anyAI.scoreMove(selfAtari, selfAtari.index(1, 1), -1, false), -18995);
+
+  // Same position but with only 2 enemy neighbors → no penalty
+  const noSelfAtari = rawPosition([
+    '.O.......',
+    'O........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  anyAI.ensureBuffers(noSelfAtari.area);
+  assert.equal(anyAI.scoreMove(noSelfAtari, noSelfAtari.index(1, 1), -1, false), 313);
+});
+
 test('scoreMove deduplicates adjacent groups that wrap around the candidate from multiple sides', () => {
   const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
   const anyAI = /** @type {any} */ (ai);
