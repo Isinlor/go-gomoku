@@ -13,7 +13,8 @@
     "archive": "git archive -o latest-code.zip HEAD",
     "patch": "git format-patch --root master --stdout > latest-code.patch",
     "latest-code": "npm run archive && npm run patch",
-    "serve": "npx http-server -p 8080 browser-demo"
+    "serve": "npx http-server -p 8080 browser-demo",
+    "compare": "npm run build && node browser-demo/build/src/compare.js"
   },
   "keywords": [],
   "author": "",
