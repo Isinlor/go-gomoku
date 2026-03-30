@@ -95,6 +95,18 @@ describe('useGame', () => {
     wrapper.unmount();
   });
 
+  test('ignores full URL without hash when loading from location', () => {
+    const worker = createMockWorker();
+    const { gameState, wrapper } = mountWithGame({
+      createWorker: () => worker,
+      getLocationHash: () => 'https://isinlor.github.io/go-gomoku/',
+      setLocationHash: () => {},
+    });
+    expect(gameState.game.value.ply).toBe(0);
+    expect(gameState.loadError.value).toBe('');
+    wrapper.unmount();
+  });
+
   test('playMove plays a move for the human player', () => {
     const worker = createMockWorker();
     const { gameState, wrapper } = mountWithGame({
@@ -1005,12 +1017,12 @@ describe('useGame', () => {
     wrapper.unmount();
   });
 
-  test('gameUrl produces a full URL when using default getLocationHash', () => {
+  test('gameUrl produces a full URL from getLocationHref', () => {
     const worker = createMockWorker();
-    // Simulate window.location.href
     const { gameState, wrapper } = mountWithGame({
       createWorker: () => worker,
-      getLocationHash: () => 'http://example.com/game#old',
+      getLocationHash: () => '#old',
+      getLocationHref: () => 'http://example.com/game#old',
       setLocationHash: () => {},
     });
 
