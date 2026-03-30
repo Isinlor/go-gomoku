@@ -14,11 +14,13 @@ import type { AIRequest, AIResponse } from '../worker/ai-worker';
 export interface UseGameOptions {
   createWorker?: () => Worker;
   getLocationHash?: () => string;
+  getLocationHref?: () => string;
   setLocationHash?: (hash: string) => void;
 }
 
 export function useGame(options: UseGameOptions = {}) {
-  const getLocationHash = options.getLocationHash ?? (() => window.location.href);
+  const getLocationHash = options.getLocationHash ?? (() => window.location.hash);
+  const getLocationHref = options.getLocationHref ?? (() => window.location.href);
   const setLocationHash = options.setLocationHash ?? ((hash: string) => {
     window.history.replaceState(null, '', hash);
   });
@@ -99,7 +101,7 @@ export function useGame(options: UseGameOptions = {}) {
   });
 
   const gameUrl = computed(() => {
-    const base = getLocationHash().split('#')[0];
+    const base = getLocationHref().split('#')[0];
     return `${base}#${encodeURIComponent(gameRecord.value)}`;
   });
 
@@ -242,7 +244,13 @@ export function useGame(options: UseGameOptions = {}) {
   }
 
   function tryLoadFromUrl(): boolean {
-    const hash = getLocationHash().replace(/^.*#/, '');
+    const raw = getLocationHash().trim();
+    const hashIndex = raw.indexOf('#');
+    const hash = hashIndex >= 0
+      ? raw.slice(hashIndex + 1)
+      : raw.startsWith('http://') || raw.startsWith('https://')
+        ? ''
+        : raw.replace(/^#/, '');
     if (!hash) return false;
     try {
       const text = decodeURIComponent(hash);
