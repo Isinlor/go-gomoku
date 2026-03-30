@@ -6,6 +6,7 @@ const props = defineProps<{
   board: Uint8Array;
   size: number;
   disabled: boolean;
+  boardVersion: number;
 }>();
 
 const emit = defineEmits<{
@@ -13,6 +14,8 @@ const emit = defineEmits<{
 }>();
 
 const cells = computed(() => {
+  // Access boardVersion to ensure Vue invalidates the cache when the board mutates
+  void props.boardVersion;
   const result: { index: number; value: Cell; label: string; className: string }[] = [];
   for (let y = 0; y < props.size; y++) {
     for (let x = 0; x < props.size; x++) {

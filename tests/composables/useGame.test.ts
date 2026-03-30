@@ -1019,4 +1019,99 @@ describe('useGame', () => {
     expect(url).toContain('B9');
     wrapper.unmount();
   });
+
+  test('worker onerror clears aiThinking and sets error status', () => {
+    const worker = createMockWorker();
+    const { gameState, wrapper } = mountWithGame({
+      createWorker: () => worker,
+      getLocationHash: () => '',
+      setLocationHash: () => {},
+    });
+
+    // Trigger AI to create worker
+    gameState.blackIsAI.value = true;
+    gameState.onModeChange();
+    expect(gameState.aiThinking.value).toBe(true);
+
+    // Simulate worker error
+    (worker as any).onerror(new ErrorEvent('error'));
+
+    expect(gameState.aiThinking.value).toBe(false);
+    expect(gameState.statusExtra.value).toBe('AI worker error');
+    // Worker should be terminated
+    expect(worker.terminate).toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
+  test('worker onmessageerror clears aiThinking and sets error status', () => {
+    const worker = createMockWorker();
+    const { gameState, wrapper } = mountWithGame({
+      createWorker: () => worker,
+      getLocationHash: () => '',
+      setLocationHash: () => {},
+    });
+
+    // Trigger AI to create worker
+    gameState.blackIsAI.value = true;
+    gameState.onModeChange();
+    expect(gameState.aiThinking.value).toBe(true);
+
+    // Simulate worker message error
+    (worker as any).onmessageerror(new MessageEvent('messageerror'));
+
+    expect(gameState.aiThinking.value).toBe(false);
+    expect(gameState.statusExtra.value).toBe('AI worker error');
+    expect(worker.terminate).toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
+  test('worker error handler ignores errors from non-current worker', () => {
+    const workerA = createMockWorker();
+    const workerB = createMockWorker();
+    let workerIndex = 0;
+    const workers = [workerA, workerB];
+    const { gameState, wrapper } = mountWithGame({
+      createWorker: () => workers[workerIndex++],
+      getLocationHash: () => '',
+      setLocationHash: () => {},
+    });
+
+    // Create Worker A by triggering AI
+    gameState.blackIsAI.value = true;
+    gameState.whiteIsAI.value = false;
+    gameState.onModeChange();
+    const errorHandlerA = (workerA as any).onerror;
+
+    // Terminate Worker A and create Worker B
+    gameState.blackIsAI.value = false;
+    gameState.aiThinking.value = false;
+    gameState.newGame();
+    gameState.blackIsAI.value = true;
+    gameState.onModeChange();
+    expect(gameState.aiThinking.value).toBe(true);
+
+    // Late error from Worker A should be ignored
+    errorHandlerA(new ErrorEvent('error'));
+    expect(gameState.aiThinking.value).toBe(true); // Still thinking (waiting for B)
+    wrapper.unmount();
+  });
+
+  test('boardVersion increments on each board change', () => {
+    const worker = createMockWorker();
+    const { gameState, wrapper } = mountWithGame({
+      createWorker: () => worker,
+      getLocationHash: () => '',
+      setLocationHash: () => {},
+    });
+
+    const initialVersion = gameState.boardVersion.value;
+    gameState.whiteIsAI.value = false;
+    gameState.playMove(40);
+    expect(gameState.boardVersion.value).toBeGreaterThan(initialVersion);
+
+    const afterMoveVersion = gameState.boardVersion.value;
+    gameState.undo();
+    expect(gameState.boardVersion.value).toBeGreaterThan(afterMoveVersion);
+    wrapper.unmount();
+  });
 });

@@ -14,6 +14,7 @@ describe('BoardGrid', () => {
         board: createBoard(9),
         size: 9,
         disabled: false,
+        boardVersion: 0,
       },
     });
     const buttons = wrapper.findAll('button');
@@ -26,7 +27,7 @@ describe('BoardGrid', () => {
     board[1] = WHITE;
 
     const wrapper = mount(BoardGrid, {
-      props: { board, size: 9, disabled: false },
+      props: { board, size: 9, disabled: false, boardVersion: 0 },
     });
 
     const buttons = wrapper.findAll('button');
@@ -44,7 +45,7 @@ describe('BoardGrid', () => {
     board[0] = BLACK;
 
     const wrapper = mount(BoardGrid, {
-      props: { board, size: 9, disabled: false },
+      props: { board, size: 9, disabled: false, boardVersion: 0 },
     });
 
     const buttons = wrapper.findAll('button');
@@ -54,7 +55,7 @@ describe('BoardGrid', () => {
 
   test('disables all buttons when disabled prop is true', () => {
     const wrapper = mount(BoardGrid, {
-      props: { board: createBoard(9), size: 9, disabled: true },
+      props: { board: createBoard(9), size: 9, disabled: true, boardVersion: 0 },
     });
 
     const buttons = wrapper.findAll('button');
@@ -65,7 +66,7 @@ describe('BoardGrid', () => {
 
   test('emits cellClick with index when a cell is clicked', async () => {
     const wrapper = mount(BoardGrid, {
-      props: { board: createBoard(9), size: 9, disabled: false },
+      props: { board: createBoard(9), size: 9, disabled: false, boardVersion: 0 },
     });
 
     await wrapper.findAll('button')[5].trigger('click');
@@ -75,7 +76,7 @@ describe('BoardGrid', () => {
 
   test('sets grid template columns style based on size', () => {
     const wrapper = mount(BoardGrid, {
-      props: { board: createBoard(9), size: 9, disabled: false },
+      props: { board: createBoard(9), size: 9, disabled: false, boardVersion: 0 },
     });
 
     const board = wrapper.find('.board');
@@ -84,10 +85,30 @@ describe('BoardGrid', () => {
 
   test('has correct aria-label', () => {
     const wrapper = mount(BoardGrid, {
-      props: { board: createBoard(9), size: 9, disabled: false },
+      props: { board: createBoard(9), size: 9, disabled: false, boardVersion: 0 },
     });
 
     const board = wrapper.find('.board');
     expect(board.attributes('aria-label')).toBe('GoGomoku board');
+  });
+
+  test('recomputes cells when boardVersion changes', async () => {
+    const board = createBoard(9);
+    const wrapper = mount(BoardGrid, {
+      props: { board, size: 9, disabled: false, boardVersion: 0 },
+    });
+
+    // Initially empty
+    let buttons = wrapper.findAll('button');
+    expect(buttons[0].classes()).not.toContain('stone-black');
+
+    // Mutate the board in place (same Uint8Array instance)
+    board[0] = BLACK;
+    // Without boardVersion change, Vue would not recompute
+    await wrapper.setProps({ boardVersion: 1 });
+
+    buttons = wrapper.findAll('button');
+    expect(buttons[0].classes()).toContain('stone-black');
+    expect(buttons[0].text()).toBe('●');
   });
 });

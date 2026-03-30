@@ -18,6 +18,7 @@ const mockGameState = () => {
     gameRecord: computed(() => 'B9'),
     gameUrl: computed(() => '#B9'),
     loadError: ref(''),
+    boardVersion: ref(0),
     boardDisabled: () => false,
     newGame: vi.fn(),
     undo: vi.fn(),

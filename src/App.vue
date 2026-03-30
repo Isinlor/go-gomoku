@@ -18,6 +18,7 @@ const {
   gameRecord,
   loadError,
   boardDisabled,
+  boardVersion,
   newGame,
   undo,
   playMove,
@@ -71,6 +72,7 @@ function onCopyUrl(): void {
     :board="game.board"
     :size="game.size"
     :disabled="boardDisabled()"
+    :board-version="boardVersion"
     @cell-click="playMove"
   />
 

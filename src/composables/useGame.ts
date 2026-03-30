@@ -32,6 +32,12 @@ export function useGame(options: UseGameOptions = {}) {
   const aiThinking = ref(false);
   const statusExtra = ref('');
   const loadError = ref('');
+  const boardVersion = ref(0);
+
+  function notifyBoardChange(): void {
+    boardVersion.value += 1;
+    triggerRef(game);
+  }
 
   let worker: Worker | null = null;
   let pendingGameId = 0;
@@ -42,6 +48,8 @@ export function useGame(options: UseGameOptions = {}) {
         ? options.createWorker()
         : new Worker(new URL('../worker/ai-worker.ts', import.meta.url), { type: 'module' });
       w.onmessage = createWorkerMessageHandler(w);
+      w.onerror = createWorkerErrorHandler(w);
+      w.onmessageerror = createWorkerErrorHandler(w);
       worker = w;
     }
     return worker;
@@ -141,9 +149,18 @@ export function useGame(options: UseGameOptions = {}) {
       }
       aiThinking.value = false;
       statusExtra.value = `AI depth ${result.depth}, nodes ${result.nodes}`;
-      triggerRef(game);
+      notifyBoardChange();
       updateLocationHash();
       maybeRunAI();
+    };
+  }
+
+  function createWorkerErrorHandler(expectedWorker: Worker) {
+    return function onWorkerError(): void {
+      if (expectedWorker !== worker) return;
+      aiThinking.value = false;
+      statusExtra.value = 'AI worker error';
+      terminateWorker();
     };
   }
 
@@ -156,7 +173,7 @@ export function useGame(options: UseGameOptions = {}) {
     aiThinking.value = false;
     game.value = new GogoPosition(size.value);
     statusExtra.value = '';
-    triggerRef(game);
+    notifyBoardChange();
     updateLocationHash();
     maybeRunAI();
   }
@@ -171,7 +188,7 @@ export function useGame(options: UseGameOptions = {}) {
       g.undo();
     }
     statusExtra.value = '';
-    triggerRef(game);
+    notifyBoardChange();
     updateLocationHash();
     maybeRunAI();
   }
@@ -182,11 +199,11 @@ export function useGame(options: UseGameOptions = {}) {
     }
     if (!game.value.play(index)) {
       statusExtra.value = 'illegal move';
-      triggerRef(game);
+      notifyBoardChange();
       return;
     }
     statusExtra.value = '';
-    triggerRef(game);
+    notifyBoardChange();
     updateLocationHash();
     maybeRunAI();
   }
@@ -202,7 +219,7 @@ export function useGame(options: UseGameOptions = {}) {
       game.value = loaded;
       size.value = loaded.size;
       statusExtra.value = '';
-      triggerRef(game);
+      notifyBoardChange();
       updateLocationHash();
       maybeRunAI();
       return true;
@@ -219,7 +236,7 @@ export function useGame(options: UseGameOptions = {}) {
   function onModeChange(): void {
     if (!aiThinking.value) {
       statusExtra.value = '';
-      triggerRef(game);
+      notifyBoardChange();
       maybeRunAI();
     }
   }
@@ -253,6 +270,7 @@ export function useGame(options: UseGameOptions = {}) {
     gameRecord,
     gameUrl,
     loadError,
+    boardVersion,
     boardDisabled,
     newGame,
     undo,
