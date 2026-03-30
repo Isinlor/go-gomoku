@@ -2,5 +2,6 @@
 **/v8cov
 **/build
 **/dist
+**/coverage
 latest-code.zip
 latest-code.patch
