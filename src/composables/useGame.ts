@@ -18,7 +18,7 @@ export interface UseGameOptions {
 }
 
 export function useGame(options: UseGameOptions = {}) {
-  const getLocationHash = options.getLocationHash ?? (() => window.location.hash);
+  const getLocationHash = options.getLocationHash ?? (() => window.location.href);
   const setLocationHash = options.setLocationHash ?? ((hash: string) => {
     window.history.replaceState(null, '', hash);
   });
@@ -38,10 +38,11 @@ export function useGame(options: UseGameOptions = {}) {
 
   function getWorker(): Worker {
     if (worker === null) {
-      worker = options.createWorker
+      const w = options.createWorker
         ? options.createWorker()
         : new Worker(new URL('../worker/ai-worker.ts', import.meta.url), { type: 'module' });
-      worker.onmessage = onWorkerMessage;
+      w.onmessage = createWorkerMessageHandler(w);
+      worker = w;
     }
     return worker;
   }
@@ -113,7 +114,6 @@ export function useGame(options: UseGameOptions = {}) {
     aiThinking.value = true;
     statusExtra.value = 'AI searching';
     pendingGameId += 1;
-    const currentGameId = pendingGameId;
     const g = game.value;
     const config = makeAIConfig();
     const timeLimit = g.toMove === BLACK ? blackTimeLimit.value : whiteTimeLimit.value;
@@ -125,25 +125,26 @@ export function useGame(options: UseGameOptions = {}) {
       maxPly: config.maxPly,
     };
     const w = getWorker();
+    (w as unknown as { _pendingId: number })._pendingId = pendingGameId;
     w.postMessage(request);
-    // Store the currentGameId so we can check in onWorkerMessage
-    (w as unknown as { _pendingId: number })._pendingId = currentGameId;
   }
 
-  function onWorkerMessage(event: MessageEvent<AIResponse>): void {
-    const w = worker;
-    if (w === null) return;
-    const currentId = (w as unknown as { _pendingId: number })._pendingId;
-    if (currentId !== pendingGameId) return;
-    const result = event.data;
-    if (result.move !== -1) {
-      game.value.play(result.move);
-    }
-    aiThinking.value = false;
-    statusExtra.value = `AI depth ${result.depth}, nodes ${result.nodes}`;
-    triggerRef(game);
-    updateLocationHash();
-    maybeRunAI();
+  function createWorkerMessageHandler(expectedWorker: Worker) {
+    return function onWorkerMessage(event: MessageEvent<AIResponse>): void {
+      // Ignore messages from a worker that is no longer current
+      if (expectedWorker !== worker) return;
+      const currentId = (expectedWorker as unknown as { _pendingId: number })._pendingId;
+      if (currentId !== pendingGameId) return;
+      const result = event.data;
+      if (result.move !== -1) {
+        game.value.play(result.move);
+      }
+      aiThinking.value = false;
+      statusExtra.value = `AI depth ${result.depth}, nodes ${result.nodes}`;
+      triggerRef(game);
+      updateLocationHash();
+      maybeRunAI();
+    };
   }
 
   function updateLocationHash(): void {

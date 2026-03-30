@@ -964,4 +964,59 @@ describe('useGame', () => {
     spy.mockRestore();
     wrapper.unmount();
   });
+
+  test('late message from terminated Worker A is ignored when Worker B is active', () => {
+    const workerA = createMockWorker();
+    const workerB = createMockWorker();
+    let workerIndex = 0;
+    const workers = [workerA, workerB];
+    const { gameState, wrapper } = mountWithGame({
+      createWorker: () => workers[workerIndex++],
+      getLocationHash: () => '',
+      setLocationHash: () => {},
+    });
+
+    // Trigger AI to create Worker A
+    gameState.blackIsAI.value = true;
+    gameState.whiteIsAI.value = false;
+    gameState.onModeChange();
+    expect(workerA.postMessage).toHaveBeenCalledTimes(1);
+    const handlerA = (workerA as any).onmessage;
+
+    // Start a new game, which terminates Worker A
+    gameState.blackIsAI.value = false;
+    gameState.aiThinking.value = false;
+    gameState.newGame();
+
+    // Trigger AI again to create Worker B
+    gameState.blackIsAI.value = true;
+    gameState.onModeChange();
+    expect(workerB.postMessage).toHaveBeenCalledTimes(1);
+
+    // Simulate a late message from Worker A's handler arriving after B is active
+    const staleResponse: AIResponse = {
+      move: 40, score: 100, depth: 2, nodes: 50, timedOut: false,
+    };
+    handlerA({ data: staleResponse } as MessageEvent);
+
+    // Worker A's message should be rejected (expectedWorker !== worker)
+    expect(gameState.aiThinking.value).toBe(true);  // Still waiting for Worker B
+    expect(gameState.game.value.ply).toBe(0);         // No move applied
+    wrapper.unmount();
+  });
+
+  test('gameUrl produces a full URL when using default getLocationHash', () => {
+    const worker = createMockWorker();
+    // Simulate window.location.href
+    const { gameState, wrapper } = mountWithGame({
+      createWorker: () => worker,
+      getLocationHash: () => 'http://example.com/game#old',
+      setLocationHash: () => {},
+    });
+
+    const url = gameState.gameUrl.value;
+    expect(url).toMatch(/^http:\/\/example\.com\/game#/);
+    expect(url).toContain('B9');
+    wrapper.unmount();
+  });
 });
