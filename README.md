@@ -1,6 +1,6 @@
 # GoGomoku engine + browser AI
 
-This package implements the ruleset you described for a browser-safe GoGomoku core:
+This package implements a browser-safe GoGomoku core with a Vue-based UI:
 
 - board sizes: 9x9, 11x11, 13x13
 - five-in-a-row wins horizontally, vertically, or diagonally
@@ -10,15 +10,23 @@ This package implements the ruleset you described for a browser-safe GoGomoku co
 - iterative deepening negamax / minimax with alpha-beta pruning
 - quiescence search for tactical continuations
 - hard time limit with best-so-far return semantics
+- AI computations run in a Web Worker to keep the UI responsive
 - 100% line / branch / function coverage enforced by the test command
 
 ## Project layout
 
-- `src/gogomoku.ts` — rules engine, make/undo, ko, captures, legal move checks
-- `src/ai.ts` — iterative deepening alpha-beta search, move ordering, quiescence
-- `src/index.ts` — public exports
-- `tests/*.test.js` — full coverage test suite
-- `browser-demo/index.html` — minimal playable browser harness
+- `src/engine/gogomoku.ts` — rules engine, make/undo, ko, captures, legal move checks
+- `src/engine/ai.ts` — iterative deepening alpha-beta search, move ordering, quiescence
+- `src/engine/index.ts` — public engine exports
+- `src/worker/ai-worker.ts` — Web Worker for AI computations
+- `src/composables/useGame.ts` — Vue composable managing game state and worker communication
+- `src/components/` — Vue components (BoardGrid, GameToolbar, GameRecord, LoadGame)
+- `src/App.vue` — root Vue component
+- `src/main.ts` — application entry point
+- `index.html` — Vite entry HTML
+- `tests/` — full coverage test suite (Vitest)
+- `vite.config.ts` — Vite build configuration
+- `vitest.config.ts` — Vitest test configuration
 
 ## Build and verify
 
@@ -30,28 +38,18 @@ npm run coverage
 
 The coverage command is configured with 100% thresholds for lines, branches, and functions.
 
-## Browser usage
-
-Build first:
+## Development
 
 ```bash
-npm run build
+npm run dev
 ```
 
-Then serve the project root with any static file server and open `browser-demo/index.html`.
-
-Example using Python:
-
-```bash
-python -m http.server 8000
-```
-
-Then open `http://localhost:8000/browser-demo/`.
+Opens a Vite dev server with hot module replacement.
 
 ## Public API
 
 ```ts
-import { GogoPosition, GogoAI, BLACK, WHITE } from './build/src/index.js';
+import { GogoPosition, GogoAI, BLACK, WHITE } from './src/engine';
 
 const position = new GogoPosition(9);
 const ai = new GogoAI({ maxDepth: 6, quiescenceDepth: 6, maxPly: 96 });

@@ -8,3 +8,6 @@ test:
 
 build:
 	npm run build
+
+coverage:
+	npm run coverage

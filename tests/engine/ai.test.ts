@@ -283,6 +283,11 @@ test('white-box AI helpers cover generation, evaluation, quiescence, search fall
   anyFallback.generateFullBoardMoves = () => 0;
   expect(anyFallback.pickFallbackMove(fake)).toBe(-1);
 
+  // Test fullboard fallback with rejected then accepted moves (covers line 145 false branch)
+  anyFallback.generateOrderedMoves = () => 0;
+  anyFallback.generateFullBoardMoves = (_position: any, moves: Int16Array) => { moves[0] = 0; moves[1] = 1; return 2; };
+  expect(anyFallback.pickFallbackMove(fake)).toBe(1);
+
   const illegalAI = new GogoAI({ maxDepth: 2, now: () => 0 });
   const anyIllegal = illegalAI as any;
   anyIllegal.ensureBuffers(81);
