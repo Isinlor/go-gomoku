@@ -1,0 +1,42 @@
+name: Playwright E2E
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Firefox
+        run: npx playwright install --with-deps firefox
+
+      - name: Run Playwright tests (run 1)
+        run: npm run e2e
+
+      - name: Run Playwright tests (run 2)
+        run: npm run e2e
+
+      - name: Embed screenshot in summary (base64)
+        if: always()
+        run: |
+          FILE="test-results/game-page.png"
+          if [ -f "$FILE" ]; then
+            echo "## Playwright screenshot" >> "$GITHUB_STEP_SUMMARY"
+            echo "![game-page](data:image/png;base64,$(base64 -w 0 "$FILE"))" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "## Playwright screenshot" >> "$GITHUB_STEP_SUMMARY"
+            echo "Screenshot not found at $FILE" >> "$GITHUB_STEP_SUMMARY"
+          fi
