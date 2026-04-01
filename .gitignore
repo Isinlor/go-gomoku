@@ -5,3 +5,5 @@
 **/coverage
 latest-code.zip
 latest-code.patch
+test-results/
+e2e/screenshots/
