@@ -1,0 +1,58 @@
+name: Playwright
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Firefox
+        run: npx playwright install --with-deps firefox
+
+      - name: Run coverage twice (stability)
+        run: |
+          npm run coverage
+          npm run coverage
+
+      - name: Run Playwright twice in Firefox (stability)
+        run: |
+          npm run test:e2e
+          npm run test:e2e
+
+      - name: Embed screenshot in step summary
+        shell: bash
+        run: |
+          SCREENSHOT="test-results/game-page-visible.png"
+          if [ ! -f "$SCREENSHOT" ]; then
+            echo "Screenshot not found at $SCREENSHOT" >&2
+            exit 1
+          fi
+          BASE64_IMAGE="$(base64 -w 0 "$SCREENSHOT")"
+          {
+            echo "## Game page screenshot"
+            echo
+            echo "![GoGomoku game page](data:image/png;base64,${BASE64_IMAGE})"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Playwright artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts
+          path: |
+            playwright-report
+            test-results
