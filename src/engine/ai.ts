@@ -1,4 +1,4 @@
-import { BLACK, EMPTY, GogoPosition, type Player, WHITE } from './gogomoku';
+import { BLACK, EMPTY, GogoPosition, type Cell, type Player, WHITE } from './gogomoku';
 
 export interface SearchResult {
   move: number;
