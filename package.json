@@ -12,6 +12,9 @@
     "test": "vitest run",
     "coverage": "vitest run --coverage",
     "check": "npm run coverage",
+    "archive": "git archive -o latest-code.zip HEAD",
+    "patch": "git format-patch --root master --stdout > latest-code.patch",
+    "latest-code": "npm run archive && npm run patch",
     "test:e2e": "npx playwright test"
   },
   "keywords": [],
