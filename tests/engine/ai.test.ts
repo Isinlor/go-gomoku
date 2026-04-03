@@ -1,13 +1,12 @@
-import test from 'node:test';
-import assert from 'node:assert/strict';
+import { test, expect } from 'vitest';
 
-import { BLACK, EMPTY, GogoAI, GogoPosition, WHITE } from '../browser-demo/build/src/index.js';
+import { BLACK, EMPTY, GogoAI, GogoPosition, WHITE } from '../../src/engine';
 
-function position(rows, toMove = BLACK) {
+function position(rows: string[], toMove = BLACK) {
   return GogoPosition.fromAscii(rows, toMove);
 }
 
-function rawPosition(rows, toMove = BLACK) {
+function rawPosition(rows: string[], toMove = BLACK) {
   const game = position(rows, toMove);
   game.winner = EMPTY;
   return game;
@@ -17,16 +16,16 @@ test('AI chooses the center on an empty board, handles immediate timeout, and ha
   const empty = new GogoPosition(9);
   const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2 });
   const result = ai.findBestMove(empty, 100);
-  assert.equal(result.move, empty.index(4, 4));
-  assert.equal(result.timedOut, false);
-  assert.ok(result.depth >= 1);
+  expect(result.move).toBe(empty.index(4, 4));
+  expect(result.timedOut).toBe(false);
+  expect(result.depth >= 1).toBeTruthy();
 
   let tick = 0;
   const timeoutAI = new GogoAI({ maxDepth: 4, now: () => tick++ });
   const timeoutResult = timeoutAI.findBestMove(new GogoPosition(9), 0);
-  assert.equal(timeoutResult.move, 40);
-  assert.equal(timeoutResult.depth, 0);
-  assert.equal(timeoutResult.timedOut, true);
+  expect(timeoutResult.move).toBe(40);
+  expect(timeoutResult.depth).toBe(0);
+  expect(timeoutResult.timedOut).toBe(true);
 
   const terminal = position([
     'XXXXX....',
@@ -40,8 +39,8 @@ test('AI chooses the center on an empty board, handles immediate timeout, and ha
     '.........',
   ], BLACK);
   const terminalResult = ai.findBestMove(terminal, 100);
-  assert.equal(terminalResult.move, -1);
-  assert.equal(terminalResult.timedOut, false);
+  expect(terminalResult.move).toBe(-1);
+  expect(terminalResult.timedOut).toBe(false);
 });
 
 test('AI finds immediate wins, blocks forced replies at depth one, and returns best-so-far after a later timeout', () => {
@@ -58,8 +57,8 @@ test('AI finds immediate wins, blocks forced replies at depth one, and returns b
   ], BLACK);
   const winningAI = new GogoAI({ maxDepth: 3, quiescenceDepth: 2 });
   const win = winningAI.findBestMove(winning, 100);
-  assert.equal(win.move, winning.index(4, 0));
-  assert.ok(win.score > 100000);
+  expect(win.move).toBe(winning.index(4, 0));
+  expect(win.score > 100000).toBeTruthy();
 
   const blocking = rawPosition([
     '.........',
@@ -74,7 +73,7 @@ test('AI finds immediate wins, blocks forced replies at depth one, and returns b
   ], BLACK);
   const blockingAI = new GogoAI({ maxDepth: 1, quiescenceDepth: 4 });
   const block = blockingAI.findBestMove(blocking, 100);
-  assert.equal(block.move, blocking.index(5, 4));
+  expect(block.move).toBe(blocking.index(5, 4));
 
   let calls = 0;
   const laterTimeoutAI = new GogoAI({
@@ -86,9 +85,9 @@ test('AI finds immediate wins, blocks forced replies at depth one, and returns b
     },
   });
   const timeout = laterTimeoutAI.findBestMove(new GogoPosition(9), 1);
-  assert.equal(timeout.move, 40);
-  assert.equal(timeout.timedOut, true);
-  assert.equal(timeout.depth, 1);
+  expect(timeout.move).toBe(40);
+  expect(timeout.timedOut).toBe(true);
+  expect(timeout.depth).toBe(1);
 });
 
 test('AI restores position state after a mid-search timeout so the board is not corrupted', () => {
@@ -120,51 +119,51 @@ test('AI restores position state after a mid-search timeout so the board is not 
   });
 
   const result = ai.findBestMove(pos, 1);
-  assert.equal(result.timedOut, true);
-  assert.ok(result.depth >= 1);
+  expect(result.timedOut).toBe(true);
+  expect(result.depth >= 1).toBeTruthy();
 
   // The position must be identical to before the search.
-  assert.equal(pos.ply, plyBefore);
-  assert.equal(pos.toMove, toMoveBefore);
-  assert.deepEqual(Array.from(pos.board), boardBefore);
+  expect(pos.ply).toBe(plyBefore);
+  expect(pos.toMove).toBe(toMoveBefore);
+  expect(Array.from(pos.board)).toEqual(boardBefore);
   // And it must still be playable.
-  assert.equal(pos.playXY(3, 3), true);
+  expect(pos.playXY(3, 3)).toBe(true);
 });
 
 test('AI rethrows unexpected root errors instead of masking them as timeouts', () => {
   const ai = new GogoAI({ maxDepth: 1 });
-  const anyAI = /** @type {any} */ (ai);
+  const anyAI = ai as any;
   anyAI.searchRoot = () => {
     throw new Error('boom');
   };
-  assert.throws(() => ai.findBestMove(new GogoPosition(9), 100), /boom/);
+  expect(() => ai.findBestMove(new GogoPosition(9), 100)).toThrow(/boom/);
 });
 
 test('AI constructor clamps explicit maxPly values', () => {
   const ai = new GogoAI({ maxPly: 1, maxDepth: 0, quiescenceDepth: -1 });
-  assert.equal(ai.maxPly, 2);
-  assert.equal(ai.maxDepth, 1);
-  assert.equal(ai.quiescenceDepth, 0);
+  expect(ai.maxPly).toBe(2);
+  expect(ai.maxDepth).toBe(1);
+  expect(ai.quiescenceDepth).toBe(0);
 });
 
 test('AI constructor also uses default search parameters when options are omitted', () => {
   const ai = new GogoAI();
-  assert.equal(ai.maxDepth, 6);
-  assert.equal(ai.quiescenceDepth, 6);
-  assert.equal(ai.maxPly, 64);
+  expect(ai.maxDepth).toBe(6);
+  expect(ai.quiescenceDepth).toBe(6);
+  expect(ai.maxPly).toBe(64);
 });
 
 test('white-box AI helpers cover generation, evaluation, quiescence, search fallback, insertion ordering, and timing', () => {
   const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
-  const anyAI = /** @type {any} */ (ai);
+  const anyAI = ai as any;
   const empty = new GogoPosition(9);
   anyAI.ensureBuffers(empty.area);
 
   const emptyMoves = anyAI.moveBuffers[0];
   const emptyScores = anyAI.scoreBuffers[0];
-  assert.equal(anyAI.generateOrderedMoves(empty, emptyMoves, emptyScores, -1, false), 1);
-  assert.equal(emptyMoves[0], empty.index(4, 4));
-  assert.equal(anyAI.generateOrderedMoves(empty, emptyMoves, emptyScores, -1, true), 0);
+  expect(anyAI.generateOrderedMoves(empty, emptyMoves, emptyScores, -1, false)).toBe(1);
+  expect(emptyMoves[0]).toBe(empty.index(4, 4));
+  expect(anyAI.generateOrderedMoves(empty, emptyMoves, emptyScores, -1, true)).toBe(0);
 
   const quiet = rawPosition([
     '.........',
@@ -178,7 +177,7 @@ test('white-box AI helpers cover generation, evaluation, quiescence, search fall
     '.........',
   ], BLACK);
   anyAI.ensureBuffers(quiet.area);
-  assert.equal(anyAI.scoreMove(quiet, quiet.index(0, 0), -1, true), Number.NEGATIVE_INFINITY);
+  expect(anyAI.scoreMove(quiet, quiet.index(0, 0), -1, true)).toBe(Number.NEGATIVE_INFINITY);
   const tactical = rawPosition([
     'XXXX.....',
     '.........',
@@ -191,7 +190,7 @@ test('white-box AI helpers cover generation, evaluation, quiescence, search fall
     '.........',
   ], BLACK);
   anyAI.ensureBuffers(tactical.area);
-  assert.notEqual(anyAI.scoreMove(tactical, tactical.index(4, 0), -1, true), Number.NEGATIVE_INFINITY);
+  expect(anyAI.scoreMove(tactical, tactical.index(4, 0), -1, true)).not.toBe(Number.NEGATIVE_INFINITY);
 
   const evalPosition = rawPosition([
     '.........',
@@ -207,13 +206,13 @@ test('white-box AI helpers cover generation, evaluation, quiescence, search fall
   const blackEval = anyAI.evaluate(evalPosition);
   evalPosition.toMove = WHITE;
   const whiteEval = anyAI.evaluate(evalPosition);
-  assert.ok(blackEval > 0);
-  assert.ok(whiteEval < 0);
+  expect(blackEval > 0).toBeTruthy();
+  expect(whiteEval < 0).toBeTruthy();
 
   anyAI.deadline = 1;
   const betaCut = anyAI.quiescence(tactical, -1000, 0, 0, 2);
-  assert.ok(betaCut >= 0);
-  assert.equal(anyAI.quiescence(evalPosition, -1000, 1000, 0, 0), whiteEval);
+  expect(betaCut >= 0).toBeTruthy();
+  expect(anyAI.quiescence(evalPosition, -1000, 1000, 0, 0)).toBe(whiteEval);
 
   const full = new GogoPosition(9);
   full.board.fill(BLACK);
@@ -221,12 +220,12 @@ test('white-box AI helpers cover generation, evaluation, quiescence, search fall
   full.winner = EMPTY;
   full.toMove = WHITE;
   anyAI.ensureBuffers(full.area);
-  assert.equal(anyAI.generateOrderedMoves(full, anyAI.moveBuffers[0], anyAI.scoreBuffers[0], -1, false), 0);
-  assert.equal(anyAI.generateFullBoardMoves(full, anyAI.moveBuffers[0], anyAI.scoreBuffers[0], -1, false), 0);
+  expect(anyAI.generateOrderedMoves(full, anyAI.moveBuffers[0], anyAI.scoreBuffers[0], -1, false)).toBe(0);
+  expect(anyAI.generateFullBoardMoves(full, anyAI.moveBuffers[0], anyAI.scoreBuffers[0], -1, false)).toBe(0);
   const root = anyAI.searchRoot(full, 1, -1);
-  assert.equal(root.move, -1);
-  assert.equal(root.score, 0);
-  assert.equal(anyAI.search(full, 1, -100, 100, 0), 0);
+  expect(root.move).toBe(-1);
+  expect(root.score).toBe(0);
+  expect(anyAI.search(full, 1, -100, 100, 0)).toBe(0);
 
   const won = position([
     'XXXXX....',
@@ -239,9 +238,9 @@ test('white-box AI helpers cover generation, evaluation, quiescence, search fall
     '.........',
     '.........',
   ], BLACK);
-  assert.equal(anyAI.generateOrderedMoves(won, anyAI.moveBuffers[0], anyAI.scoreBuffers[0], -1, false), 0);
+  expect(anyAI.generateOrderedMoves(won, anyAI.moveBuffers[0], anyAI.scoreBuffers[0], -1, false)).toBe(0);
   won.winner = EMPTY;
-  assert.ok(anyAI.generateFullBoardMoves(won, anyAI.moveBuffers[0], anyAI.scoreBuffers[0], -1, false) > 0);
+  expect(anyAI.generateFullBoardMoves(won, anyAI.moveBuffers[0], anyAI.scoreBuffers[0], -1, false) > 0).toBeTruthy();
   const quietFull = rawPosition([
     '.........',
     '.........',
@@ -254,7 +253,7 @@ test('white-box AI helpers cover generation, evaluation, quiescence, search fall
     '.........',
   ], BLACK);
   quietFull.koPoint = quietFull.index(0, 0);
-  assert.equal(anyAI.generateFullBoardMoves(quietFull, anyAI.moveBuffers[0], anyAI.scoreBuffers[0], -1, true), 0);
+  expect(anyAI.generateFullBoardMoves(quietFull, anyAI.moveBuffers[0], anyAI.scoreBuffers[0], -1, true)).toBe(0);
 
   const terminalQ = position([
     'XXXXX....',
@@ -267,58 +266,63 @@ test('white-box AI helpers cover generation, evaluation, quiescence, search fall
     '.........',
     '.........',
   ], WHITE);
-  assert.equal(anyAI.quiescence(terminalQ, -1000, 1000, 3, 2), -1000000000 + 3);
+  expect(anyAI.quiescence(terminalQ, -1000, 1000, 3, 2)).toBe(-1000000000 + 3);
 
   const fallbackAI = new GogoAI({ maxDepth: 1, now: () => 0 });
-  const anyFallback = /** @type {any} */ (fallbackAI);
+  const anyFallback = fallbackAI as any;
   anyFallback.ensureBuffers(81);
   const fake = {
     stoneCount: 1,
     size: 9,
-    play(move) { return move === 1; },
+    play(move: number) { return move === 1; },
     undo() { return true; },
   };
-  anyFallback.generateOrderedMoves = (_position, moves) => { moves[0] = 0; return 1; };
-  anyFallback.generateFullBoardMoves = (_position, moves) => { moves[0] = 1; return 1; };
-  assert.equal(anyFallback.pickFallbackMove(fake), 1);
+  anyFallback.generateOrderedMoves = (_position: any, moves: Int16Array) => { moves[0] = 0; return 1; };
+  anyFallback.generateFullBoardMoves = (_position: any, moves: Int16Array) => { moves[0] = 1; return 1; };
+  expect(anyFallback.pickFallbackMove(fake)).toBe(1);
   anyFallback.generateFullBoardMoves = () => 0;
-  assert.equal(anyFallback.pickFallbackMove(fake), -1);
+  expect(anyFallback.pickFallbackMove(fake)).toBe(-1);
+
+  // Test fullboard fallback with rejected then accepted moves (covers line 145 false branch)
+  anyFallback.generateOrderedMoves = () => 0;
+  anyFallback.generateFullBoardMoves = (_position: any, moves: Int16Array) => { moves[0] = 0; moves[1] = 1; return 2; };
+  expect(anyFallback.pickFallbackMove(fake)).toBe(1);
 
   const illegalAI = new GogoAI({ maxDepth: 2, now: () => 0 });
-  const anyIllegal = /** @type {any} */ (illegalAI);
+  const anyIllegal = illegalAI as any;
   anyIllegal.ensureBuffers(81);
   anyIllegal.deadline = 1;
   const noPlay = new GogoPosition(9);
   noPlay.play = () => false;
   noPlay.undo = () => true;
-  anyIllegal.generateOrderedMoves = (_position, moves) => { moves[0] = 0; return 1; };
+  anyIllegal.generateOrderedMoves = (_position: any, moves: Int16Array) => { moves[0] = 0; return 1; };
   anyIllegal.generateFullBoardMoves = () => 0;
   const illegalRoot = anyIllegal.searchRoot(noPlay, 1, -1);
-  assert.equal(illegalRoot.move, -1);
-  assert.equal(anyIllegal.search(noPlay, 1, -100, 100, 0), 0);
-  anyIllegal.generateOrderedMoves = (_position, moves) => { moves[0] = 0; return 1; };
+  expect(illegalRoot.move).toBe(-1);
+  expect(anyIllegal.search(noPlay, 1, -100, 100, 0)).toBe(0);
+  anyIllegal.generateOrderedMoves = (_position: any, moves: Int16Array) => { moves[0] = 0; return 1; };
   noPlay.winner = EMPTY;
-  assert.equal(anyIllegal.quiescence(noPlay, -100, 100, 0, 2), anyIllegal.evaluate(noPlay));
+  expect(anyIllegal.quiescence(noPlay, -100, 100, 0, 2)).toBe(anyIllegal.evaluate(noPlay));
 
   const moves = new Int16Array(4);
   const scores = new Int32Array(4);
   anyAI.insertMove(moves, scores, 0, 10, 5);
   anyAI.insertMove(moves, scores, 1, 12, 9);
   anyAI.insertMove(moves, scores, 2, 14, 7);
-  assert.deepEqual(Array.from(moves.slice(0, 3)), [12, 14, 10]);
-  assert.deepEqual(Array.from(scores.slice(0, 3)), [9, 7, 5]);
+  expect(Array.from(moves.slice(0, 3))).toEqual([12, 14, 10]);
+  expect(Array.from(scores.slice(0, 3))).toEqual([9, 7, 5]);
 
   anyAI.deadline = 0;
   anyAI.nodesVisited = 0;
-  assert.throws(() => anyAI.checkTime(true), /SEARCH_TIMEOUT/);
+  expect(() => anyAI.checkTime(true)).toThrow(/SEARCH_TIMEOUT/);
   anyAI.deadline = 1;
   anyAI.nodesVisited = 1;
-  assert.doesNotThrow(() => anyAI.checkTime(false));
+  expect(() => anyAI.checkTime(false)).not.toThrow();
 });
 
 test('scoreMove deduplicates adjacent groups that wrap around the candidate from multiple sides', () => {
   const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
-  const anyAI = /** @type {any} */ (ai);
+  const anyAI = ai as any;
 
   // Opponent (WHITE) L-shaped group {(2,1),(3,1),(2,2)} has exactly 1 liberty at
   // candidate (3,2).  The group is adjacent from both left and above, so without
@@ -336,7 +340,7 @@ test('scoreMove deduplicates adjacent groups that wrap around the candidate from
     '.........',
   ], BLACK);
   anyAI.ensureBuffers(oppDedup.area);
-  assert.equal(anyAI.scoreMove(oppDedup, oppDedup.index(3, 2), -1, false), 7318);
+  expect(anyAI.scoreMove(oppDedup, oppDedup.index(3, 2), -1, false)).toBe(7318);
 
   // Player (BLACK) L-shaped group {(2,1),(3,1),(2,2)} has exactly 1 liberty at
   // candidate (3,2).  The group is adjacent from both left and above, so without
@@ -354,5 +358,5 @@ test('scoreMove deduplicates adjacent groups that wrap around the candidate from
     '.........',
   ], BLACK);
   anyAI.ensureBuffers(playerDedup.area);
-  assert.equal(anyAI.scoreMove(playerDedup, playerDedup.index(3, 2), -1, false), 6080);
+  expect(anyAI.scoreMove(playerDedup, playerDedup.index(3, 2), -1, false)).toBe(6080);
 });
