@@ -1,4 +1,5 @@
-import { GogoAI, GogoPosition, type SupportedSize } from './index.js';
+import { GogoAI, GogoPosition } from './engine/index.js';
+import type { SupportedSize } from './engine/index.js';
 
 declare const process: { argv: string[]; exit(code: number): never };
 
@@ -172,7 +173,7 @@ export function main(args: string[], createAI?: () => AIPlayer): void {
   }
 }
 
-/* node:coverage ignore next 3 */
+/* v8 ignore next 3 */
 if (process.argv[1] && process.argv[1].endsWith('compare.js')) {
   main(process.argv.slice(2));
 }
