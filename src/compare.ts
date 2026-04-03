@@ -136,9 +136,10 @@ export function parseArgs(args: string[]): CompareOptions {
   let boardSize: SupportedSize = 9;
 
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--time') timeLimitMs = parseInt(args[++i], 10);
-    else if (args[i] === '--pairs') numPairs = parseInt(args[++i], 10);
-    else if (args[i] === '--size') boardSize = parseInt(args[++i], 10) as SupportedSize;
+    const hasValue = i + 1 < args.length && !args[i + 1].startsWith('--');
+    if (args[i] === '--time' && hasValue) timeLimitMs = parseInt(args[++i], 10);
+    else if (args[i] === '--pairs' && hasValue) numPairs = parseInt(args[++i], 10);
+    else if (args[i] === '--size' && hasValue) boardSize = parseInt(args[++i], 10) as SupportedSize;
   }
 
   return { timeLimitMs, numPairs, boardSize };

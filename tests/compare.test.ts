@@ -8,9 +8,10 @@ import {
   formatResults,
   main,
 } from '../src/compare';
+import type { AIPlayer } from '../src/compare';
 
 // Helper: create a mock AI that plays a fixed sequence of moves
-function seqAI(moves: number[]) {
+function seqAI(moves: number[]): AIPlayer {
   let i = 0;
   return { findBestMove: () => ({ move: moves[i++] ?? -1 }) };
 }
@@ -212,6 +213,13 @@ test('parseArgs - all flags parsed correctly, unknown flags ignored', () => {
 
 test('parseArgs - defaults when no args provided', () => {
   const opts = parseArgs([]);
+  expect(opts.timeLimitMs).toBe(100);
+  expect(opts.numPairs).toBe(5);
+  expect(opts.boardSize).toBe(9);
+});
+
+test('parseArgs - flags without values fall back to defaults', () => {
+  const opts = parseArgs(['--time', '--pairs', '--size']);
   expect(opts.timeLimitMs).toBe(100);
   expect(opts.numPairs).toBe(5);
   expect(opts.boardSize).toBe(9);
