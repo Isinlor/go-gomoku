@@ -8,6 +8,7 @@ This package implements a browser-safe GoGomoku core with a Vue-based UI:
 - simplified ko: immediate recapture is forbidden
 - suicide is illegal **unless** the move creates five-in-a-row, which wins immediately
 - iterative deepening negamax / minimax with alpha-beta pruning
+- Monte Carlo Tree Search (MCTS) with threat-biased playouts
 - quiescence search for tactical continuations
 - hard time limit with best-so-far return semantics
 - AI computations run in a Web Worker to keep the UI responsive
@@ -49,10 +50,11 @@ Opens a Vite dev server with hot module replacement.
 ## Public API
 
 ```ts
-import { GogoPosition, GogoAI, BLACK, WHITE } from './src/engine';
+import { GogoPosition, GogoAI, GogoMCTS, BLACK, WHITE } from './src/engine';
 
 const position = new GogoPosition(9);
 const ai = new GogoAI({ maxDepth: 6, quiescenceDepth: 6, maxPly: 96 });
+const mcts = new GogoMCTS({ exploration: 1.2, rolloutMaxMoves: 28, biasStrength: 0.35, seed: 7 });
 
 position.playXY(4, 4);          // black
 const result = ai.findBestMove(position, 75);
@@ -97,6 +99,16 @@ Search result:
 - `nodes`
 - `timedOut`
 
+### `GogoMCTS`
+
+Constructor options:
+
+- `exploration` — UCT exploration constant
+- `rolloutMaxMoves` — rollout horizon before returning draw-like value
+- `biasStrength` — progressive bias weight for threat-aware move preference
+- `seed` — deterministic pseudo-random seed for reproducible comparisons
+- `now` — injectable clock
+
 ## Optimization notes
 
 The implementation stays allocation-light in the hot path:
@@ -118,6 +130,8 @@ The AI uses:
 - tactical move ordering
 - quiescence on forcing moves such as wins, blocks, captures, and escapes
 - fallback move selection when the time budget expires before a full iteration completes
+
+MCTS playout policy prioritizes tactical threat creation/defense and immediate wins.
 
 ## Rule decisions encoded
 

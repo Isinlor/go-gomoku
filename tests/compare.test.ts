@@ -1,6 +1,6 @@
 import { test, describe, expect, vi } from 'vitest';
 
-import { GogoPosition } from '../src/engine';
+import { GogoAI, GogoMCTS, GogoPosition } from '../src/engine';
 import {
   playGame,
   compareAIs,
@@ -188,6 +188,17 @@ test('compareAIs - uses default GogoAI factory when none provided', () => {
   expect(result.ai1Wins + result.ai2Wins + result.draws).toBe(2);
 });
 
+test('MCTS beats baseline alpha-beta in at least 10 games with fair color swapping', () => {
+  const result = compareAIs(
+    { timeLimitMs: 30, numPairs: 10, boardSize: 9 },
+    () => new GogoMCTS({ seed: 42, rolloutMaxMoves: 20 }),
+    () => new GogoPosition(9),
+    () => new GogoAI({ maxDepth: 4, quiescenceDepth: 4, maxPly: 48 }),
+  );
+  expect(result.totalGames).toBe(20);
+  expect(result.ai1Wins).toBeGreaterThanOrEqual(10);
+});
+
 test('compareAIs - passes options.now clock to playGame for timeout enforcement', () => {
   // Make every AI call appear to violate the time limit.
   // numPairs:1 → 2 games, each game's first AI call times out → 2 invalid moves.
@@ -205,10 +216,13 @@ test('compareAIs - passes options.now clock to playGame for timeout enforcement'
 });
 
 test('parseArgs - all flags parsed correctly, unknown flags ignored', () => {
-  const opts = parseArgs(['--unknown', '--time', '50', '--pairs', '3', '--size', '11']);
+  const opts = parseArgs(['--unknown', '--time', '50', '--pairs', '3', '--size', '11', '--ai1', 'mcts', '--ai2', 'classic', '--seed', '7']);
   expect(opts.timeLimitMs).toBe(50);
   expect(opts.numPairs).toBe(3);
   expect(opts.boardSize).toBe(11);
+  expect(opts.ai1).toBe('mcts');
+  expect(opts.ai2).toBe('classic');
+  expect(opts.seed).toBe(7);
 });
 
 test('parseArgs - defaults when no args provided', () => {
@@ -216,13 +230,25 @@ test('parseArgs - defaults when no args provided', () => {
   expect(opts.timeLimitMs).toBe(100);
   expect(opts.numPairs).toBe(5);
   expect(opts.boardSize).toBe(9);
+  expect(opts.ai1).toBe('classic');
+  expect(opts.ai2).toBe('classic');
+  expect(opts.seed).toBe(1);
 });
 
 test('parseArgs - flags without values fall back to defaults', () => {
-  const opts = parseArgs(['--time', '--pairs', '--size']);
+  const opts = parseArgs(['--time', '--pairs', '--size', '--ai1', '--ai2', '--seed']);
   expect(opts.timeLimitMs).toBe(100);
   expect(opts.numPairs).toBe(5);
   expect(opts.boardSize).toBe(9);
+  expect(opts.ai1).toBe('classic');
+  expect(opts.ai2).toBe('classic');
+  expect(opts.seed).toBe(1);
+});
+
+test('parseArgs - non-mcts and mcts combinations map correctly', () => {
+  const opts = parseArgs(['--ai1', 'classic', '--ai2', 'mcts']);
+  expect(opts.ai1).toBe('classic');
+  expect(opts.ai2).toBe('mcts');
 });
 
 test('formatResults - without invalid moves', () => {
@@ -255,6 +281,19 @@ test('formatResults - zero totalGames returns 0.0% for all', () => {
 });
 
 describe('main', () => {
+  test('supports built-in AI factories (classic and mcts) through CLI flags', () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as never);
+
+    main(['--pairs', '1', '--time', '5', '--ai1', 'mcts', '--ai2', 'classic', '--seed', '9']);
+
+    expect(exitSpy.mock.calls.length <= 1).toBeTruthy();
+    expect(logSpy).toHaveBeenCalled();
+    expect(errSpy.mock.calls.length <= 1).toBeTruthy();
+    vi.restoreAllMocks();
+  });
+
   test('runs successfully when no invalid moves occur', () => {
     vi.spyOn(console, 'log').mockImplementation(() => {});
     // Pair 0, game A (ai1Color=1): AI1 BLACK plays BLACK_WIN → AI1 wins.

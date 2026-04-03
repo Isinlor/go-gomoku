@@ -1,6 +1,6 @@
 import { test, expect } from 'vitest';
 
-import { BLACK, EMPTY, GogoAI, GogoPosition, WHITE } from '../../src/engine';
+import { BLACK, EMPTY, GogoAI, GogoMCTS, GogoPosition, WHITE } from '../../src/engine';
 
 function position(rows: string[], toMove = BLACK) {
   return GogoPosition.fromAscii(rows, toMove);
@@ -359,4 +359,120 @@ test('scoreMove deduplicates adjacent groups that wrap around the candidate from
   ], BLACK);
   anyAI.ensureBuffers(playerDedup.area);
   expect(anyAI.scoreMove(playerDedup, playerDedup.index(3, 2), -1, false)).toBe(6080);
+});
+
+test('MCTS picks center on empty board, immediate wins, and immediate blocks with deterministic seed', () => {
+  const empty = new GogoPosition(9);
+  const mcts = new GogoMCTS({ seed: 1, rolloutMaxMoves: 18 });
+  const first = mcts.findBestMove(empty, 25);
+  expect(first.move).toBe(empty.index(4, 4));
+  expect(first.nodes > 0).toBeTruthy();
+
+  const winning = rawPosition([
+    'XXXX.....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  const win = mcts.findBestMove(winning, 25);
+  expect(win.move).toBe(winning.index(4, 0));
+
+  const blocking = rawPosition([
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    'XOOOO....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  const block = mcts.findBestMove(blocking, 25);
+  expect(block.move).toBe(blocking.index(5, 4));
+
+  const terminal = position([
+    'XXXXX....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  const terminalResult = mcts.findBestMove(terminal, 25);
+  expect(terminalResult.move).toBe(-1);
+
+  const noMove = new GogoPosition(9);
+  noMove.board.fill(BLACK);
+  noMove.stoneCount = noMove.area;
+  noMove.winner = EMPTY;
+  const noMoveResult = mcts.findBestMove(noMove, 25);
+  expect(noMoveResult.move).toBe(-1);
+});
+
+test('white-box MCTS helpers cover rollout edge branches and immediate-win scanning fallback paths', () => {
+  const mcts = new GogoMCTS({ seed: 3, rolloutMaxMoves: 4, now: () => 0 });
+  const anyMcts = mcts as any;
+
+  const full = new GogoPosition(9);
+  full.board.fill(BLACK);
+  full.stoneCount = full.area;
+  anyMcts.ensureBuffers(full.area);
+  expect(anyMcts.rollout(full)).toBe(EMPTY);
+
+  const fakeRollout = new GogoPosition(9) as any;
+  anyMcts.ensureBuffers(81);
+  anyMcts.pickBiasedRolloutMove = () => 0;
+  fakeRollout.winner = EMPTY;
+  fakeRollout.generateAllLegalMoves = () => 1;
+  fakeRollout.play = () => false;
+  fakeRollout.undo = () => true;
+  expect(anyMcts.rollout(fakeRollout)).toBe(EMPTY);
+
+  const fallbackPick = new GogoPosition(9) as any;
+  anyMcts.ensureBuffers(fallbackPick.area);
+  anyMcts.random = () => 1;
+  anyMcts.evaluateThreat = () => -1;
+  anyMcts.moveBuffer[0] = 0;
+  anyMcts.moveBuffer[1] = 1;
+  anyMcts.moveBuffer[2] = 2;
+  fallbackPick.play = () => false;
+  expect(anyMcts.pickBiasedRolloutMove(fallbackPick, 3)).toBe(0);
+
+  const fakeImmediate = new GogoPosition(9) as any;
+  anyMcts.ensureBuffers(81);
+  fakeImmediate.toMove = BLACK;
+  fakeImmediate.generateAllLegalMoves = (buffer: Int16Array) => { buffer[0] = 0; return 1; };
+  fakeImmediate.play = () => false;
+  fakeImmediate.undo = () => true;
+  expect(anyMcts.findImmediateWin(fakeImmediate, BLACK)).toBe(-1);
+
+  const noLegal = new GogoPosition(9) as any;
+  noLegal.stoneCount = 1;
+  noLegal.generateAllLegalMoves = () => 0;
+  expect(anyMcts.pickFallbackMove(noLegal)).toBe(-1);
+
+  const parent = {
+    visits: 10,
+    children: [
+      { visits: 0, wins: 0, prior: 0, move: 0 },
+      { visits: 3, wins: 2, prior: 2, move: 1 },
+    ],
+  };
+  expect(anyMcts.selectChild(parent).move).toBe(0);
+
+  const timeoutMcts = new GogoMCTS({ seed: 7, now: () => 1 });
+  const nonTerminal = new GogoPosition(9);
+  nonTerminal.playXY(4, 4);
+  const timeoutResult = timeoutMcts.findBestMove(nonTerminal, 0);
+  expect(timeoutResult.move).not.toBe(-1);
+  expect(timeoutResult.timedOut).toBe(true);
 });
