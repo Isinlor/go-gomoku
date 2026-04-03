@@ -9,7 +9,7 @@ import {
   type SupportedSize,
   type Player,
 } from '../engine';
-import type { AIRequest, AIResponse } from '../worker/ai-worker';
+import type { AIRequest, AIResponse, AIType } from '../worker/ai-worker';
 
 export interface UseGameOptions {
   createWorker?: () => Worker;
@@ -31,6 +31,8 @@ export function useGame(options: UseGameOptions = {}) {
   const whiteIsAI = ref(true);
   const blackTimeLimit = ref(75);
   const whiteTimeLimit = ref(75);
+  const blackAIType = ref<AIType>('classic');
+  const whiteAIType = ref<AIType>('classic');
   const aiThinking = ref(false);
   const statusExtra = ref('');
   const loadError = ref('');
@@ -127,12 +129,14 @@ export function useGame(options: UseGameOptions = {}) {
     const g = game.value;
     const config = makeAIConfig();
     const timeLimit = g.toMove === BLACK ? blackTimeLimit.value : whiteTimeLimit.value;
+    const aiType = g.toMove === BLACK ? blackAIType.value : whiteAIType.value;
     const request: AIRequest = {
       encodedGame: g.encodeGame(),
       timeLimitMs: Math.max(1, timeLimit),
       maxDepth: config.maxDepth,
       quiescenceDepth: config.quiescenceDepth,
       maxPly: config.maxPly,
+      aiType,
     };
     const w = getWorker();
     (w as unknown as { _pendingId: number })._pendingId = pendingGameId;
@@ -243,6 +247,13 @@ export function useGame(options: UseGameOptions = {}) {
     }
   }
 
+  function onAITypeChange(): void {
+    if (!aiThinking.value) {
+      statusExtra.value = '';
+      notifyBoardChange();
+    }
+  }
+
   function tryLoadFromUrl(): boolean {
     const raw = getLocationHash().trim();
     const hashIndex = raw.indexOf('#');
@@ -272,6 +283,8 @@ export function useGame(options: UseGameOptions = {}) {
     whiteIsAI,
     blackTimeLimit,
     whiteTimeLimit,
+    blackAIType,
+    whiteAIType,
     aiThinking,
     statusText,
     statusExtra,
@@ -286,6 +299,7 @@ export function useGame(options: UseGameOptions = {}) {
     loadGame,
     setSize,
     onModeChange,
+    onAITypeChange,
     tryLoadFromUrl,
     maybeRunAI,
     isAITurn,

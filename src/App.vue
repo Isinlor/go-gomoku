@@ -5,6 +5,7 @@ import BoardGrid from './components/BoardGrid.vue';
 import GameRecord from './components/GameRecord.vue';
 import LoadGame from './components/LoadGame.vue';
 import type { SupportedSize } from './engine';
+import type { AIType } from './worker/ai-worker';
 
 const {
   size,
@@ -13,6 +14,8 @@ const {
   whiteIsAI,
   blackTimeLimit,
   whiteTimeLimit,
+  blackAIType,
+  whiteAIType,
   aiThinking,
   statusText,
   gameRecord,
@@ -25,6 +28,7 @@ const {
   loadGame,
   setSize,
   onModeChange,
+  onAITypeChange,
   gameUrl,
 } = useGame();
 
@@ -36,6 +40,16 @@ function onUpdateBlackIsAI(value: boolean): void {
 function onUpdateWhiteIsAI(value: boolean): void {
   whiteIsAI.value = value;
   onModeChange();
+}
+
+function onUpdateBlackAIType(value: AIType): void {
+  blackAIType.value = value;
+  onAITypeChange();
+}
+
+function onUpdateWhiteAIType(value: AIType): void {
+  whiteAIType.value = value;
+  onAITypeChange();
 }
 
 function onUpdateBoardSize(value: SupportedSize): void {
@@ -55,12 +69,16 @@ function onCopyUrl(): void {
     :white-is-a-i="whiteIsAI"
     :black-time-limit="blackTimeLimit"
     :white-time-limit="whiteTimeLimit"
+    :black-a-i-type="blackAIType"
+    :white-a-i-type="whiteAIType"
     :board-size="size"
     :ai-thinking="aiThinking"
     @update:black-is-a-i="onUpdateBlackIsAI"
     @update:white-is-a-i="onUpdateWhiteIsAI"
     @update:black-time-limit="blackTimeLimit = $event"
     @update:white-time-limit="whiteTimeLimit = $event"
+    @update:black-a-i-type="onUpdateBlackAIType"
+    @update:white-a-i-type="onUpdateWhiteAIType"
     @update:board-size="onUpdateBoardSize"
     @new-game="newGame"
     @undo="undo"

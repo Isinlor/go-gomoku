@@ -42,6 +42,35 @@ describe('handleAIRequest', () => {
     expect(response.move).not.toBe(-1);
     expect(response.depth).toBeGreaterThanOrEqual(1);
   });
+
+  test('uses GogoMCTS when aiType is mcts', () => {
+    const request: AIRequest = {
+      encodedGame: 'B9',
+      timeLimitMs: 50,
+      maxDepth: 2,
+      quiescenceDepth: 2,
+      maxPly: 64,
+      aiType: 'mcts',
+    };
+    const response = handleAIRequest(request);
+    expect(response.move).not.toBe(-1);
+    expect(typeof response.score).toBe('number');
+    expect(typeof response.nodes).toBe('number');
+  });
+
+  test('uses GogoAI when aiType is classic', () => {
+    const request: AIRequest = {
+      encodedGame: 'B9',
+      timeLimitMs: 50,
+      maxDepth: 2,
+      quiescenceDepth: 2,
+      maxPly: 64,
+      aiType: 'classic',
+    };
+    const response = handleAIRequest(request);
+    expect(response.move).toBe(40);
+    expect(response.depth).toBeGreaterThanOrEqual(1);
+  });
 });
 
 describe('setupWorkerHandler', () => {

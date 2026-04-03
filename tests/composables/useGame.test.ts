@@ -1126,4 +1126,84 @@ describe('useGame', () => {
     expect(gameState.boardVersion.value).toBeGreaterThan(afterMoveVersion);
     wrapper.unmount();
   });
+
+  test('initializes blackAIType and whiteAIType to classic', () => {
+    const worker = createMockWorker();
+    const { gameState, wrapper } = mountWithGame({
+      createWorker: () => worker,
+      getLocationHash: () => '',
+      setLocationHash: () => {},
+    });
+    expect(gameState.blackAIType.value).toBe('classic');
+    expect(gameState.whiteAIType.value).toBe('classic');
+    wrapper.unmount();
+  });
+
+  test('maybeRunAI passes black aiType in request', () => {
+    const worker = createMockWorker();
+    const { gameState, wrapper } = mountWithGame({
+      createWorker: () => worker,
+      getLocationHash: () => '',
+      setLocationHash: () => {},
+    });
+
+    gameState.blackAIType.value = 'mcts';
+    gameState.blackIsAI.value = true;
+    gameState.whiteIsAI.value = false;
+    gameState.onModeChange();
+
+    const request = (worker.postMessage as any).mock.calls[0][0];
+    expect(request.aiType).toBe('mcts');
+    wrapper.unmount();
+  });
+
+  test('maybeRunAI passes white aiType in request', () => {
+    const worker = createMockWorker();
+    const { gameState, wrapper } = mountWithGame({
+      createWorker: () => worker,
+      getLocationHash: () => '',
+      setLocationHash: () => {},
+    });
+
+    // Play a move so it becomes white's turn
+    gameState.whiteIsAI.value = false;
+    gameState.playMove(40);
+
+    gameState.whiteAIType.value = 'mcts';
+    gameState.whiteIsAI.value = true;
+    gameState.onModeChange();
+
+    const request = (worker.postMessage as any).mock.calls[0][0];
+    expect(request.aiType).toBe('mcts');
+    wrapper.unmount();
+  });
+
+  test('onAITypeChange does nothing when AI is thinking', () => {
+    const worker = createMockWorker();
+    const { gameState, wrapper } = mountWithGame({
+      createWorker: () => worker,
+      getLocationHash: () => '',
+      setLocationHash: () => {},
+    });
+
+    gameState.aiThinking.value = true;
+    const versionBefore = gameState.boardVersion.value;
+    gameState.onAITypeChange();
+    expect(gameState.boardVersion.value).toBe(versionBefore);
+    wrapper.unmount();
+  });
+
+  test('onAITypeChange updates boardVersion when not thinking', () => {
+    const worker = createMockWorker();
+    const { gameState, wrapper } = mountWithGame({
+      createWorker: () => worker,
+      getLocationHash: () => '',
+      setLocationHash: () => {},
+    });
+
+    const versionBefore = gameState.boardVersion.value;
+    gameState.onAITypeChange();
+    expect(gameState.boardVersion.value).toBeGreaterThan(versionBefore);
+    wrapper.unmount();
+  });
 });
