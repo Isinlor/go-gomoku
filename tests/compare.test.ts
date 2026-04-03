@@ -7,6 +7,7 @@ import {
   parseArgs,
   formatResults,
   main,
+  playRandomMoves,
 } from '../src/compare';
 import type { AIPlayer } from '../src/compare';
 
@@ -204,6 +205,78 @@ test('compareAIs - passes options.now clock to playGame for timeout enforcement'
   expect(result.results[1].invalidMove?.reason).toBe('timeout');
 });
 
+test('compareAIs - plays initialRandomMoves before each game using options.random', () => {
+  // Use a deterministic random that always picks index 0 so we can verify
+  // the board has moves already played when the AIs start.
+  const positions: GogoPosition[] = [];
+  let callIdx = 0;
+  const ais = [seqAI(BLACK_WIN), seqAI(WHITE_IDLE), seqAI(WHITE_IDLE), seqAI(BLACK_WIN)];
+  compareAIs(
+    { timeLimitMs: 100, numPairs: 1, boardSize: 9, initialRandomMoves: 2, random: () => 0 },
+    () => ais[callIdx++],
+    (size) => {
+      const pos = new GogoPosition(size);
+      positions.push(pos);
+      return pos;
+    },
+  );
+  // Each game's position should have 2 stones already placed (ply=2).
+  expect(positions[0].ply).toBeGreaterThanOrEqual(2);
+  expect(positions[1].ply).toBeGreaterThanOrEqual(2);
+});
+
+test('playRandomMoves - plays exactly N moves on an empty board using deterministic random', () => {
+  const position = new GogoPosition(9);
+  playRandomMoves(position, 3, () => 0);
+  expect(position.ply).toBe(3);
+});
+
+test('playRandomMoves - stops early when game ends (winner set)', () => {
+  // Pre-fill a position where the next move by the deterministic AI wins immediately.
+  // BLACK has 4 in a row at columns 0-3, row 0 (indices 0,1,2,3). Playing index 4 wins.
+  const position = new GogoPosition(9);
+  position.play(0); // BLACK
+  position.play(9); // WHITE
+  position.play(1); // BLACK
+  position.play(18); // WHITE
+  position.play(2); // BLACK
+  position.play(27); // WHITE
+  position.play(3); // BLACK  (4 in a row for BLACK)
+  position.play(36); // WHITE
+  // Now ask for 10 random moves; the first random move for BLACK should be index 4 (winning).
+  // After the win, the loop should stop.
+  // Use a random function that maps to the lowest available index so move 4 comes up.
+  let moveCount = 0;
+  playRandomMoves(position, 10, () => { moveCount++; return 0; });
+  // winner should be set, and the loop should not continue after the win
+  expect(position.winner).not.toBe(0);
+  expect(moveCount).toBe(1); // only one call to random before stopping
+});
+
+test('playRandomMoves - stops early when no legal moves remain', () => {
+  // Use the pre-filled board (no legal moves from the start).
+  const clone = GogoPosition.fromAscii([
+    'XXXXOXXXX',
+    'XXOXXXXOX',
+    'OXXXXOXXX',
+    'XXXOXXXXO',
+    'XOXXXXOXX',
+    'XXXXOXXXX',
+    'XXOXXXXOX',
+    'OXXXXOXXX',
+    'XXXOXXXXO',
+  ]);
+  const plyBefore = clone.ply;
+  playRandomMoves(clone, 5, () => 0);
+  expect(clone.ply).toBe(plyBefore); // no moves played
+});
+
+test('playRandomMoves - uses Math.random by default (smoke test)', () => {
+  const position = new GogoPosition(9);
+  playRandomMoves(position, 1);
+  expect(position.ply).toBe(1);
+});
+
 test('parseArgs - all flags parsed correctly, unknown flags ignored', () => {
   const opts = parseArgs(['--unknown', '--time', '50', '--pairs', '3', '--size', '11']);
   expect(opts.timeLimitMs).toBe(50);
@@ -216,6 +289,7 @@ test('parseArgs - defaults when no args provided', () => {
   expect(opts.timeLimitMs).toBe(100);
   expect(opts.numPairs).toBe(5);
   expect(opts.boardSize).toBe(9);
+  expect(opts.initialRandomMoves).toBe(0);
 });
 
 test('parseArgs - flags without values fall back to defaults', () => {
@@ -223,6 +297,16 @@ test('parseArgs - flags without values fall back to defaults', () => {
   expect(opts.timeLimitMs).toBe(100);
   expect(opts.numPairs).toBe(5);
   expect(opts.boardSize).toBe(9);
+});
+
+test('parseArgs - --random-moves flag parsed correctly', () => {
+  const opts = parseArgs(['--random-moves', '4']);
+  expect(opts.initialRandomMoves).toBe(4);
+});
+
+test('parseArgs - --random-moves flag without value falls back to default', () => {
+  const opts = parseArgs(['--random-moves']);
+  expect(opts.initialRandomMoves).toBe(0);
 });
 
 test('formatResults - without invalid moves', () => {
@@ -277,6 +361,20 @@ describe('main', () => {
     main(['--pairs', '1', '--size', '9'], () => seqAI([-1]));
 
     expect(exitSpy).toHaveBeenCalledWith(1);
+    vi.restoreAllMocks();
+  });
+
+  test('logs initial random moves info when --random-moves is provided', () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(process, 'exit').mockImplementation((() => {}) as never);
+    let callIdx = 0;
+    const ais = [seqAI(BLACK_WIN), seqAI(WHITE_IDLE), seqAI(WHITE_IDLE), seqAI(BLACK_WIN)];
+    main(
+      ['--pairs', '1', '--time', '100', '--size', '9', '--random-moves', '2'],
+      () => ais[callIdx++],
+    );
+    expect(logSpy.mock.calls[0][0]).toContain('2 initial random moves');
     vi.restoreAllMocks();
   });
 });

@@ -11,7 +11,9 @@ export interface CompareOptions {
   timeLimitMs: number;
   numPairs: number;
   boardSize: SupportedSize;
+  initialRandomMoves?: number;
   now?: () => number;
+  random?: () => number;
 }
 
 export interface InvalidMoveInfo {
@@ -34,6 +36,20 @@ export interface CompareResult {
   totalGames: number;
   invalidMoves: number;
   results: GameResult[];
+}
+
+export function playRandomMoves(
+  position: GogoPosition,
+  numMoves: number,
+  random: () => number = Math.random,
+): void {
+  const buffer = new Int16Array(position.area);
+  for (let i = 0; i < numMoves; i++) {
+    if (position.winner !== 0) break;
+    const count = position.generateAllLegalMoves(buffer);
+    if (count === 0) break;
+    position.play(buffer[Math.floor(random() * count)]);
+  }
 }
 
 export function playGame(
@@ -103,6 +119,8 @@ export function compareAIs(
   const factory = createAI ?? (() => new GogoAI());
   const positionFactory = createPosition ?? ((size: SupportedSize) => new GogoPosition(size));
   const now = options.now ?? (() => Date.now());
+  const random = options.random ?? Math.random;
+  const initialRandomMoves = options.initialRandomMoves ?? 0;
   const result: CompareResult = {
     ai1Wins: 0,
     ai2Wins: 0,
@@ -117,6 +135,7 @@ export function compareAIs(
       const ai1 = factory();
       const ai2 = factory();
       const position = positionFactory(options.boardSize);
+      if (initialRandomMoves > 0) playRandomMoves(position, initialRandomMoves, random);
       const gameResult = playGame(ai1, ai2, options.timeLimitMs, ai1Color, position, now);
       result.results.push(gameResult);
       result.totalGames++;
@@ -134,15 +153,17 @@ export function parseArgs(args: string[]): CompareOptions {
   let timeLimitMs = 100;
   let numPairs = 5;
   let boardSize: SupportedSize = 9;
+  let initialRandomMoves = 0;
 
   for (let i = 0; i < args.length; i++) {
     const hasValue = i + 1 < args.length && !args[i + 1].startsWith('--');
     if (args[i] === '--time' && hasValue) timeLimitMs = parseInt(args[++i], 10);
     else if (args[i] === '--pairs' && hasValue) numPairs = parseInt(args[++i], 10);
     else if (args[i] === '--size' && hasValue) boardSize = parseInt(args[++i], 10) as SupportedSize;
+    else if (args[i] === '--random-moves' && hasValue) initialRandomMoves = parseInt(args[++i], 10);
   }
 
-  return { timeLimitMs, numPairs, boardSize };
+  return { timeLimitMs, numPairs, boardSize, initialRandomMoves };
 }
 
 export function formatResults(result: CompareResult): string {
@@ -164,7 +185,8 @@ export function main(args: string[], createAI?: () => AIPlayer): void {
   const options = parseArgs(args);
   console.log(
     `Comparing AIs: ${options.numPairs} pairs (${options.numPairs * 2} games), ${options.timeLimitMs}ms per move, ` +
-    `${options.boardSize}x${options.boardSize} board`,
+    `${options.boardSize}x${options.boardSize} board` +
+    (options.initialRandomMoves ? `, ${options.initialRandomMoves} initial random moves` : ''),
   );
   const result = compareAIs(options, createAI);
   console.log(formatResults(result));
