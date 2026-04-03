@@ -636,13 +636,15 @@ export class GogoMCTS {
 
       const winner = this.rollout(position);
       this.nodesVisited += 1;
-      const rootPlayer = root.playerToMove;
       for (let i = 0; i < path.length; i += 1) {
         const current = path[i];
         current.visits += 1;
         if (winner === EMPTY) {
           current.wins += 0.5;
-        } else if (winner === rootPlayer) {
+        } else if (winner === otherPlayer(current.playerToMove)) {
+          // Credit wins to the player who chose this node's state. Since
+          // playerToMove indicates who moves next, the player who entered
+          // this state is otherPlayer(current.playerToMove).
           current.wins += 1;
         }
       }
@@ -797,10 +799,10 @@ export class GogoMCTS {
         theirs += cell === opponent ? 1 : 0;
       }
       if (theirs === 0) {
-        score += ATTACK_WEIGHTS[mine + 1];
+        score += ATTACK_WEIGHTS[Math.min(mine + 1, 5)];
       }
       if (mine === 0) {
-        score += DEFENSE_WEIGHTS[theirs + 1];
+        score += DEFENSE_WEIGHTS[Math.min(theirs + 1, 5)];
       }
     }
     return score;
