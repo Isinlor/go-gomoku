@@ -277,6 +277,13 @@ test('playRandomMoves - uses Math.random by default (smoke test)', () => {
   expect(position.ply).toBe(1);
 });
 
+test('playRandomMoves - clamps index when random() returns 1.0', () => {
+  // Passing random() === 1.0 should select the last valid index, not go out of bounds.
+  const position = new GogoPosition(9);
+  playRandomMoves(position, 1, () => 1.0);
+  expect(position.ply).toBe(1);
+});
+
 test('parseArgs - all flags parsed correctly, unknown flags ignored', () => {
   const opts = parseArgs(['--unknown', '--time', '50', '--pairs', '3', '--size', '11']);
   expect(opts.timeLimitMs).toBe(50);

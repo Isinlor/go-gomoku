@@ -48,7 +48,7 @@ export function playRandomMoves(
     if (position.winner !== 0) break;
     const count = position.generateAllLegalMoves(buffer);
     if (count === 0) break;
-    position.play(buffer[Math.floor(random() * count)]);
+    position.play(buffer[Math.min(Math.floor(random() * count), count - 1)]);
   }
 }
 
