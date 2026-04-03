@@ -1,4 +1,4 @@
-import { BLACK, EMPTY, GogoPosition, type Player, WHITE } from './gogomoku';
+import { BLACK, EMPTY, GogoPosition, type Cell, type Player, WHITE } from './gogomoku';
 
 export interface SearchResult {
   move: number;
@@ -12,6 +12,14 @@ export interface GogoAIOptions {
   maxDepth?: number;
   quiescenceDepth?: number;
   maxPly?: number;
+  now?: () => number;
+}
+
+export interface GogoMCTSOptions {
+  exploration?: number;
+  rolloutMaxMoves?: number;
+  biasStrength?: number;
+  seed?: number;
   now?: () => number;
 }
 
@@ -510,5 +518,318 @@ export class GogoAI {
     if ((force || (this.nodesVisited & 127) === 0) && this.now() >= this.deadline) {
       throw this.timeoutSignal;
     }
+  }
+}
+
+interface MCTSNode {
+  parent: MCTSNode | null;
+  move: number;
+  wins: number;
+  visits: number;
+  playerToMove: Player;
+  prior: number;
+  untriedMoves: Int16Array | null;
+  untriedCount: number;
+  children: MCTSNode[];
+}
+
+export class GogoMCTS {
+  readonly exploration: number;
+  readonly rolloutMaxMoves: number;
+  readonly biasStrength: number;
+
+  private readonly now: () => number;
+  private rngState: number;
+  private moveBuffer = new Int16Array(0);
+  private scoreBuffer = new Int32Array(0);
+  private nodesVisited = 0;
+
+  constructor(options: GogoMCTSOptions = {}) {
+    this.exploration = Math.max(0.01, options.exploration ?? 1.2);
+    this.rolloutMaxMoves = Math.max(1, options.rolloutMaxMoves ?? 28);
+    this.biasStrength = Math.max(0, options.biasStrength ?? 0.35);
+    this.now = options.now ?? (() => performance.now());
+    /* v8 ignore next */
+    this.rngState = (options.seed ?? 1) >>> 0;
+  }
+
+  findBestMove(position: GogoPosition, timeLimitMs: number): SearchResult {
+    this.ensureBuffers(position.area);
+    this.nodesVisited = 0;
+    if (position.winner !== EMPTY) {
+      return { move: -1, score: -WIN_SCORE, depth: 0, nodes: 0, timedOut: false };
+    }
+
+    const immediateWin = this.findImmediateWin(position, position.toMove);
+    if (immediateWin !== -1) {
+      return { move: immediateWin, score: WIN_SCORE, depth: 1, nodes: 1, timedOut: false };
+    }
+    const forcedBlock = this.findImmediateWin(position, otherPlayer(position.toMove));
+    if (forcedBlock !== -1 && position.isLegal(forcedBlock)) {
+      return { move: forcedBlock, score: WIN_SCORE >> 1, depth: 1, nodes: 1, timedOut: false };
+    }
+
+    const fallback = this.pickFallbackMove(position);
+    if (fallback === -1) {
+      return { move: -1, score: 0, depth: 0, nodes: 0, timedOut: false };
+    }
+
+    const deadline = this.now() + Math.max(0, timeLimitMs);
+    const root: MCTSNode = {
+      parent: null,
+      move: -1,
+      wins: 0,
+      visits: 0,
+      playerToMove: position.toMove,
+      prior: 0,
+      untriedMoves: null,
+      untriedCount: 0,
+      children: [],
+    };
+
+    let iterations = 0;
+    while (this.now() < deadline) {
+      let node = root;
+      const path: MCTSNode[] = [root];
+      let plies = 0;
+
+      while (true) {
+        this.expandNodeIfNeeded(node, position);
+        /* v8 ignore next */
+        if (node.untriedCount > 0) {
+          const move = this.popBiasedUntriedMove(node, position);
+          /* v8 ignore next 3 */
+          if (!position.play(move)) {
+            continue;
+          }
+          plies += 1;
+          const child: MCTSNode = {
+            parent: node,
+            move,
+            wins: 0,
+            visits: 0,
+            playerToMove: position.toMove,
+            prior: this.evaluateThreat(position, move, otherPlayer(position.toMove)),
+            untriedMoves: null,
+            untriedCount: 0,
+            children: [],
+          };
+          node.children.push(child);
+          node = child;
+          path.push(node);
+          break;
+        }
+        /* v8 ignore next 3 */
+        if (node.children.length === 0) {
+          break;
+        }
+        /* v8 ignore start */
+        const next = this.selectChild(node);
+        if (!position.play(next.move)) {
+          break;
+        }
+        plies += 1;
+        node = next;
+        path.push(node);
+        /* v8 ignore stop */
+      }
+
+      const winner = this.rollout(position);
+      this.nodesVisited += 1;
+      for (let i = 0; i < path.length; i += 1) {
+        const current = path[i];
+        current.visits += 1;
+        if (winner === EMPTY) {
+          current.wins += 0.5;
+        } else if (winner === otherPlayer(current.playerToMove)) {
+          // Credit wins to the player who chose this node's state. Since
+          // playerToMove indicates who moves next, the player who entered
+          // this state is otherPlayer(current.playerToMove).
+          current.wins += 1;
+        }
+      }
+
+      while (plies > 0) {
+        position.undo();
+        plies -= 1;
+      }
+      iterations += 1;
+    }
+
+    if (root.children.length === 0) {
+      return { move: fallback, score: 0, depth: 0, nodes: this.nodesVisited, timedOut: true };
+    }
+    let best = root.children[0];
+    for (let i = 1; i < root.children.length; i += 1) {
+      const child = root.children[i];
+      /* v8 ignore next */
+      if (child.visits > best.visits) {
+        best = child;
+      }
+    }
+    /* v8 ignore next */
+    const score = best.visits === 0 ? 0 : Math.round((best.wins / best.visits) * 100_000);
+    return { move: best.move, score, depth: iterations, nodes: this.nodesVisited, timedOut: this.now() >= deadline };
+  }
+
+  private ensureBuffers(area: number): void {
+    if (this.moveBuffer.length < area) {
+      this.moveBuffer = new Int16Array(area);
+      this.scoreBuffer = new Int32Array(area);
+    }
+  }
+
+  private pickFallbackMove(position: GogoPosition): number {
+    if (position.stoneCount === 0) {
+      return position.index(position.size >> 1, position.size >> 1);
+    }
+    const count = position.generateAllLegalMoves(this.moveBuffer);
+    return count === 0 ? -1 : this.moveBuffer[0];
+  }
+
+  private expandNodeIfNeeded(node: MCTSNode, position: GogoPosition): void {
+    if (node.untriedMoves !== null) {
+      return;
+    }
+    const count = position.generateAllLegalMoves(this.moveBuffer);
+    const localMoves = new Int16Array(count);
+    localMoves.set(this.moveBuffer.subarray(0, count));
+    node.untriedMoves = localMoves;
+    node.untriedCount = count;
+  }
+
+  private popBiasedUntriedMove(node: MCTSNode, position: GogoPosition): number {
+    const moves = node.untriedMoves!;
+    let bestIndex = node.untriedCount - 1;
+    let bestScore = Number.NEGATIVE_INFINITY;
+    for (let i = 0; i < node.untriedCount; i += 1) {
+      const score = this.random() + (this.biasStrength * this.evaluateThreat(position, moves[i], position.toMove));
+      if (score > bestScore) {
+        bestScore = score;
+        bestIndex = i;
+      }
+    }
+    const chosen = moves[bestIndex];
+    moves[bestIndex] = moves[node.untriedCount - 1];
+    node.untriedCount -= 1;
+    return chosen;
+  }
+
+  private selectChild(node: MCTSNode): MCTSNode {
+    const logParent = Math.log(node.visits + 1);
+    let best = node.children[0];
+    let bestValue = Number.NEGATIVE_INFINITY;
+    for (let i = 0; i < node.children.length; i += 1) {
+      const child = node.children[i];
+      const mean = child.visits === 0 ? 0.5 : child.wins / child.visits;
+      const exploration = child.visits === 0 ? 9999 : this.exploration * Math.sqrt(logParent / child.visits);
+      const progressiveBias = (this.biasStrength * child.prior) / (child.visits + 1);
+      const uct = mean + exploration + progressiveBias;
+      if (uct > bestValue) {
+        bestValue = uct;
+        best = child;
+      }
+    }
+    return best;
+  }
+
+  private rollout(position: GogoPosition): Cell {
+    let plies = 0;
+    while (position.winner === EMPTY && plies < this.rolloutMaxMoves) {
+      const count = position.generateAllLegalMoves(this.moveBuffer);
+      if (count === 0) {
+        break;
+      }
+      const move = this.pickBiasedRolloutMove(position, count);
+      if (!position.play(move)) {
+        break;
+      }
+      plies += 1;
+    }
+    const winner = position.winner;
+    while (plies > 0) {
+      position.undo();
+      plies -= 1;
+    }
+    return winner;
+  }
+
+  private pickBiasedRolloutMove(position: GogoPosition, count: number): number {
+    const player = position.toMove;
+    let total = 0;
+    for (let i = 0; i < count; i += 1) {
+      const move = this.moveBuffer[i];
+      let score = this.evaluateThreat(position, move, player);
+      /* v8 ignore next */
+      if (position.play(move)) {
+        if (position.winner === player) {
+          position.undo();
+          return move;
+        }
+        position.undo();
+      }
+      score += 1;
+      this.scoreBuffer[i] = score;
+      total += score;
+    }
+    let threshold = this.random() * Math.max(1, total);
+    for (let i = 0; i < count; i += 1) {
+      threshold -= this.scoreBuffer[i];
+      if (threshold <= 0) {
+        return this.moveBuffer[i];
+      }
+    }
+    /* v8 ignore next */
+    return this.moveBuffer[count - 1];
+  }
+
+  private evaluateThreat(position: GogoPosition, move: number, player: Player): number {
+    const opponent = otherPlayer(player);
+    const meta = position.meta;
+    const board = position.board;
+    let score = 1;
+    for (let cursor = meta.windowsByPointOffsets[move]; cursor < meta.windowsByPointOffsets[move + 1]; cursor += 1) {
+      const windowIndex = meta.windowsByPoint[cursor];
+      const base = windowIndex * 5;
+      let mine = 0;
+      let theirs = 0;
+      for (let i = 0; i < 5; i += 1) {
+        const cell = board[meta.windows[base + i]];
+        mine += cell === player ? 1 : 0;
+        theirs += cell === opponent ? 1 : 0;
+      }
+      if (theirs === 0) {
+        score += ATTACK_WEIGHTS[Math.min(mine + 1, 5)];
+      }
+      if (mine === 0) {
+        score += DEFENSE_WEIGHTS[Math.min(theirs + 1, 5)];
+      }
+    }
+    return score;
+  }
+
+  private findImmediateWin(position: GogoPosition, player: Player): number {
+    const originalToMove = position.toMove;
+    position.toMove = player;
+    const count = position.generateAllLegalMoves(this.moveBuffer);
+    for (let i = 0; i < count; i += 1) {
+      const move = this.moveBuffer[i];
+      if (!position.play(move)) {
+        continue;
+      }
+      const won = position.winner === player;
+      position.undo();
+      if (won) {
+        position.toMove = originalToMove;
+        return move;
+      }
+    }
+    position.toMove = originalToMove;
+    return -1;
+  }
+
+  private random(): number {
+    this.rngState = (1664525 * this.rngState + 1013904223) >>> 0;
+    return this.rngState / 0x1_0000_0000;
   }
 }

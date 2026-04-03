@@ -12,6 +12,8 @@ const mockGameState = () => {
     whiteIsAI: ref(true),
     blackTimeLimit: ref(75),
     whiteTimeLimit: ref(75),
+    blackAIType: ref<'classic' | 'mcts'>('classic'),
+    whiteAIType: ref<'classic' | 'mcts'>('classic'),
     aiThinking: ref(false),
     statusText: computed(() => 'black to move'),
     statusExtra: ref(''),
@@ -26,6 +28,7 @@ const mockGameState = () => {
     loadGame: vi.fn(),
     setSize: vi.fn(),
     onModeChange: vi.fn(),
+    onAITypeChange: vi.fn(),
     tryLoadFromUrl: vi.fn(),
     maybeRunAI: vi.fn(),
     isAITurn: vi.fn(() => false),
@@ -76,6 +79,24 @@ describe('App', () => {
     toolbar.vm.$emit('update:whiteIsAI', false);
     await wrapper.vm.$nextTick();
     expect(currentMockState.onModeChange).toHaveBeenCalled();
+  });
+
+  test('onUpdateBlackAIType updates blackAIType and calls onAITypeChange', async () => {
+    const wrapper = mount(App);
+    const toolbar = wrapper.findComponent({ name: 'GameToolbar' });
+    toolbar.vm.$emit('update:blackAIType', 'mcts');
+    await wrapper.vm.$nextTick();
+    expect(currentMockState.blackAIType.value).toBe('mcts');
+    expect(currentMockState.onAITypeChange).toHaveBeenCalled();
+  });
+
+  test('onUpdateWhiteAIType updates whiteAIType and calls onAITypeChange', async () => {
+    const wrapper = mount(App);
+    const toolbar = wrapper.findComponent({ name: 'GameToolbar' });
+    toolbar.vm.$emit('update:whiteAIType', 'mcts');
+    await wrapper.vm.$nextTick();
+    expect(currentMockState.whiteAIType.value).toBe('mcts');
+    expect(currentMockState.onAITypeChange).toHaveBeenCalled();
   });
 
   test('onUpdateBoardSize calls setSize', async () => {

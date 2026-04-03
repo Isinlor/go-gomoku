@@ -8,6 +8,8 @@ describe('GameToolbar', () => {
     whiteIsAI: true,
     blackTimeLimit: 75,
     whiteTimeLimit: 75,
+    blackAIType: 'classic' as const,
+    whiteAIType: 'classic' as const,
     boardSize: 9 as const,
     aiThinking: false,
   };
@@ -18,8 +20,22 @@ describe('GameToolbar', () => {
     expect(wrapper.findAll('fieldset').length).toBe(2);
     expect(wrapper.findAll('input[type="radio"]').length).toBe(4);
     expect(wrapper.findAll('input[type="number"]').length).toBe(2);
-    expect(wrapper.find('select').exists()).toBe(true);
+    // board-size select + white AI type select (whiteIsAI=true)
+    expect(wrapper.findAll('select').length).toBe(2);
     expect(wrapper.findAll('button').length).toBe(2);
+  });
+
+  test('renders AI type select only when AI is selected', () => {
+    const bothHumanProps = { ...defaultProps, whiteIsAI: false };
+    const wrapper = mount(GameToolbar, { props: bothHumanProps });
+    // Only the board size select when both are human
+    expect(wrapper.findAll('select').length).toBe(1);
+  });
+
+  test('renders AI type select for black when blackIsAI is true', () => {
+    const wrapper = mount(GameToolbar, { props: { ...defaultProps, blackIsAI: true } });
+    // board-size + black AI type + white AI type
+    expect(wrapper.findAll('select').length).toBe(3);
   });
 
   test('black human radio is checked when blackIsAI is false', () => {
@@ -103,10 +119,30 @@ describe('GameToolbar', () => {
 
   test('emits update:boardSize on select change', async () => {
     const wrapper = mount(GameToolbar, { props: defaultProps });
-    const select = wrapper.find('select');
+    const select = wrapper.find('.board-size-select');
     await select.setValue('13');
     expect(wrapper.emitted('update:boardSize')).toBeTruthy();
     expect(wrapper.emitted('update:boardSize')![0]).toEqual([13]);
+  });
+
+  test('emits update:whiteAIType when white AI type select changes', async () => {
+    const wrapper = mount(GameToolbar, { props: defaultProps });
+    // whiteIsAI=true so white AI type select is visible
+    const selects = wrapper.findAll('select');
+    // First select is white AI type (rendered before board-size when whiteIsAI=true, blackIsAI=false)
+    // Actually the white AI type select appears inside the white fieldset, board-size select is last
+    const whiteAITypeSelect = wrapper.find('fieldset:last-of-type select');
+    await whiteAITypeSelect.setValue('mcts');
+    expect(wrapper.emitted('update:whiteAIType')).toBeTruthy();
+    expect(wrapper.emitted('update:whiteAIType')![0]).toEqual(['mcts']);
+  });
+
+  test('emits update:blackAIType when black AI type select changes', async () => {
+    const wrapper = mount(GameToolbar, { props: { ...defaultProps, blackIsAI: true } });
+    const blackAITypeSelect = wrapper.find('fieldset:first-of-type select');
+    await blackAITypeSelect.setValue('mcts');
+    expect(wrapper.emitted('update:blackAIType')).toBeTruthy();
+    expect(wrapper.emitted('update:blackAIType')![0]).toEqual(['mcts']);
   });
 
   test('emits newGame when New game button is clicked', async () => {
@@ -125,7 +161,13 @@ describe('GameToolbar', () => {
 
   test('displays correct board size in select', () => {
     const wrapper = mount(GameToolbar, { props: { ...defaultProps, boardSize: 13 as const } });
-    const select = wrapper.find('select');
+    const select = wrapper.find('.board-size-select');
     expect((select.element as HTMLSelectElement).value).toBe('13');
+  });
+
+  test('displays correct white AI type in select', () => {
+    const wrapper = mount(GameToolbar, { props: { ...defaultProps, whiteAIType: 'mcts' as const } });
+    const select = wrapper.find('fieldset:last-of-type select');
+    expect((select.element as HTMLSelectElement).value).toBe('mcts');
   });
 });

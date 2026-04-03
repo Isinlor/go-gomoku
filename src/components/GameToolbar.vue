@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { BLACK, WHITE, type SupportedSize } from '../engine';
+import type { AIType } from '../worker/ai-worker';
 
 const props = defineProps<{
   blackIsAI: boolean;
   whiteIsAI: boolean;
   blackTimeLimit: number;
   whiteTimeLimit: number;
+  blackAIType: AIType;
+  whiteAIType: AIType;
   boardSize: SupportedSize;
   aiThinking: boolean;
 }>();
@@ -15,6 +18,8 @@ const emit = defineEmits<{
   'update:whiteIsAI': [value: boolean];
   'update:blackTimeLimit': [value: number];
   'update:whiteTimeLimit': [value: number];
+  'update:blackAIType': [value: AIType];
+  'update:whiteAIType': [value: AIType];
   'update:boardSize': [value: SupportedSize];
   newGame: [];
   undo: [];
@@ -38,6 +43,16 @@ function onBlackTimeLimitChange(event: Event): void {
 function onWhiteTimeLimitChange(event: Event): void {
   const target = event.target as HTMLInputElement;
   emit('update:whiteTimeLimit', Math.max(1, Number(target.value) || 75));
+}
+
+function onBlackAITypeChange(event: Event): void {
+  const target = event.target as HTMLSelectElement;
+  emit('update:blackAIType', target.value as AIType);
+}
+
+function onWhiteAITypeChange(event: Event): void {
+  const target = event.target as HTMLSelectElement;
+  emit('update:whiteAIType', target.value as AIType);
 }
 
 function onBoardSizeChange(event: Event): void {
@@ -69,6 +84,13 @@ function onBoardSizeChange(event: Event): void {
           @change="onBlackModeChange"
         />
         AI
+      </label>
+      <label v-if="props.blackIsAI">
+        AI type
+        <select :value="props.blackAIType" @change="onBlackAITypeChange">
+          <option value="classic">Classic</option>
+          <option value="mcts">MCTS</option>
+        </select>
       </label>
       <label>
         AI time (ms)
@@ -104,6 +126,13 @@ function onBoardSizeChange(event: Event): void {
         />
         AI
       </label>
+      <label v-if="props.whiteIsAI">
+        AI type
+        <select :value="props.whiteAIType" @change="onWhiteAITypeChange">
+          <option value="classic">Classic</option>
+          <option value="mcts">MCTS</option>
+        </select>
+      </label>
       <label>
         AI time (ms)
         <input
@@ -118,7 +147,7 @@ function onBoardSizeChange(event: Event): void {
 
     <label>
       Board size
-      <select :value="String(props.boardSize)" @change="onBoardSizeChange">
+      <select class="board-size-select" :value="String(props.boardSize)" @change="onBoardSizeChange">
         <option value="9">9x9</option>
         <option value="11">11x11</option>
         <option value="13">13x13</option>
