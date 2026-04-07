@@ -189,6 +189,8 @@ test('compareAIs - uses default GogoAI factory when none provided', () => {
 });
 
 test('MCTS beats baseline alpha-beta in at least 10 games with fair color swapping', () => {
+  // 15 pairs (30 games) with tuned MCTS parameters for stable results.
+  // Higher biasStrength and lower rolloutMaxMoves improve MCTS strength against alpha-beta.
   const result = compareAIs(
     { timeLimitMs: 50, numPairs: 15, boardSize: 9 },
     () => new GogoMCTS({ seed: 42, exploration: 1.0, biasStrength: 1.0, rolloutMaxMoves: 20 }),
