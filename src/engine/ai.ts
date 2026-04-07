@@ -527,6 +527,7 @@ interface MCTSNode {
   wins: number;
   visits: number;
   playerToMove: Player;
+  playerJustMoved: Cell;
   prior: number;
   untriedMoves: Int16Array | null;
   untriedCount: number;
@@ -549,7 +550,6 @@ export class GogoMCTS {
     this.rolloutMaxMoves = Math.max(1, options.rolloutMaxMoves ?? 28);
     this.biasStrength = Math.max(0, options.biasStrength ?? 0.35);
     this.now = options.now ?? (() => performance.now());
-    /* v8 ignore next */
     this.rngState = (options.seed ?? 1) >>> 0;
   }
 
@@ -581,6 +581,7 @@ export class GogoMCTS {
       wins: 0,
       visits: 0,
       playerToMove: position.toMove,
+      playerJustMoved: EMPTY,
       prior: 0,
       untriedMoves: null,
       untriedCount: 0,
@@ -593,58 +594,67 @@ export class GogoMCTS {
       const path: MCTSNode[] = [root];
       let plies = 0;
 
+      // Selection + expansion
       while (true) {
+        if (position.winner !== EMPTY) {
+          break;
+        }
+
         this.expandNodeIfNeeded(node, position);
-        /* v8 ignore next */
+
         if (node.untriedCount > 0) {
           const move = this.popBiasedUntriedMove(node, position);
-          /* v8 ignore next 3 */
+          const mover = position.toMove;
+          const prior = this.normalizeThreat(this.evaluateThreat(position, move, mover));
+
           if (!position.play(move)) {
             continue;
           }
+
           plies += 1;
+
           const child: MCTSNode = {
             parent: node,
             move,
             wins: 0,
             visits: 0,
             playerToMove: position.toMove,
-            prior: this.evaluateThreat(position, move, otherPlayer(position.toMove)),
+            playerJustMoved: mover,
+            prior,
             untriedMoves: null,
             untriedCount: 0,
             children: [],
           };
+
           node.children.push(child);
           node = child;
           path.push(node);
           break;
         }
-        /* v8 ignore next 3 */
+
         if (node.children.length === 0) {
           break;
         }
-        /* v8 ignore start */
+
         const next = this.selectChild(node);
         if (!position.play(next.move)) {
           break;
         }
+
         plies += 1;
         node = next;
         path.push(node);
-        /* v8 ignore stop */
       }
 
-      const winner = this.rollout(position);
+      const winner = position.winner !== EMPTY ? position.winner : this.rollout(position);
       this.nodesVisited += 1;
+
       for (let i = 0; i < path.length; i += 1) {
         const current = path[i];
         current.visits += 1;
         if (winner === EMPTY) {
           current.wins += 0.5;
-        } else if (winner === otherPlayer(current.playerToMove)) {
-          // Credit wins to the player who chose this node's state. Since
-          // playerToMove indicates who moves next, the player who entered
-          // this state is otherPlayer(current.playerToMove).
+        } else if (current.playerJustMoved !== EMPTY && winner === current.playerJustMoved) {
           current.wins += 1;
         }
       }
@@ -662,12 +672,16 @@ export class GogoMCTS {
     let best = root.children[0];
     for (let i = 1; i < root.children.length; i += 1) {
       const child = root.children[i];
-      /* v8 ignore next */
       if (child.visits > best.visits) {
         best = child;
+      } else if (child.visits === best.visits) {
+        const childRate = child.visits === 0 ? 0 : child.wins / child.visits;
+        const bestRate = best.visits === 0 ? 0 : best.wins / best.visits;
+        if (childRate > bestRate) {
+          best = child;
+        }
       }
     }
-    /* v8 ignore next */
     const score = best.visits === 0 ? 0 : Math.round((best.wins / best.visits) * 100_000);
     return { move: best.move, score, depth: iterations, nodes: this.nodesVisited, timedOut: this.now() >= deadline };
   }
@@ -683,8 +697,24 @@ export class GogoMCTS {
     if (position.stoneCount === 0) {
       return position.index(position.size >> 1, position.size >> 1);
     }
+
     const count = position.generateAllLegalMoves(this.moveBuffer);
-    return count === 0 ? -1 : this.moveBuffer[0];
+    if (count === 0) {
+      return -1;
+    }
+
+    let bestMove = this.moveBuffer[0];
+    let bestScore = Number.NEGATIVE_INFINITY;
+    for (let i = 0; i < count; i += 1) {
+      const move = this.moveBuffer[i];
+      const score = this.evaluateThreat(position, move, position.toMove) + position.meta.centerBias[move];
+      if (score > bestScore) {
+        bestScore = score;
+        bestMove = move;
+      }
+    }
+
+    return bestMove;
   }
 
   private expandNodeIfNeeded(node: MCTSNode, position: GogoPosition): void {
@@ -700,17 +730,29 @@ export class GogoMCTS {
 
   private popBiasedUntriedMove(node: MCTSNode, position: GogoPosition): number {
     const moves = node.untriedMoves!;
-    let bestIndex = node.untriedCount - 1;
-    let bestScore = Number.NEGATIVE_INFINITY;
+    let totalWeight = 0;
+
     for (let i = 0; i < node.untriedCount; i += 1) {
-      const score = this.random() + (this.biasStrength * this.evaluateThreat(position, moves[i], position.toMove));
-      if (score > bestScore) {
-        bestScore = score;
-        bestIndex = i;
+      const move = moves[i];
+      const prior = this.normalizeThreat(this.evaluateThreat(position, move, position.toMove));
+      const weight = this.threatWeight(prior);
+      this.scoreBuffer[i] = weight;
+      totalWeight += weight;
+    }
+
+    let threshold = this.random() * Math.max(1, totalWeight);
+    let chosenIndex = node.untriedCount - 1;
+
+    for (let i = 0; i < node.untriedCount; i += 1) {
+      threshold -= this.scoreBuffer[i];
+      if (threshold <= 0) {
+        chosenIndex = i;
+        break;
       }
     }
-    const chosen = moves[bestIndex];
-    moves[bestIndex] = moves[node.untriedCount - 1];
+
+    const chosen = moves[chosenIndex];
+    moves[chosenIndex] = moves[node.untriedCount - 1];
     node.untriedCount -= 1;
     return chosen;
   }
@@ -719,17 +761,23 @@ export class GogoMCTS {
     const logParent = Math.log(node.visits + 1);
     let best = node.children[0];
     let bestValue = Number.NEGATIVE_INFINITY;
+
     for (let i = 0; i < node.children.length; i += 1) {
       const child = node.children[i];
-      const mean = child.visits === 0 ? 0.5 : child.wins / child.visits;
-      const exploration = child.visits === 0 ? 9999 : this.exploration * Math.sqrt(logParent / child.visits);
+      const exploitation = child.visits === 0 ? 0.5 : child.wins / child.visits;
+      const exploration =
+        child.visits === 0
+          ? this.exploration
+          : this.exploration * Math.sqrt(logParent / child.visits);
       const progressiveBias = (this.biasStrength * child.prior) / (child.visits + 1);
-      const uct = mean + exploration + progressiveBias;
+      const uct = exploitation + exploration + progressiveBias;
+
       if (uct > bestValue) {
         bestValue = uct;
         best = child;
       }
     }
+
     return best;
   }
 
@@ -756,30 +804,33 @@ export class GogoMCTS {
 
   private pickBiasedRolloutMove(position: GogoPosition, count: number): number {
     const player = position.toMove;
-    let total = 0;
+    let totalWeight = 0;
+
     for (let i = 0; i < count; i += 1) {
       const move = this.moveBuffer[i];
-      let score = this.evaluateThreat(position, move, player);
-      /* v8 ignore next */
+
       if (position.play(move)) {
-        if (position.winner === player) {
-          position.undo();
+        const isImmediateWin = position.winner === player;
+        position.undo();
+        if (isImmediateWin) {
           return move;
         }
-        position.undo();
       }
-      score += 1;
-      this.scoreBuffer[i] = score;
-      total += score;
+
+      const prior = this.normalizeThreat(this.evaluateThreat(position, move, player));
+      const weight = this.threatWeight(prior);
+      this.scoreBuffer[i] = weight;
+      totalWeight += weight;
     }
-    let threshold = this.random() * Math.max(1, total);
+
+    let threshold = this.random() * Math.max(1, totalWeight);
     for (let i = 0; i < count; i += 1) {
       threshold -= this.scoreBuffer[i];
       if (threshold <= 0) {
         return this.moveBuffer[i];
       }
     }
-    /* v8 ignore next */
+
     return this.moveBuffer[count - 1];
   }
 
@@ -806,6 +857,17 @@ export class GogoMCTS {
       }
     }
     return score;
+  }
+
+  private normalizeThreat(raw: number): number {
+    if (raw <= 0) {
+      return 0;
+    }
+    return Math.min(1, Math.log1p(raw) / 14);
+  }
+
+  private threatWeight(normalizedThreat: number): number {
+    return 1 + Math.floor(256 * (1 + (3 * this.biasStrength * normalizedThreat)));
   }
 
   private findImmediateWin(position: GogoPosition, player: Player): number {
