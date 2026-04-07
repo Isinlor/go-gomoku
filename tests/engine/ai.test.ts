@@ -365,8 +365,9 @@ test('MCTS picks a valid move on empty board, immediate wins, and immediate bloc
   const empty = new GogoPosition(9);
   const mcts = new GogoMCTS({ seed: 1, rolloutMaxMoves: 18 });
   const first = mcts.findBestMove(empty, 100);
-  expect(first.move >= 0 && first.move < empty.area).toBeTruthy();
-  expect(first.nodes > 0).toBeTruthy();
+  // Fixed policy: always play center on empty board
+  expect(first.move).toBe(empty.index(4, 4));
+  expect(first.nodes).toBe(0);
 
   const winning = rawPosition([
     'XXXX.....',
@@ -417,9 +418,12 @@ test('MCTS picks a valid move on empty board, immediate wins, and immediate bloc
   const noMoveResult = mcts.findBestMove(noMove, 25);
   expect(noMoveResult.move).toBe(-1);
 
-  // Cover default seed branch (options.seed ?? 1)
-  const defaultSeed = new GogoMCTS({ now: () => 0 });
-  expect(defaultSeed.exploration).toBeGreaterThan(0);
+  // Cover default seed branch (options.seed ?? 1) and default now (performance.now)
+  const defaultMcts = new GogoMCTS();
+  const defaultPos = new GogoPosition(9);
+  defaultPos.playXY(4, 4);
+  const defaultResult = defaultMcts.findBestMove(defaultPos, 0);
+  expect(defaultResult.move !== -1).toBeTruthy();
 });
 
 test('white-box MCTS helpers cover rollout edge branches and immediate-win scanning fallback paths', () => {
@@ -791,7 +795,6 @@ test('MCTS backpropagation credits wins from each node player perspective, not j
     move: -1,
     wins: 0,
     visits: 0,
-    playerToMove: WHITE,
     playerJustMoved: EMPTY,
     prior: 0,
     untriedMoves: null,
@@ -804,7 +807,6 @@ test('MCTS backpropagation credits wins from each node player perspective, not j
     move: 0,
     wins: 0,
     visits: 0,
-    playerToMove: BLACK, // After White moves, it's Black's turn
     playerJustMoved: WHITE, // White just moved to create this node
     prior: 0,
     untriedMoves: null,

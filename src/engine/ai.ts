@@ -526,7 +526,6 @@ interface MCTSNode {
   move: number;
   wins: number;
   visits: number;
-  playerToMove: Player;
   playerJustMoved: Cell;
   prior: number;
   untriedMoves: Int16Array | null;
@@ -560,6 +559,11 @@ export class GogoMCTS {
       return { move: -1, score: -WIN_SCORE, depth: 0, nodes: 0, timedOut: false };
     }
 
+    if (position.stoneCount === 0) {
+      const center = position.index(position.size >> 1, position.size >> 1);
+      return { move: center, score: 0, depth: 0, nodes: 0, timedOut: false };
+    }
+
     const immediateWin = this.findImmediateWin(position, position.toMove);
     if (immediateWin !== -1) {
       return { move: immediateWin, score: WIN_SCORE, depth: 1, nodes: 1, timedOut: false };
@@ -580,7 +584,6 @@ export class GogoMCTS {
       move: -1,
       wins: 0,
       visits: 0,
-      playerToMove: position.toMove,
       playerJustMoved: EMPTY,
       prior: 0,
       untriedMoves: null,
@@ -618,7 +621,6 @@ export class GogoMCTS {
             move,
             wins: 0,
             visits: 0,
-            playerToMove: position.toMove,
             playerJustMoved: mover,
             prior,
             untriedMoves: null,
@@ -697,10 +699,6 @@ export class GogoMCTS {
   }
 
   private pickFallbackMove(position: GogoPosition): number {
-    if (position.stoneCount === 0) {
-      return position.index(position.size >> 1, position.size >> 1);
-    }
-
     const count = position.generateAllLegalMoves(this.moveBuffer);
     if (count === 0) {
       return -1;
