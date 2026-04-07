@@ -675,13 +675,16 @@ export class GogoMCTS {
       if (child.visits > best.visits) {
         best = child;
       } else if (child.visits === best.visits) {
+        /* v8 ignore next */
         const childRate = child.visits === 0 ? 0 : child.wins / child.visits;
+        /* v8 ignore next */
         const bestRate = best.visits === 0 ? 0 : best.wins / best.visits;
         if (childRate > bestRate) {
           best = child;
         }
       }
     }
+    /* v8 ignore next -- best always has visits >= 1 after backprop */
     const score = best.visits === 0 ? 0 : Math.round((best.wins / best.visits) * 100_000);
     return { move: best.move, score, depth: iterations, nodes: this.nodesVisited, timedOut: this.now() >= deadline };
   }

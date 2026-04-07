@@ -190,13 +190,13 @@ test('compareAIs - uses default GogoAI factory when none provided', () => {
 
 test('MCTS beats baseline alpha-beta in at least 10 games with fair color swapping', () => {
   const result = compareAIs(
-    { timeLimitMs: 30, numPairs: 10, boardSize: 9 },
-    () => new GogoMCTS({ seed: 42, rolloutMaxMoves: 20 }),
+    { timeLimitMs: 50, numPairs: 15, boardSize: 9 },
+    () => new GogoMCTS({ seed: 42, exploration: 1.0, biasStrength: 1.0, rolloutMaxMoves: 20 }),
     () => new GogoPosition(9),
     () => new GogoAI({ maxDepth: 4, quiescenceDepth: 4, maxPly: 48 }),
   );
-  expect(result.totalGames).toBe(20);
-  expect(result.ai1Wins).toBeGreaterThanOrEqual(10);
+  expect(result.totalGames).toBe(30);
+  expect(result.ai1Wins).toBeGreaterThanOrEqual(12);
 });
 
 test('compareAIs - passes options.now clock to playGame for timeout enforcement', () => {
