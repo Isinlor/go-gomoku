@@ -75,7 +75,7 @@ test.describe('GoGomoku App', () => {
 
   test('change board size to 13x13', async ({ page }) => {
     await setBothHuman(page);
-    const sizeSelect = page.locator('select');
+    const sizeSelect = page.locator('.board-size-select');
     await sizeSelect.selectOption('13');
 
     // Size takes effect on new game
@@ -87,7 +87,7 @@ test.describe('GoGomoku App', () => {
 
   test('change board size to 11x11', async ({ page }) => {
     await setBothHuman(page);
-    const sizeSelect = page.locator('select');
+    const sizeSelect = page.locator('.board-size-select');
     await sizeSelect.selectOption('11');
 
     await page.getByRole('button', { name: 'New game' }).click();
