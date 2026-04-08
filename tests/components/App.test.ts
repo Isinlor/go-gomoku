@@ -26,6 +26,7 @@ const mockGameState = () => {
     undo: vi.fn(),
     playMove: vi.fn(),
     loadGame: vi.fn(),
+    loadPuzzle: vi.fn(),
     setSize: vi.fn(),
     onModeChange: vi.fn(),
     onAITypeChange: vi.fn(),
@@ -57,11 +58,12 @@ describe('App', () => {
     expect(wrapper.find('.hint').exists()).toBe(true);
   });
 
-  test('renders GameToolbar, BoardGrid, GameRecord and LoadGame sections', () => {
+  test('renders GameToolbar, BoardGrid, GameRecord, PuzzleSelect and LoadGame sections', () => {
     const wrapper = mount(App);
     expect(wrapper.find('.toolbar').exists()).toBe(true);
     expect(wrapper.find('.board').exists()).toBe(true);
     expect(wrapper.find('.game-record-section').exists()).toBe(true);
+    expect(wrapper.find('.puzzle-section').exists()).toBe(true);
     expect(wrapper.find('.load-section').exists()).toBe(true);
   });
 
@@ -155,5 +157,21 @@ describe('App', () => {
     toolbar.vm.$emit('update:whiteTimeLimit', 300);
     await wrapper.vm.$nextTick();
     expect(currentMockState.whiteTimeLimit.value).toBe(300);
+  });
+
+  test('onLoadPuzzle calls loadPuzzle', async () => {
+    const wrapper = mount(App);
+    const puzzleSelect = wrapper.findComponent({ name: 'PuzzleSelect' });
+    const puzzle = {
+      id: 'black-3-3',
+      encoded: 'B9 c5 e3 d5 e4 f5 e6',
+      toMove: 1,
+      solution: 'e5',
+      depth: 3,
+      threshold: 3,
+    };
+    puzzleSelect.vm.$emit('loadPuzzle', puzzle);
+    await wrapper.vm.$nextTick();
+    expect(currentMockState.loadPuzzle).toHaveBeenCalledWith(puzzle);
   });
 });
