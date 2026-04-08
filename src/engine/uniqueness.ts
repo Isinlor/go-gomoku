@@ -108,7 +108,11 @@ export function removeIsolatedStones(stones: readonly Stone[]): Stone[] {
       occupied.has((x + 1) * 10000 + y) ||
       occupied.has((x - 1) * 10000 + y) ||
       occupied.has(x * 10000 + (y + 1)) ||
-      occupied.has(x * 10000 + (y - 1)),
+      occupied.has(x * 10000 + (y - 1)) ||
+      occupied.has((x + 1) * 10000 + (y + 1)) ||
+      occupied.has((x + 1) * 10000 + (y - 1)) ||
+      occupied.has((x - 1) * 10000 + (y + 1)) ||
+      occupied.has((x - 1) * 10000 + (y - 1)),
   );
 }
 

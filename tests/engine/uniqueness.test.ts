@@ -67,13 +67,23 @@ test('removeIsolatedStones filters out only the isolated stones', () => {
 });
 
 test('removeIsolatedStones handles vertical, horizontal, and diagonal adjacency correctly', () => {
-  // Only orthogonal neighbors count; diagonal does not make a stone non-isolated
-  const stones = [
-    [0, 0, BLACK], // only diagonal neighbor at (1,1)
-    [1, 1, WHITE], // only diagonal neighbor at (0,0)
+  // Only diagonal neighbors → stones are NOT isolated (diagonal counts)
+  const diagStones = [
+    [0, 0, BLACK],
+    [1, 1, WHITE],
   ] as const;
-  const result = removeIsolatedStones(stones);
-  expect(result).toHaveLength(0);
+  const diagResult = removeIsolatedStones(diagStones);
+  expect(diagResult).toHaveLength(2);
+
+  // All four diagonal directions
+  expect(removeIsolatedStones([[0, 0, BLACK], [1, 1, WHITE]])).toHaveLength(2);   // SE
+  expect(removeIsolatedStones([[1, 0, BLACK], [0, 1, WHITE]])).toHaveLength(2);   // SW
+  expect(removeIsolatedStones([[0, 1, BLACK], [1, 0, WHITE]])).toHaveLength(2);   // NE
+  expect(removeIsolatedStones([[1, 1, BLACK], [0, 0, WHITE]])).toHaveLength(2);   // NW
+
+  // Truly isolated: no orthogonal or diagonal neighbor
+  const isolated = [[0, 0, BLACK], [3, 3, WHITE]] as const;
+  expect(removeIsolatedStones(isolated)).toHaveLength(0);
 
   // Vertical neighbor
   const vertStones = [
