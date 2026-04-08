@@ -4,7 +4,9 @@ import GameToolbar from './components/GameToolbar.vue';
 import BoardGrid from './components/BoardGrid.vue';
 import GameRecord from './components/GameRecord.vue';
 import LoadGame from './components/LoadGame.vue';
+import PuzzleSelect from './components/PuzzleSelect.vue';
 import type { SupportedSize } from './engine';
+import type { Puzzle } from './engine';
 import type { AIType } from './worker/ai-worker';
 
 const {
@@ -26,6 +28,7 @@ const {
   undo,
   playMove,
   loadGame,
+  loadPuzzle,
   setSize,
   onModeChange,
   onAITypeChange,
@@ -60,6 +63,10 @@ function onCopyUrl(): void {
   navigator.clipboard.writeText(gameUrl.value).catch(() => {
     prompt('Copy this URL:', gameUrl.value);
   });
+}
+
+function onLoadPuzzle(puzzle: Puzzle): void {
+  loadPuzzle(puzzle);
 }
 </script>
 
@@ -98,6 +105,8 @@ function onCopyUrl(): void {
     :record="gameRecord"
     @copy-url="onCopyUrl"
   />
+
+  <PuzzleSelect @load-puzzle="onLoadPuzzle" />
 
   <LoadGame
     :error="loadError"

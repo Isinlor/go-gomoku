@@ -8,6 +8,7 @@ import {
   decodeGame,
   type SupportedSize,
   type Player,
+  type Puzzle,
 } from '../engine';
 import type { AIRequest, AIResponse, AIType } from '../worker/ai-worker';
 
@@ -235,6 +236,12 @@ export function useGame(options: UseGameOptions = {}) {
     }
   }
 
+  function loadPuzzle(puzzle: Puzzle): void {
+    blackIsAI.value = false;
+    whiteIsAI.value = false;
+    loadGame(puzzle.encoded);
+  }
+
   function setSize(newSize: SupportedSize): void {
     size.value = newSize;
   }
@@ -297,6 +304,7 @@ export function useGame(options: UseGameOptions = {}) {
     undo,
     playMove,
     loadGame,
+    loadPuzzle,
     setSize,
     onModeChange,
     onAITypeChange,

@@ -1206,4 +1206,31 @@ describe('useGame', () => {
     expect(gameState.boardVersion.value).toBeGreaterThan(versionBefore);
     wrapper.unmount();
   });
+
+  test('loadPuzzle sets both players to human and loads the puzzle position', () => {
+    const worker = createMockWorker();
+    const { gameState, wrapper } = mountWithGame({
+      createWorker: () => worker,
+      getLocationHash: () => '',
+      setLocationHash: () => {},
+    });
+
+    gameState.blackIsAI.value = true;
+    gameState.whiteIsAI.value = true;
+
+    gameState.loadPuzzle({
+      id: 'black-3-3',
+      encoded: 'B9 c5 e3 d5 e4 f5 e6',
+      toMove: BLACK,
+      solution: 'e5',
+      depth: 3,
+      threshold: 3,
+    });
+
+    expect(gameState.blackIsAI.value).toBe(false);
+    expect(gameState.whiteIsAI.value).toBe(false);
+    expect(gameState.game.value.ply).toBe(6);
+    expect(gameState.game.value.toMove).toBe(BLACK);
+    wrapper.unmount();
+  });
 });
