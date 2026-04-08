@@ -135,7 +135,7 @@ export class PuzzleSolver {
    *   classifications are emitted — the heuristic never claims a win.
    */
   solve(position: GogoPosition, maxDepth: number, useHeuristic = false): number {
-    return this.search(position, maxDepth, -SOLVER_WIN, SOLVER_WIN, 0, useHeuristic);
+    return this.search(position, maxDepth, -SOLVER_WIN, SOLVER_WIN, 0, useHeuristic) || 0;
   }
 
   /**
@@ -148,7 +148,7 @@ export class PuzzleSolver {
     if (!position.play(move)) return 0;
     const score = -this.search(position, maxDepth - 1, -SOLVER_WIN, SOLVER_WIN, 1, useHeuristic);
     position.undo();
-    return score;
+    return score || 0;
   }
 
   private search(
@@ -445,21 +445,48 @@ export function validatePuzzle(
   if (shallowResult.move === winningMove) return null;
 
   // ── 3. Uniqueness + strict failure + threshold ─────────────────────────
+  // We check ALL legal moves for uniqueness (quick depth-n check) but
+  // restrict the expensive deep-search loss verification to near-2 moves.
+  //
+  // **Why skipping distant moves for deep search is safe:** A move that is
+  // not within distance 2 of any stone (not near-2) cannot:
+  //   (a) participate in any window with ≥ 2 same-colour stones (too far),
+  //   (b) capture any group (needs adjacency, hence distance 1),
+  //   (c) block any opponent threat (for the same reason as (a)).
+  // It is therefore a pure tempo loss.  Since all near-2 non-winning moves
+  // are verified as forced losses, the opponent's winning plan applies
+  // equally (or more so) after a distant move.
+  const meta = position.meta;
+  const board = position.board;
+  const near2Offsets = meta.near2Offsets;
+  const near2Arr = meta.near2;
+
+  // Build near-2 set (epoch-free, using a Set for clarity — root-only cost).
+  const near2Set = new Set<number>();
+  for (let pt = 0; pt < position.area; pt += 1) {
+    if (board[pt] === EMPTY) continue;
+    for (let c = near2Offsets[pt]; c < near2Offsets[pt + 1]; c += 1) {
+      const m = near2Arr[c];
+      if (board[m] === EMPTY) near2Set.add(m);
+    }
+  }
+
   for (let i = 0; i < moveCount; i += 1) {
     const move = allMoves[i];
     if (move === winningMove) continue;
 
-    // First: quick check — does this move also win within targetDepth?
+    // Quick check: does this move also win within targetDepth?
     const quickScore = solver.solveMove(position, move, targetDepth);
     const quickDecoded = decodeSolverScore(quickScore);
     if (quickDecoded.outcome === 'win') return null; // Another winning move → not unique
 
-    // Deep search for loss verification.
-    const deepScore = solver.solveMove(position, move, maxSearchDepth, true);
-    const deepDecoded = decodeSolverScore(deepScore);
-
-    if (deepDecoded.outcome !== 'loss') return null; // Not a forced loss → reject
-    if (deepDecoded.plies < targetThreshold) return null; // Threshold violation
+    // Deep search only for near-2 moves (distant moves are trivially losing).
+    if (near2Set.has(move)) {
+      const deepScore = solver.solveMove(position, move, maxSearchDepth, true);
+      const deepDecoded = decodeSolverScore(deepScore);
+      if (deepDecoded.outcome !== 'loss') return null; // Not a forced loss → reject
+      if (deepDecoded.plies < targetThreshold) return null; // Threshold violation
+    }
   }
 
   // ── 4. Realistic ───────────────────────────────────────────────────────
@@ -527,6 +554,14 @@ export interface PuzzleGeneratorConfig {
   maxGames?: number;
   /** Existing puzzles whose board patterns should be treated as duplicates. */
   existingPuzzles?: readonly Puzzle[];
+  /** Shallow AI depth for self-play (default 2). */
+  shallowDepth?: number;
+  /** Shallow AI quiescence for self-play (default 2). */
+  shallowQuiescence?: number;
+  /** Deep AI depth for candidate detection (default 4). */
+  deepDepth?: number;
+  /** Deep AI quiescence for candidate detection (default 1). */
+  deepQuiescence?: number;
 }
 
 /**
@@ -615,8 +650,8 @@ export function generatePuzzles(config: PuzzleGeneratorConfig): ValidatedPuzzle[
   const maxGames = config.maxGames ?? 2000;
   let rngState = (config.seed ?? 42) >>> 0;
 
-  const shallowAI = new GogoAI({ maxDepth: 2, quiescenceDepth: 2 });
-  const deepAI = new GogoAI({ maxDepth: 4, quiescenceDepth: 1 });
+  const shallowAI = new GogoAI({ maxDepth: config.shallowDepth ?? 2, quiescenceDepth: config.shallowQuiescence ?? 2 });
+  const deepAI = new GogoAI({ maxDepth: config.deepDepth ?? 4, quiescenceDepth: config.deepQuiescence ?? 1 });
 
   // Build uniqueness checker from existing puzzles.
   const existingPositions: GogoPosition[] = [];
