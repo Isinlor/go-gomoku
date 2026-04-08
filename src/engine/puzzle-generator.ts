@@ -4,6 +4,8 @@ import { BoardUniquenessChecker } from './uniqueness';
 import type { Puzzle } from './puzzles';
 import { GogoAI } from './ai';
 
+const MAX_BOUNDED_MEMO_ENTRIES = 200_000;
+
 type Difficulty = Readonly<{ depth: number; threshold: number }>;
 
 export type ValidationStage =
@@ -38,9 +40,7 @@ export interface CandidateValidationResult extends Difficulty {
 }
 
 interface ProofContext {
-  memo: Map<string, number>;
   boundedMemo: Map<string, boolean>;
-  active: Set<string>;
   stats: ProofStats;
 }
 
@@ -55,9 +55,7 @@ function otherPlayer(player: Player): Player {
 
 function createProofContext(): ProofContext {
   return {
-    memo: new Map<string, number>(),
     boundedMemo: new Map<string, boolean>(),
-    active: new Set<string>(),
     stats: {
       nodesVisited: 0,
       cacheHits: 0,
@@ -79,80 +77,6 @@ function stateKeyBounded(position: GogoPosition, target: Player, remaining: numb
   return `${remaining}|${stateKey(position, target)}`;
 }
 
-function forcedWinDistanceInternal(
-  position: GogoPosition,
-  target: Player,
-  proof: ProofContext,
-  remainingPlies: number,
-): number {
-  proof.stats.nodesVisited += 1;
-  if (position.winner !== EMPTY) {
-    return position.winner === target ? 0 : -1;
-  }
-  if (remainingPlies <= 0) {
-    return -1;
-  }
-
-  const key = `${remainingPlies}|${stateKey(position, target)}`;
-  const cached = proof.memo.get(key);
-  if (cached !== undefined) {
-    proof.stats.cacheHits += 1;
-    return cached;
-  }
-  if (proof.active.has(key)) {
-    return -1;
-  }
-  proof.active.add(key);
-
-  const legal = new Int16Array(position.area);
-  const legalCount = position.generateAllLegalMoves(legal);
-  if (legalCount === 0) {
-    proof.active.delete(key);
-    proof.memo.set(key, -1);
-    return -1;
-  }
-
-  let result = -1;
-  if (position.toMove === target) {
-    let best = Number.POSITIVE_INFINITY;
-    for (let i = 0; i < legalCount; i += 1) {
-      const move = legal[i];
-      if (!position.play(move)) {
-        continue;
-      }
-      const child = forcedWinDistanceInternal(position, target, proof, remainingPlies - 1);
-      position.undo();
-      if (child >= 0 && child + 1 < best) {
-        best = child + 1;
-      }
-    }
-    result = Number.isFinite(best) ? best : -1;
-  } else {
-    let worst = 0;
-    for (let i = 0; i < legalCount; i += 1) {
-      const move = legal[i];
-      if (!position.play(move)) {
-        continue;
-      }
-      const child = forcedWinDistanceInternal(position, target, proof, remainingPlies - 1);
-      position.undo();
-      if (child < 0) {
-        proof.active.delete(key);
-        proof.memo.set(key, -1);
-        return -1;
-      }
-      if (child + 1 > worst) {
-        worst = child + 1;
-      }
-    }
-    result = worst;
-  }
-
-  proof.active.delete(key);
-  proof.memo.set(key, result);
-  return result;
-}
-
 function hasForcedWinWithinInternal(
   position: GogoPosition,
   target: Player,
@@ -172,6 +96,9 @@ function hasForcedWinWithinInternal(
   if (cached !== undefined) {
     proof.stats.cacheHits += 1;
     return cached;
+  }
+  if (proof.boundedMemo.size > MAX_BOUNDED_MEMO_ENTRIES) {
+    proof.boundedMemo.clear();
   }
 
   const legal = new Int16Array(position.area);
@@ -217,8 +144,18 @@ function hasForcedWinWithinInternal(
 
 export function forcedWinDistance(position: GogoPosition, target: Player, maxPlies = 10): number | null {
   const proof = createProofContext();
-  const result = forcedWinDistanceInternal(position, target, proof, maxPlies);
-  return result < 0 ? null : result;
+  if (position.winner === target) {
+    return 0;
+  }
+  for (let plies = 1; plies <= maxPlies; plies += 1) {
+    if (!hasForcedWinWithinInternal(position, target, plies, proof)) {
+      continue;
+    }
+    if (plies === 1 || !hasForcedWinWithinInternal(position, target, plies - 1, proof)) {
+      return plies;
+    }
+  }
+  return null;
 }
 
 export function hasForcedWinWithin(position: GogoPosition, target: Player, maxPlies: number): boolean {
@@ -264,10 +201,12 @@ export function validatePuzzleCandidate(
       continue;
     }
     if (move === solutionMove) {
-      const ownDistance = forcedWinDistanceInternal(position, mover, proof, proofHorizon - 1);
+      const canWinInDepth = hasForcedWinWithinInternal(position, mover, depth - 1, proof);
+      const canWinFaster = depth > 1
+        ? hasForcedWinWithinInternal(position, mover, depth - 2, proof)
+        : false;
       position.undo();
-      const totalDistance = ownDistance < 0 ? -1 : ownDistance + 1;
-      if (totalDistance !== depth) {
+      if (!canWinInDepth || canWinFaster) {
         return {
           valid: false,
           stage: 'unique-solution',
@@ -283,8 +222,8 @@ export function validatePuzzleCandidate(
       continue;
     }
 
-    const ownDistance = forcedWinDistanceInternal(position, mover, proof, proofHorizon - 1);
-    if (ownDistance >= 0) {
+    const ownCanForceFastWin = hasForcedWinWithinInternal(position, mover, depth - 1, proof);
+    if (ownCanForceFastWin) {
       position.undo();
       return {
         valid: false,
@@ -298,13 +237,15 @@ export function validatePuzzleCandidate(
       };
     }
 
-    const opponentDistance = forcedWinDistanceInternal(position, opponent, proof, proofHorizon - 1);
-    position.undo();
-    if (opponentDistance < 0) {
+    const opponentTooFast = threshold > 1
+      ? hasForcedWinWithinInternal(position, opponent, threshold - 1, proof)
+      : false;
+    if (opponentTooFast) {
+      position.undo();
       return {
         valid: false,
-        stage: 'strict-failure',
-        reason: 'A losing branch does not force an eventual opponent win.',
+        stage: 'threshold',
+        reason: `A losing branch allows opponent forced win in fewer than ${threshold} plies.`,
         solutionMove,
         solutionMoveText,
         depth,
@@ -312,11 +253,13 @@ export function validatePuzzleCandidate(
         proofStats: proof.stats,
       };
     }
-    if (opponentDistance < threshold) {
+    const opponentEventuallyWins = hasForcedWinWithinInternal(position, opponent, proofHorizon - 1, proof);
+    position.undo();
+    if (!opponentEventuallyWins) {
       return {
         valid: false,
-        stage: 'threshold',
-        reason: `A losing branch allows opponent forced win in fewer than ${threshold} plies.`,
+        stage: 'strict-failure',
+        reason: 'A losing branch does not force an eventual opponent win.',
         solutionMove,
         solutionMoveText,
         depth,
@@ -405,6 +348,8 @@ export interface PuzzleGeneratorOptions extends Difficulty {
   maxMovesPlayed?: number;
   maxGames?: number;
   randomOpeningPlies?: number;
+  minCandidatePly?: number;
+  maxEmptyCellsForCandidates?: number;
 }
 
 export interface GeneratedPuzzle extends Puzzle {
@@ -423,6 +368,8 @@ export function generatePuzzlesFromSelfPlay(
   const maxMoves = Math.max(1, options.maxMovesPlayed ?? 60);
   const maxGames = Math.max(1, options.maxGames ?? 300);
   const randomOpeningPlies = Math.max(0, options.randomOpeningPlies ?? 8);
+  const minCandidatePly = Math.max(0, options.minCandidatePly ?? 40);
+  const maxEmptyCells = Math.max(1, options.maxEmptyCellsForCandidates ?? 24);
   const shallow = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, maxPly: 48 });
   const deep = new GogoAI({ maxDepth: 4, quiescenceDepth: 1, maxPly: 64 });
   const accepted: GeneratedPuzzle[] = [];
@@ -433,14 +380,26 @@ export function generatePuzzlesFromSelfPlay(
   for (let game = 0; game < maxGames && accepted.length < options.targetCount; game += 1) {
     const position = new GogoPosition(boardSize);
     while (position.winner === EMPTY && position.ply < maxMoves) {
-      if (position.ply >= 8) {
+      if (position.ply >= minCandidatePly && (position.area - position.stoneCount) <= maxEmptyCells) {
         const candidateMove = deep.findBestMove(position, 80).move;
         const shallowMove = shallow.findBestMove(position, 80).move;
         if (candidateMove !== -1 && shallowMove !== candidateMove && position.isLegal(candidateMove)) {
+          const mover = position.toMove;
+          const proof = createProofContext();
+          position.play(candidateMove);
+          const winsInDepth = hasForcedWinWithinInternal(position, mover, Math.max(0, options.depth - 1), proof);
+          const winsFaster = options.depth > 1
+            ? hasForcedWinWithinInternal(position, mover, options.depth - 2, proof)
+            : false;
+          position.undo();
+          if (!winsInDepth || winsFaster) {
+            continue;
+          }
           const validation = validatePuzzleCandidate(position, {
             depth: options.depth,
             threshold: options.threshold,
             solutionMove: candidateMove,
+            proofHorizon: Math.max(options.depth, options.threshold) + 2,
           });
           if (validation.valid) {
             const id = `generated-${options.depth}-${options.threshold}-${accepted.length + 1}`;
