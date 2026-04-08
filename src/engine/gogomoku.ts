@@ -524,6 +524,13 @@ export class GogoPosition {
     this.captureTop = captureStart;
   }
 
+  getMoveAt(ply: number): number {
+    if (ply < 0 || ply >= this.ply) {
+      return -1;
+    }
+    return this.historyMoves[ply];
+  }
+
   encodeGame(): string {
     const moves: string[] = [];
     for (let i = 0; i < this.ply; i += 1) {
