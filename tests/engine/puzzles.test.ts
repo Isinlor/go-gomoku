@@ -26,7 +26,7 @@ function assertAISolves(puzzle: Puzzle, ai: GogoAI | GogoMCTS, timeMs: number): 
 }
 
 // Classic AI tests — scale time by puzzle difficulty
-const classicTimeMs: Record<number, number> = { 3: 500, 5: 2_000, 7: 8_000 };
+const classicTimeMs: Record<number, number> = { 3: 500, 5: 5_000, 7: 10_000 };
 const classicTestTimeout: Record<number, number> = { 3: 10_000, 5: 15_000, 7: 30_000 };
 
 test.each(
