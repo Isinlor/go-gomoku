@@ -265,6 +265,29 @@ export interface VerificationResult {
 }
 
 /**
+ * Check that no position in the game history has a forced 3-ply win
+ * for the moving player.  Returns the ply where the first violation
+ * occurs, or −1 if the history is clean.
+ */
+export function findUnrealisticPly(
+  position: GogoPosition,
+  solver: ExactSolver,
+): number {
+  const tempPos = new GogoPosition(position.size);
+  for (let ply = 0; ply < position.ply; ply += 1) {
+    if (solver.hasForceWin(tempPos, tempPos.toMove, 3)) {
+      return ply;
+    }
+    const moveAtPly = position.getMoveAt(ply);
+    /* istanbul ignore next -- history from a valid game is always replayable */
+    if (!tempPos.play(moveAtPly)) {
+      return ply;
+    }
+  }
+  return -1;
+}
+
+/**
  * Verify that a position is a valid `(n, m)` puzzle.
  *
  * ## Check ordering (cheapest → most expensive)
@@ -398,16 +421,9 @@ export function verifyPuzzle(
 
   /* ── Step 5: Realistic – no forced 3-ply wins in history ── */
   if (checkRealistic) {
-    const tempPos = new GogoPosition(position.size);
-    for (let ply = 0; ply < position.ply; ply += 1) {
-      if (solver.hasForceWin(tempPos, tempPos.toMove, 3)) {
-        return { valid: false, reason: `unrealistic:ply-${ply}` };
-      }
-      const moveAtPly = position.getMoveAt(ply);
-      /* istanbul ignore next -- history from a valid game is always replayable */
-      if (!tempPos.play(moveAtPly)) {
-        return { valid: false, reason: `bad-history:ply-${ply}` };
-      }
+    const badPly = findUnrealisticPly(position, solver);
+    if (badPly >= 0) {
+      return { valid: false, reason: `unrealistic:ply-${badPly}` };
     }
   }
 
@@ -579,7 +595,7 @@ export function scanGameForPuzzles(
  * very cheaply.  Only positions where the AI reports a near-WIN_SCORE
  * result proceed to the expensive exact verification.
  */
-function checkPositionForPuzzle(
+export function checkPositionForPuzzle(
   position: GogoPosition,
   scanner: GogoAI,
   options: GeneratorOptions,
