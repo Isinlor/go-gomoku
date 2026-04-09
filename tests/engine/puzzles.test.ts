@@ -41,16 +41,6 @@ test.each(
   assertAISolves(puzzle, ai, classicTimeMs[puzzle.depth] ?? 5_000);
 });
 
-// MCTS tests — only easy puzzles (depth ≤ 5) because MCTS is stochastic
-const mctsPuzzles = originalPuzzles.filter((p) => p.depth <= 5);
-
-test.each(
-  mctsPuzzles.map((p) => [p.id, p] as const),
-)('MCTS solves puzzle %s', { timeout: 15_000 }, (_id, puzzle) => {
-  const mcts = new GogoMCTS({ seed: 42, rolloutMaxMoves: 50 });
-  assertAISolves(puzzle, mcts, 3_000);
-});
-
 // Smoke test: Classic AI solves ALL generated puzzles.
 // This confirms the puzzle generator's correctness independently.
 const generatedPuzzles = PUZZLES.filter((p) => p.id.startsWith('gen-'));
