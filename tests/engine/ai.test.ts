@@ -238,6 +238,21 @@ test('searchRoot skips moves that are in the rejectedMoves set', () => {
   const result = anyAI.searchRoot(pos, 1, -1, rejected);
   expect(result.move).not.toBe(-1);
   expect(result.move).not.toBe(baseline.move);
+
+  // When all candidate moves are rejected, searchRoot returns move -1
+  const allRejectedAI = new GogoAI({ maxDepth: 1, now: () => 0 });
+  const anyAllRejected = allRejectedAI as any;
+  anyAllRejected.ensureBuffers(81);
+  anyAllRejected.deadline = Infinity;
+  anyAllRejected.nodesVisited = 0;
+  // Generate a single-candidate position and reject that candidate
+  anyAllRejected.generateOrderedMoves = (_p: any, moves: Int16Array) => { moves[0] = 5; return 1; };
+  anyAllRejected.generateFullBoardMoves = () => 0;
+  const fakePos = new GogoPosition(9);
+  fakePos.winner = EMPTY;
+  const allRejected = anyAllRejected.searchRoot(fakePos, 1, -1, new Set([5]));
+  expect(allRejected.move).toBe(-1);
+  expect(allRejected.score).toBe(0);
 });
 
 test('AI rethrows unexpected root errors instead of masking them as timeouts', () => {
