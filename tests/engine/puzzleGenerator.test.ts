@@ -190,14 +190,9 @@ test('heuristicBestMove returns a legal move', () => {
   expect(pos.isLegal(best)).toBe(true);
 });
 
-test('heuristicBestMove returns -1 for empty board edge case', () => {
-  // On a board where all squares are occupied (winner already set)
+test('heuristicBestMove returns a valid move on a fresh board', () => {
   const pos = new GogoPosition(9);
-  pos.winner = BLACK;
-  // All moves are illegal when game is over, but heuristicBestMove checks board
-  // Actually the function iterates empty squares, so with an empty board + no winner:
-  const pos2 = new GogoPosition(9);
-  const best = heuristicBestMove(pos2);
+  const best = heuristicBestMove(pos);
   expect(best).toBeGreaterThanOrEqual(0); // Should return some move
 });
 

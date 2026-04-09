@@ -29,7 +29,9 @@ function assertAISolves(puzzle: Puzzle, ai: GogoAI | GogoMCTS, timeMs: number): 
 const classicTimeMs: Record<number, number> = { 3: 500, 5: 2_000, 7: 8_000 };
 
 // Only test original (hand-crafted) puzzles with the AI solvers to keep the
-// test suite fast.  Generated puzzles are validated by the generator itself.
+// test suite fast.  Generated puzzles are validated by the generator itself
+// (ForcedWinSearcher proves correctness); a few beginner ones are also
+// spot-checked with the Classic AI below (lines 55-62).
 const originalPuzzles = PUZZLES.filter((p) => !p.id.startsWith('gen-'));
 
 test.each(
