@@ -15,7 +15,8 @@
     "archive": "git archive -o latest-code.zip HEAD",
     "patch": "git format-patch --root master --stdout > latest-code.patch",
     "latest-code": "npm run archive && npm run patch",
-    "test:e2e": "npx playwright test"
+    "test:e2e": "npx playwright test",
+    "test:puzzles": "vitest run tests/engine/puzzles.test.ts"
   },
   "keywords": [],
   "author": "",

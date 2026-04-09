@@ -1,6 +1,6 @@
 import { test, expect } from 'vitest';
 
-import { BLACK, EMPTY, GogoPosition, WHITE, playerName, encodeMove, decodeMove, decodeGame } from '../../src/engine';
+import { BLACK, EMPTY, GogoPosition, WHITE, playerName, encodeMove, decodeMove, decodeGame, getPuzzleById } from '../../src/engine';
 
 function position(rows: string[], toMove = BLACK, options = {}) {
   return GogoPosition.fromAscii(rows, toMove, options);
@@ -381,4 +381,13 @@ test('decodeGame throws on invalid board size token, unrecognised move, and ille
   expect(() => decodeGame('B10 e5')).toThrow(/Invalid board size token/);
   expect(() => decodeGame('B9 z1')).toThrow(/Invalid move/);
   expect(() => decodeGame('B9 e5 e5')).toThrow(/Illegal move/);
+});
+
+test('getPuzzleById returns the correct puzzle or undefined', () => {
+  const found = getPuzzleById('black-3-3');
+  expect(found).toBeDefined();
+  expect(found!.id).toBe('black-3-3');
+  expect(found!.solution).toBe('e5');
+
+  expect(getPuzzleById('nonexistent')).toBeUndefined();
 });

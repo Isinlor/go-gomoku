@@ -18,3 +18,5 @@ jobs:
         run: make install
       - name: Test with coverage
         run: npm run coverage
+      - name: Run puzzle functional tests
+        run: npm run test:puzzles
