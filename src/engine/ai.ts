@@ -87,15 +87,19 @@ export class GogoAI {
     let completedDepth = 0;
     let hintMove = fallbackMove;
     const startPly = position.ply;
+    const losingMoves = new Set<number>();
 
     for (let depth = 1; depth <= this.maxDepth; depth += 1) {
       try {
-        const result = this.searchRoot(position, depth, hintMove);
+        const result = this.searchRoot(position, depth, hintMove, losingMoves);
         if (result.move !== -1) {
           bestMove = result.move;
           bestScore = result.score;
           hintMove = result.move;
           completedDepth = depth;
+          if (bestScore > WIN_SCORE >> 1) {
+            break;
+          }
         }
       } catch (error) {
         if (error !== this.timeoutSignal) {
@@ -159,7 +163,7 @@ export class GogoAI {
     return -1;
   }
 
-  private searchRoot(position: GogoPosition, depth: number, hintMove: number): SearchResult {
+  private searchRoot(position: GogoPosition, depth: number, hintMove: number, losingMoves = new Set<number>()): SearchResult {
     this.checkTime(true);
     const moves = this.moveBuffers[0];
     const scores = this.scoreBuffers[0];
@@ -170,10 +174,15 @@ export class GogoAI {
     let bestMove = -1;
     let bestScore = -WIN_SCORE;
     let legalCount = 0;
+    let skippedAsLosing = 0;
 
     for (;;) {
       for (let i = 0; i < count; i += 1) {
         const move = moves[i];
+        if (losingMoves.has(move)) {
+          skippedAsLosing += 1;
+          continue;
+        }
         if (!position.play(move)) {
           continue;
         }
@@ -184,6 +193,9 @@ export class GogoAI {
         } finally {
           position.undo();
         }
+        if (score < -(WIN_SCORE >> 1)) {
+          losingMoves.add(move);
+        }
         if (score > bestScore) {
           bestScore = score;
           bestMove = move;
@@ -192,7 +204,7 @@ export class GogoAI {
           alpha = score;
         }
       }
-      if (legalCount !== 0 || usedFullBoard) {
+      if (legalCount !== 0 || skippedAsLosing !== 0 || usedFullBoard) {
         break;
       }
       count = this.generateFullBoardMoves(position, moves, scores, hintMove, false);

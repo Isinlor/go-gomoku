@@ -759,6 +759,113 @@ test('MCTS findBestMove defensive branches: play-fail and terminal-node paths', 
   expect(r5.depth > 77).toBeTruthy();
 });
 
+test('AI terminates iterative deepening early when it finds a winning forcing sequence', () => {
+  // BLACK has four in a row; playing the 5th stone wins immediately.
+  // At depth=1 the score is WIN_SCORE - 1 > WIN_SCORE >> 1, so the loop must break.
+  const winning = rawPosition([
+    'XXXX.....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  const ai = new GogoAI({ maxDepth: 6, quiescenceDepth: 2, now: () => 0 });
+  const result = ai.findBestMove(winning, 10000);
+  expect(result.move).toBe(winning.index(4, 0));
+  // Score must exceed WIN_SCORE >> 1 (500_000_000) to confirm forced-win detection.
+  expect(result.score > 500_000_000).toBeTruthy();
+  // Loop broke after depth 1, not after all 6 depths.
+  expect(result.depth).toBe(1);
+});
+
+test('AI searchRoot marks forced-loss moves in losingMoves and skips them on subsequent calls', () => {
+  const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+
+  // WHITE has two independent four-in-a-row threats on opposite corners.
+  // BLACK cannot block both simultaneously, so every BLACK move leaves at
+  // least one WHITE winning threat open - a truly lost position for BLACK.
+  // Every ordered candidate therefore leads to WHITE winning in quiescence,
+  // scoring < -(WIN_SCORE >> 1) and getting added to losingMoves.
+  const pos = rawPosition([
+    'OOOO.....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.....OOOO',
+  ], BLACK);
+  anyAI.ensureBuffers(pos.area);
+  anyAI.deadline = 1; // now()=0 < deadline=1, no timeout
+
+  // Capture how many ordered candidates exist before the search.
+  const candidateMoves = new Int16Array(pos.area);
+  const candidateScores = new Int32Array(pos.area);
+  const candidateCount = anyAI.generateOrderedMoves(pos, candidateMoves, candidateScores, -1, false);
+
+  const losingMoves = new Set<number>();
+
+  // Depth-1: all BLACK moves lead to WHITE winning immediately.
+  // Since the first evaluated move is also a forced loss, alpha stays near -WIN_SCORE
+  // throughout, giving every subsequent move a full search window and ensuring all
+  // are detected as forced losses and recorded.
+  anyAI.searchRoot(pos, 1, -1, losingMoves);
+  expect(losingMoves.size).toBe(candidateCount);
+
+  // Depth-2: every ordered candidate is in losingMoves and gets skipped.
+  // skippedAsLosing prevents the full-board fallback, so move=-1 is returned.
+  const result2 = anyAI.searchRoot(pos, 2, -1, losingMoves);
+  expect(result2.move).toBe(-1);
+});
+
+test('AI searchRoot skips all ordered candidates in losingMoves without falling back to full-board search', () => {
+  const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+
+  const pos = rawPosition([
+    '.........',
+    '.........',
+    '.........',
+    '....X....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  anyAI.ensureBuffers(pos.area);
+  anyAI.deadline = 1;
+
+  // Pre-populate losingMoves with every ordered candidate.
+  const moves = new Int16Array(81);
+  const scores = new Int32Array(81);
+  const count = anyAI.generateOrderedMoves(pos, moves, scores, -1, false);
+  const losingMoves = new Set<number>();
+  for (let i = 0; i < count; i += 1) {
+    losingMoves.add(moves[i]);
+  }
+
+  // Replace generateFullBoardMoves so we can detect if it is called.
+  let fullBoardCalled = false;
+  anyAI.generateFullBoardMoves = (...args: unknown[]) => {
+    fullBoardCalled = true;
+    return 0;
+  };
+
+  const result = anyAI.searchRoot(pos, 1, -1, losingMoves);
+  // Every candidate was skipped → no legal move evaluated.
+  expect(result.move).toBe(-1);
+  // The skippedAsLosing branch must have prevented the full-board fallback.
+  expect(fullBoardCalled).toBe(false);
+});
+
 test('MCTS backpropagation credits wins from each node player perspective, not just root', () => {
   // The backpropagation loop currently credits wins only when winner === rootPlayer
   // for all nodes in the path. This makes opponent-turn nodes prefer moves that help
