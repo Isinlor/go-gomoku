@@ -96,6 +96,9 @@ export class GogoAI {
           bestScore = result.score;
           hintMove = result.move;
           completedDepth = depth;
+          if (this.isForcedWinScore(result.score, depth)) {
+            break;
+          }
         }
       } catch (error) {
         if (error !== this.timeoutSignal) {
@@ -131,6 +134,10 @@ export class GogoAI {
     this.candidateEpoch = 1;
     this.scorerGroupMarks = new Uint32Array(area);
     this.scorerGroupEpoch = 1;
+  }
+
+  private isForcedWinScore(score: number, depth: number): boolean {
+    return score >= WIN_SCORE - depth;
   }
 
   private pickFallbackMove(position: GogoPosition): number {
