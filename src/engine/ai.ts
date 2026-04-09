@@ -6,6 +6,7 @@ export interface SearchResult {
   depth: number;
   nodes: number;
   timedOut: boolean;
+  forcedWin: boolean;
 }
 
 export interface GogoAIOptions {
@@ -74,12 +75,12 @@ export class GogoAI {
     this.timedOut = false;
 
     if (position.winner !== EMPTY) {
-      return { move: -1, score: -WIN_SCORE, depth: 0, nodes: 0, timedOut: false };
+      return { move: -1, score: -WIN_SCORE, depth: 0, nodes: 0, timedOut: false, forcedWin: false };
     }
 
     const fallbackMove = this.pickFallbackMove(position);
     if (fallbackMove === -1 || this.now() >= this.deadline) {
-      return { move: fallbackMove, score: 0, depth: 0, nodes: 0, timedOut: fallbackMove !== -1 };
+      return { move: fallbackMove, score: 0, depth: 0, nodes: 0, timedOut: fallbackMove !== -1, forcedWin: false };
     }
 
     let bestMove = fallbackMove;
@@ -115,6 +116,7 @@ export class GogoAI {
       depth: completedDepth,
       nodes: this.nodesVisited,
       timedOut: this.timedOut,
+      forcedWin: this.isForcedWinScore(bestScore, completedDepth),
     };
   }
 
@@ -207,9 +209,9 @@ export class GogoAI {
     }
 
     if (legalCount === 0) {
-      return { move: -1, score: 0, depth, nodes: this.nodesVisited, timedOut: false };
+      return { move: -1, score: 0, depth, nodes: this.nodesVisited, timedOut: false, forcedWin: false };
     }
-    return { move: bestMove, score: bestScore, depth, nodes: this.nodesVisited, timedOut: false };
+    return { move: bestMove, score: bestScore, depth, nodes: this.nodesVisited, timedOut: false, forcedWin: false };
   }
 
   private search(position: GogoPosition, depth: number, alpha: number, beta: number, ply: number): number {
@@ -563,26 +565,26 @@ export class GogoMCTS {
     this.ensureBuffers(position.area);
     this.nodesVisited = 0;
     if (position.winner !== EMPTY) {
-      return { move: -1, score: -WIN_SCORE, depth: 0, nodes: 0, timedOut: false };
+      return { move: -1, score: -WIN_SCORE, depth: 0, nodes: 0, timedOut: false, forcedWin: false };
     }
 
     if (position.stoneCount === 0) {
       const center = position.index(position.size >> 1, position.size >> 1);
-      return { move: center, score: 0, depth: 0, nodes: 0, timedOut: false };
+      return { move: center, score: 0, depth: 0, nodes: 0, timedOut: false, forcedWin: false };
     }
 
     const immediateWin = this.findImmediateWin(position, position.toMove);
     if (immediateWin !== -1) {
-      return { move: immediateWin, score: WIN_SCORE, depth: 1, nodes: 1, timedOut: false };
+      return { move: immediateWin, score: WIN_SCORE, depth: 1, nodes: 1, timedOut: false, forcedWin: true };
     }
     const forcedBlock = this.findImmediateWin(position, otherPlayer(position.toMove));
     if (forcedBlock !== -1 && position.isLegal(forcedBlock)) {
-      return { move: forcedBlock, score: WIN_SCORE >> 1, depth: 1, nodes: 1, timedOut: false };
+      return { move: forcedBlock, score: WIN_SCORE >> 1, depth: 1, nodes: 1, timedOut: false, forcedWin: false };
     }
 
     const fallback = this.pickFallbackMove(position);
     if (fallback === -1) {
-      return { move: -1, score: 0, depth: 0, nodes: 0, timedOut: false };
+      return { move: -1, score: 0, depth: 0, nodes: 0, timedOut: false, forcedWin: false };
     }
 
     const deadline = this.now() + Math.max(0, timeLimitMs);
@@ -676,7 +678,7 @@ export class GogoMCTS {
     }
 
     if (root.children.length === 0) {
-      return { move: fallback, score: 0, depth: 0, nodes: this.nodesVisited, timedOut: true };
+      return { move: fallback, score: 0, depth: 0, nodes: this.nodesVisited, timedOut: true, forcedWin: false };
     }
     let best = root.children[0];
     for (let i = 1; i < root.children.length; i += 1) {
@@ -695,7 +697,7 @@ export class GogoMCTS {
     }
     /* v8 ignore next -- best always has visits >= 1 after backprop */
     const score = best.visits === 0 ? 0 : Math.round((best.wins / best.visits) * 100_000);
-    return { move: best.move, score, depth: iterations, nodes: this.nodesVisited, timedOut: this.now() >= deadline };
+    return { move: best.move, score, depth: iterations, nodes: this.nodesVisited, timedOut: this.now() >= deadline, forcedWin: false };
   }
 
   private ensureBuffers(area: number): void {

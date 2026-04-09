@@ -109,6 +109,7 @@ test('AI iterative deepening exits early once a forced win is proven at the root
   expect(result.depth).toBe(1);
   expect(result.score).toBeGreaterThanOrEqual(1000000000 - 1);
   expect(result.nodes).toBeLessThan(40);
+  expect(result.forcedWin).toBe(true);
 });
 
 test('AI restores position state after a mid-search timeout so the board is not corrupted', () => {
