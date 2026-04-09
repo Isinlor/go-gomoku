@@ -33,10 +33,21 @@ const LOCAL_LIBERTY_WEIGHTS = [-200, -80, 20, 60, 80] as const;
 const TACTICAL_PATTERN_THRESHOLD = ATTACK_WEIGHTS[4];
 const CENTER_MULTIPLIER = 3;
 const HINT_BONUS = 10_000_000;
+const KILLER_BONUS = 5_000_000;
 const HISTORY_SCALE = 1;
 const CAPTURE_BONUS = 5_000;
 const ESCAPE_BONUS = 3_500;
 const NO_SCORE = Number.NEGATIVE_INFINITY;
+
+// Transposition table flag types
+const TT_EXACT = 0;
+const TT_LOWER = 1; // beta cutoff (score >= beta)
+const TT_UPPER = 2; // fail low (score <= alpha)
+
+// TT entry layout in Int32Array: [hash, move, depthAndFlag, score]
+const TT_ENTRY_SIZE = 4;
+const TT_SIZE = 1 << 20; // 1M entries (~16MB)
+const TT_MASK = TT_SIZE - 1;
 
 function otherPlayer(player: Player): Player {
   return player === BLACK ? WHITE : BLACK;
@@ -61,6 +72,13 @@ export class GogoAI {
   private timedOut = false;
   private readonly timeoutSignal = new Error('SEARCH_TIMEOUT');
 
+  // Transposition table
+  private tt = new Int32Array(TT_SIZE * TT_ENTRY_SIZE);
+
+  // Killer moves: 2 killer moves per ply
+  private killers: Int16Array = new Int16Array(0);
+  private searchPly = 0;
+
   constructor(options: GogoAIOptions = {}) {
     this.maxDepth = Math.max(1, options.maxDepth ?? 6);
     this.quiescenceDepth = Math.max(0, options.quiescenceDepth ?? 6);
@@ -71,6 +89,7 @@ export class GogoAI {
   findBestMove(position: GogoPosition, timeLimitMs: number): SearchResult {
     this.ensureBuffers(position.area);
     this.history.fill(0);
+    this.killers.fill(-1);
     this.deadline = this.now() + Math.max(0, timeLimitMs);
     this.nodesVisited = 0;
     this.timedOut = false;
@@ -154,6 +173,9 @@ export class GogoAI {
     this.candidateEpoch = 1;
     this.scorerGroupMarks = new Uint32Array(area);
     this.scorerGroupEpoch = 1;
+    this.killers = new Int16Array((this.maxPly + 1) * 2);
+    this.killers.fill(-1);
+    this.tt.fill(0);
   }
 
   private isForcedWinScore(score: number, depth: number): boolean {
@@ -162,6 +184,99 @@ export class GogoAI {
 
   private isForcedLossScore(score: number, depth: number): boolean {
     return score <= -WIN_SCORE + depth;
+  }
+
+  // Transposition table: probe
+  private ttProbe(hash: number, depth: number, alpha: number, beta: number): { score: number; move: number; hit: boolean } {
+    const index = (hash & TT_MASK) * TT_ENTRY_SIZE;
+    const storedHash = this.tt[index];
+    if (storedHash !== hash) {
+      return { score: 0, move: -1, hit: false };
+    }
+    const storedMove = this.tt[index + 1];
+    const depthAndFlag = this.tt[index + 2];
+    const storedDepth = depthAndFlag >> 2;
+    const flag = depthAndFlag & 3;
+    const storedScore = this.tt[index + 3];
+
+    if (storedDepth >= depth) {
+      if (flag === TT_EXACT) {
+        return { score: storedScore, move: storedMove, hit: true };
+      }
+      if (flag === TT_LOWER && storedScore >= beta) {
+        return { score: storedScore, move: storedMove, hit: true };
+      }
+      if (flag === TT_UPPER && storedScore <= alpha) {
+        return { score: storedScore, move: storedMove, hit: true };
+      }
+    }
+    // Return the best move even if depth is insufficient for cutoff
+    return { score: 0, move: storedMove, hit: false };
+  }
+
+  // Transposition table: store
+  private ttStore(hash: number, depth: number, score: number, flag: number, move: number): void {
+    const index = (hash & TT_MASK) * TT_ENTRY_SIZE;
+    // Always replace (simple replacement scheme)
+    this.tt[index] = hash;
+    this.tt[index + 1] = move;
+    this.tt[index + 2] = (depth << 2) | flag;
+    this.tt[index + 3] = score;
+  }
+
+  // Store killer move at a given ply
+  private storeKiller(ply: number, move: number): void {
+    const base = ply * 2;
+    if (this.killers[base] !== move) {
+      this.killers[base + 1] = this.killers[base];
+      this.killers[base] = move;
+    }
+  }
+
+  // Check if the current player can win immediately (5 in a row)
+  private findImmediateWin(position: GogoPosition): number {
+    const player = position.toMove;
+    const meta = position.meta;
+    const board = position.board;
+    const windowsByPoint = meta.windowsByPoint;
+    const windowOffsets = meta.windowsByPointOffsets;
+    const windows = meta.windows;
+    const near2 = meta.near2;
+    const near2Offsets = meta.near2Offsets;
+    this.candidateEpoch += 1;
+
+    for (let point = 0; point < position.area; point += 1) {
+      if (board[point] === EMPTY) {
+        continue;
+      }
+      for (let cursor = near2Offsets[point]; cursor < near2Offsets[point + 1]; cursor += 1) {
+        const move = near2[cursor];
+        if (board[move] !== EMPTY || move === position.koPoint || this.candidateMarks[move] === this.candidateEpoch) {
+          continue;
+        }
+        this.candidateMarks[move] = this.candidateEpoch;
+        // Check if placing here completes 5 for player
+        for (let wCursor = windowOffsets[move]; wCursor < windowOffsets[move + 1]; wCursor += 1) {
+          const windowIndex = windowsByPoint[wCursor];
+          const base = windowIndex * 5;
+          let mine = 0;
+          let opponent = 0;
+          for (let step = 0; step < 5; step += 1) {
+            const cell = board[windows[base + step]];
+            if (cell === player) { mine += 1; }
+            else if (cell !== EMPTY) { opponent += 1; }
+          }
+          if (mine === 4 && opponent === 0) {
+            // Verify the move is legal
+            if (position.play(move)) {
+              position.undo();
+              return move;
+            }
+          }
+        }
+      }
+    }
+    return -1;
   }
 
   private pickFallbackMove(position: GogoPosition): number {
@@ -191,13 +306,30 @@ export class GogoAI {
   }
 
   private searchRoot(position: GogoPosition, depth: number, hintMove: number): SearchResult {
+    return this.searchRootWindow(position, depth, hintMove, -WIN_SCORE, WIN_SCORE);
+  }
+
+  private searchRootWindow(position: GogoPosition, depth: number, hintMove: number, alphaIn: number, betaIn: number): SearchResult {
     this.checkTime(true);
+    this.searchPly = 0;
+
+    // Check for immediate win
+    const winMove = this.findImmediateWin(position);
+    if (winMove !== -1) {
+      return { move: winMove, score: WIN_SCORE - 1, depth, nodes: this.nodesVisited, timedOut: false, forcedWin: false, forcedLoss: false };
+    }
+
+    // Probe TT for best move hint
+    const ttResult = this.ttProbe(position.hash, depth, alphaIn, betaIn);
+    const ttMove = ttResult.move;
+    const effectiveHint = ttMove !== -1 ? ttMove : hintMove;
+
     const moves = this.moveBuffers[0];
     const scores = this.scoreBuffers[0];
-    let count = this.generateOrderedMoves(position, moves, scores, hintMove, false);
+    let count = this.generateOrderedMoves(position, moves, scores, effectiveHint, false);
     let usedFullBoard = false;
-    let alpha = -WIN_SCORE;
-    const beta = WIN_SCORE;
+    let alpha = alphaIn;
+    const beta = betaIn;
     let bestMove = -1;
     let bestScore = -WIN_SCORE;
     let legalCount = 0;
@@ -211,7 +343,15 @@ export class GogoAI {
         legalCount += 1;
         let score = 0;
         try {
-          score = -this.search(position, depth - 1, -beta, -alpha, 1);
+          // PVS: after first move, search with null window
+          if (legalCount === 1) {
+            score = -this.search(position, depth - 1, -beta, -alpha, 1);
+          } else {
+            score = -this.search(position, depth - 1, -alpha - 1, -alpha, 1);
+            if (score > alpha && score < beta) {
+              score = -this.search(position, depth - 1, -beta, -alpha, 1);
+            }
+          }
         } finally {
           position.undo();
         }
@@ -226,13 +366,16 @@ export class GogoAI {
       if (legalCount !== 0 || usedFullBoard) {
         break;
       }
-      count = this.generateFullBoardMoves(position, moves, scores, hintMove, false);
+      count = this.generateFullBoardMoves(position, moves, scores, effectiveHint, false);
       usedFullBoard = true;
     }
 
     if (legalCount === 0) {
       return { move: -1, score: 0, depth, nodes: this.nodesVisited, timedOut: false, forcedWin: false, forcedLoss: false };
     }
+
+    // Store in TT
+    this.ttStore(position.hash, depth, bestScore, TT_EXACT, bestMove);
     return { move: bestMove, score: bestScore, depth, nodes: this.nodesVisited, timedOut: false, forcedWin: false, forcedLoss: false };
   }
 
@@ -245,12 +388,48 @@ export class GogoAI {
       return this.quiescence(position, alpha, beta, ply, this.quiescenceDepth);
     }
 
+    const originalAlpha = alpha;
+    const hash = position.hash;
+
+    // Transposition table probe
+    const ttResult = this.ttProbe(hash, depth, alpha, beta);
+    if (ttResult.hit) {
+      return ttResult.score;
+    }
+    const ttMove = ttResult.move; // may be -1 if no entry
+
+    // Null move pruning: skip our turn and do a reduced search
+    // If even skipping a turn doesn't drop below beta, the position is so good
+    // we can prune. Only in non-PV nodes, at sufficient depth, and not in
+    // confirmed mate-score ranges where NMP might miss forced wins.
+    if (depth >= 3 && beta - alpha === 1) {
+      // Null move: switch sides without playing
+      const savedToMove = position.toMove;
+      const savedKo = position.koPoint;
+      const savedHash = position.hash;
+      position.toMove = position.toMove === BLACK ? WHITE : BLACK;
+      position.koPoint = -1;
+      position.hash ^= position.meta.zobristToMove;
+
+      const nullScore = -this.search(position, depth - 3, -beta, -beta + 1, ply + 1);
+
+      position.toMove = savedToMove;
+      position.koPoint = savedKo;
+      position.hash = savedHash;
+
+      if (nullScore >= beta) {
+        return beta;
+      }
+    }
+
+    this.searchPly = ply;
     const moves = this.moveBuffers[ply];
     const scores = this.scoreBuffers[ply];
-    let count = this.generateOrderedMoves(position, moves, scores, -1, false);
+    let count = this.generateOrderedMoves(position, moves, scores, ttMove, false);
     let usedFullBoard = false;
     let legalCount = 0;
     let bestScore = -WIN_SCORE;
+    let bestMove = -1;
 
     for (;;) {
       for (let i = 0; i < count; i += 1) {
@@ -261,17 +440,41 @@ export class GogoAI {
         legalCount += 1;
         let score = 0;
         try {
-          score = -this.search(position, depth - 1, -beta, -alpha, ply + 1);
+          let needFullSearch = true;
+
+          // Late Move Reductions: reduce depth for later moves in non-PV nodes
+          if (legalCount > 3 && depth >= 3 && beta - alpha === 1 &&
+              position.winner === EMPTY && position.lastCapturedCount === 0) {
+            // Try a reduced depth search
+            score = -this.search(position, depth - 2, -alpha - 1, -alpha, ply + 1);
+            needFullSearch = score > alpha;
+          }
+
+          if (needFullSearch) {
+            // PVS: after first move, try null window first
+            if (legalCount === 1) {
+              score = -this.search(position, depth - 1, -beta, -alpha, ply + 1);
+            } else {
+              score = -this.search(position, depth - 1, -alpha - 1, -alpha, ply + 1);
+              if (score > alpha && score < beta) {
+                score = -this.search(position, depth - 1, -beta, -alpha, ply + 1);
+              }
+            }
+          }
         } finally {
           position.undo();
         }
         if (score > bestScore) {
           bestScore = score;
+          bestMove = move;
         }
         if (score > alpha) {
           alpha = score;
           if (alpha >= beta) {
             this.history[(position.toMove - 1) * this.bufferArea + move] += depth * depth * HISTORY_SCALE;
+            this.storeKiller(ply, move);
+            // Store as lower bound in TT
+            this.ttStore(hash, depth, score, TT_LOWER, move);
             return score;
           }
         }
@@ -279,11 +482,18 @@ export class GogoAI {
       if (legalCount !== 0 || usedFullBoard) {
         break;
       }
-      count = this.generateFullBoardMoves(position, moves, scores, -1, false);
+      count = this.generateFullBoardMoves(position, moves, scores, ttMove, false);
       usedFullBoard = true;
     }
 
-    return legalCount === 0 ? 0 : bestScore;
+    if (legalCount === 0) {
+      return 0;
+    }
+
+    // Store result in TT
+    const flag = bestScore <= originalAlpha ? TT_UPPER : TT_EXACT;
+    this.ttStore(hash, depth, bestScore, flag, bestMove);
+    return bestScore;
   }
 
   private quiescence(position: GogoPosition, alpha: number, beta: number, ply: number, remainingDepth: number): number {
@@ -530,6 +740,11 @@ export class GogoAI {
     if (move === hintMove) {
       score += HINT_BONUS;
     }
+    // Killer move bonus
+    const killerBase = this.searchPly * 2;
+    if (move === this.killers[killerBase] || move === this.killers[killerBase + 1]) {
+      score += KILLER_BONUS;
+    }
     return score;
   }
 
@@ -542,6 +757,27 @@ export class GogoAI {
     }
     moves[index] = move;
     scores[index] = score;
+  }
+
+  // Swap the highest-scored move in [start..count) to position start
+  private pickBestToFront(moves: Int16Array, scores: Int32Array, start: number, count: number): void {
+    let bestIdx = start;
+    let bestScore = scores[start];
+    for (let i = start + 1; i < count; i += 1) {
+      if (scores[i] > bestScore) {
+        bestScore = scores[i];
+        bestIdx = i;
+      }
+    }
+    if (bestIdx !== start) {
+      // Swap
+      const tmpMove = moves[start];
+      const tmpScore = scores[start];
+      moves[start] = moves[bestIdx];
+      scores[start] = scores[bestIdx];
+      moves[bestIdx] = tmpMove;
+      scores[bestIdx] = tmpScore;
+    }
   }
 
   private checkTime(force: boolean): void {
