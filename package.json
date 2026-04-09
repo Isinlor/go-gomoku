@@ -12,6 +12,7 @@
     "test": "vitest run",
     "coverage": "vitest run --coverage",
     "check": "npm run coverage",
+    "benchmark:puzzles": "vitest run --config vitest.benchmark.config.ts --reporter=verbose",
     "archive": "git archive -o latest-code.zip HEAD",
     "patch": "git format-patch --root master --stdout > latest-code.patch",
     "latest-code": "npm run archive && npm run patch",

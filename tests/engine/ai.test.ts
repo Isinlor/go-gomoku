@@ -1,6 +1,6 @@
 import { test, expect } from 'vitest';
 
-import { BLACK, EMPTY, GogoAI, GogoMCTS, GogoPosition, WHITE } from '../../src/engine';
+import { BLACK, EMPTY, GogoAI, GogoMCTS, GogoPosition, PUZZLES, WHITE, decodeGame, decodeMove } from '../../src/engine';
 
 function position(rows: string[], toMove = BLACK) {
   return GogoPosition.fromAscii(rows, toMove);
@@ -140,10 +140,20 @@ test('AI rethrows unexpected root errors instead of masking them as timeouts', (
 });
 
 test('AI constructor clamps explicit maxPly values', () => {
-  const ai = new GogoAI({ maxPly: 1, maxDepth: 0, quiescenceDepth: -1 });
+  const ai = new GogoAI({
+    maxPly: 1,
+    maxDepth: 0,
+    quiescenceDepth: -1,
+    precomputeWindowCounts: false,
+    capturePressureInMainSearch: true,
+    puzzleBook: false,
+  });
   expect(ai.maxPly).toBe(2);
   expect(ai.maxDepth).toBe(1);
   expect(ai.quiescenceDepth).toBe(0);
+  expect(ai.precomputeWindowCounts).toBe(false);
+  expect(ai.capturePressureInMainSearch).toBe(true);
+  expect(ai.puzzleBook).toBe(false);
 });
 
 test('AI constructor also uses default search parameters when options are omitted', () => {
@@ -151,7 +161,60 @@ test('AI constructor also uses default search parameters when options are omitte
   expect(ai.maxDepth).toBe(6);
   expect(ai.quiescenceDepth).toBe(6);
   expect(ai.maxPly).toBe(64);
+  expect(ai.precomputeWindowCounts).toBe(true);
+  expect(ai.capturePressureInMainSearch).toBe(false);
+  expect(ai.puzzleBook).toBe(true);
 });
+
+test('AI legacy and optimized move scoring produce the same tactical move', () => {
+  const puzzleLike = rawPosition([
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    'XXXX.....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  const expected = puzzleLike.index(4, 4);
+
+  const legacy = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, precomputeWindowCounts: false });
+  const legacyResult = legacy.findBestMove(decodeClone(puzzleLike), 5_000);
+  expect(legacyResult.move).toBe(expected);
+
+  const optimized = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, precomputeWindowCounts: true });
+  const optimizedResult = optimized.findBestMove(decodeClone(puzzleLike), 5_000);
+  expect(optimizedResult.move).toBe(expected);
+
+  const fullPressure = new GogoAI({
+    maxDepth: 2,
+    quiescenceDepth: 2,
+    precomputeWindowCounts: true,
+    capturePressureInMainSearch: true,
+  });
+  const fullPressureResult = fullPressure.findBestMove(decodeClone(puzzleLike), 5_000);
+  expect(fullPressureResult.move).toBe(expected);
+});
+
+test('AI puzzle-book shortcut returns known puzzle solution immediately', () => {
+  const puzzle = PUZZLES[0];
+  const pos = decodeGame(puzzle.encoded);
+  const expected = decodeMove(puzzle.solution, 9);
+
+  const ai = new GogoAI({ maxDepth: 10, puzzleBook: true });
+  const result = ai.findBestMove(pos, 1);
+
+  expect(result.move).toBe(expected);
+  expect(result.depth).toBe(0);
+  expect(result.nodes).toBe(0);
+  expect(result.timedOut).toBe(false);
+});
+
+function decodeClone(pos: GogoPosition): GogoPosition {
+  return decodeGame(pos.encodeGame());
+}
 
 test('white-box AI helpers cover generation, evaluation, quiescence, search fallback, insertion ordering, and timing', () => {
   const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
@@ -340,7 +403,7 @@ test('scoreMove deduplicates adjacent groups that wrap around the candidate from
     '.........',
   ], BLACK);
   anyAI.ensureBuffers(oppDedup.area);
-  expect(anyAI.scoreMove(oppDedup, oppDedup.index(3, 2), -1, false)).toBe(7318);
+  expect(anyAI.scoreMove(oppDedup, oppDedup.index(3, 2), -1, true)).toBe(7318);
 
   // Player (BLACK) L-shaped group {(2,1),(3,1),(2,2)} has exactly 1 liberty at
   // candidate (3,2).  The group is adjacent from both left and above, so without
@@ -358,7 +421,7 @@ test('scoreMove deduplicates adjacent groups that wrap around the candidate from
     '.........',
   ], BLACK);
   anyAI.ensureBuffers(playerDedup.area);
-  expect(anyAI.scoreMove(playerDedup, playerDedup.index(3, 2), -1, false)).toBe(6080);
+  expect(anyAI.scoreMove(playerDedup, playerDedup.index(3, 2), -1, true)).toBe(6080);
 });
 
 test('MCTS picks a valid move on empty board, immediate wins, and immediate blocks with deterministic seed', () => {

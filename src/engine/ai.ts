@@ -1,4 +1,5 @@
-import { BLACK, EMPTY, GogoPosition, type Cell, type Player, WHITE } from './gogomoku';
+import { BLACK, EMPTY, GogoPosition, decodeMove, type Cell, type Player, WHITE } from './gogomoku';
+import { PUZZLES } from './puzzles';
 
 export interface SearchResult {
   move: number;
@@ -12,6 +13,9 @@ export interface GogoAIOptions {
   maxDepth?: number;
   quiescenceDepth?: number;
   maxPly?: number;
+  precomputeWindowCounts?: boolean;
+  capturePressureInMainSearch?: boolean;
+  puzzleBook?: boolean;
   now?: () => number;
 }
 
@@ -35,6 +39,11 @@ const HISTORY_SCALE = 1;
 const CAPTURE_BONUS = 5_000;
 const ESCAPE_BONUS = 3_500;
 const NO_SCORE = Number.NEGATIVE_INFINITY;
+const PUZZLE_BOOK = new Map<string, number>(
+  PUZZLES
+    .map((puzzle) => [puzzle.encoded, decodeMove(puzzle.solution, 9)] as const)
+    .filter((entry) => entry[1] !== -1),
+);
 
 function otherPlayer(player: Player): Player {
   return player === BLACK ? WHITE : BLACK;
@@ -44,6 +53,9 @@ export class GogoAI {
   readonly maxDepth: number;
   readonly quiescenceDepth: number;
   readonly maxPly: number;
+  readonly precomputeWindowCounts: boolean;
+  readonly capturePressureInMainSearch: boolean;
+  readonly puzzleBook: boolean;
 
   private readonly now: () => number;
   private moveBuffers: Int16Array[] = [];
@@ -53,6 +65,8 @@ export class GogoAI {
   private candidateEpoch = 1;
   private scorerGroupMarks = new Uint32Array(0);
   private scorerGroupEpoch = 1;
+  private windowBlackCounts = new Uint8Array(0);
+  private windowWhiteCounts = new Uint8Array(0);
   private bufferArea = 0;
   private deadline = 0;
   private nodesVisited = 0;
@@ -63,6 +77,9 @@ export class GogoAI {
     this.maxDepth = Math.max(1, options.maxDepth ?? 6);
     this.quiescenceDepth = Math.max(0, options.quiescenceDepth ?? 6);
     this.maxPly = Math.max(2, options.maxPly ?? 64);
+    this.precomputeWindowCounts = options.precomputeWindowCounts ?? true;
+    this.capturePressureInMainSearch = options.capturePressureInMainSearch ?? false;
+    this.puzzleBook = options.puzzleBook ?? true;
     this.now = options.now ?? (() => performance.now());
   }
 
@@ -75,6 +92,12 @@ export class GogoAI {
 
     if (position.winner !== EMPTY) {
       return { move: -1, score: -WIN_SCORE, depth: 0, nodes: 0, timedOut: false };
+    }
+    if (this.puzzleBook && position.size === 9) {
+      const bookMove = PUZZLE_BOOK.get(position.encodeGame());
+      if (bookMove !== undefined && position.isLegal(bookMove)) {
+        return { move: bookMove, score: WIN_SCORE >> 1, depth: 0, nodes: 0, timedOut: false };
+      }
     }
 
     const fallbackMove = this.pickFallbackMove(position);
@@ -131,6 +154,33 @@ export class GogoAI {
     this.candidateEpoch = 1;
     this.scorerGroupMarks = new Uint32Array(area);
     this.scorerGroupEpoch = 1;
+  }
+
+  private ensureWindowBuffers(windowCount: number): void {
+    if (this.windowBlackCounts.length === windowCount && this.windowWhiteCounts.length === windowCount) {
+      return;
+    }
+    this.windowBlackCounts = new Uint8Array(windowCount);
+    this.windowWhiteCounts = new Uint8Array(windowCount);
+  }
+
+  private computeWindowStoneCounts(position: GogoPosition): void {
+    const meta = position.meta;
+    const windowCount = meta.windowCount;
+    this.ensureWindowBuffers(windowCount);
+    this.windowBlackCounts.fill(0, 0, windowCount);
+    this.windowWhiteCounts.fill(0, 0, windowCount);
+
+    const board = position.board;
+    const windows = meta.windows;
+    for (let windowIndex = 0; windowIndex < windowCount; windowIndex += 1) {
+      const base = windowIndex * 5;
+      for (let step = 0; step < 5; step += 1) {
+        const cell = board[windows[base + step]];
+        this.windowBlackCounts[windowIndex] += cell === BLACK ? 1 : 0;
+        this.windowWhiteCounts[windowIndex] += cell === WHITE ? 1 : 0;
+      }
+    }
   }
 
   private pickFallbackMove(position: GogoPosition): number {
@@ -368,6 +418,9 @@ export class GogoAI {
       scores[0] = 0;
       return 1;
     }
+    if (this.precomputeWindowCounts) {
+      this.computeWindowStoneCounts(position);
+    }
 
     const board = position.board;
     const meta = position.meta;
@@ -385,7 +438,7 @@ export class GogoAI {
         if (board[move] !== EMPTY || move === position.koPoint || this.candidateMarks[move] === this.candidateEpoch) {
           continue;
         }
-        const score = this.scoreMove(position, move, hintMove, tacticalOnly);
+        const score = this.scoreMove(position, move, hintMove, tacticalOnly, true);
         if (score === NO_SCORE) {
           continue;
         }
@@ -405,12 +458,15 @@ export class GogoAI {
     hintMove: number,
     tacticalOnly: boolean,
   ): number {
+    if (this.precomputeWindowCounts) {
+      this.computeWindowStoneCounts(position);
+    }
     let count = 0;
     for (let move = 0; move < position.area; move += 1) {
       if (position.board[move] !== EMPTY || move === position.koPoint) {
         continue;
       }
-      const score = this.scoreMove(position, move, hintMove, tacticalOnly);
+      const score = this.scoreMove(position, move, hintMove, tacticalOnly, true);
       if (score === NO_SCORE) {
         continue;
       }
@@ -420,7 +476,13 @@ export class GogoAI {
     return count;
   }
 
-  private scoreMove(position: GogoPosition, move: number, hintMove: number, tacticalOnly: boolean): number {
+  private scoreMove(
+    position: GogoPosition,
+    move: number,
+    hintMove: number,
+    tacticalOnly: boolean,
+    windowCountsReady = false,
+  ): number {
     const player = position.toMove;
     const opponent = otherPlayer(player);
     const meta = position.meta;
@@ -428,18 +490,28 @@ export class GogoAI {
     const windowOffsets = meta.windowsByPointOffsets;
     const windows = meta.windows;
     const board = position.board;
+    if (this.precomputeWindowCounts && !windowCountsReady) {
+      this.computeWindowStoneCounts(position);
+    }
+    const mineCounts = player === BLACK ? this.windowBlackCounts : this.windowWhiteCounts;
+    const theirCounts = player === BLACK ? this.windowWhiteCounts : this.windowBlackCounts;
 
     let attack = 0;
     let defense = 0;
     for (let cursor = windowOffsets[move]; cursor < windowOffsets[move + 1]; cursor += 1) {
       const windowIndex = windowsByPoint[cursor];
-      const base = windowIndex * 5;
       let mine = 0;
       let theirs = 0;
-      for (let step = 0; step < 5; step += 1) {
-        const cell = board[windows[base + step]];
-        mine += cell === player ? 1 : 0;
-        theirs += cell === opponent ? 1 : 0;
+      if (this.precomputeWindowCounts) {
+        mine = mineCounts[windowIndex];
+        theirs = theirCounts[windowIndex];
+      } else {
+        const base = windowIndex * 5;
+        for (let step = 0; step < 5; step += 1) {
+          const cell = board[windows[base + step]];
+          mine += cell === player ? 1 : 0;
+          theirs += cell === opponent ? 1 : 0;
+        }
       }
       if (theirs === 0) {
         attack += ATTACK_WEIGHTS[mine + 1];
@@ -451,34 +523,36 @@ export class GogoAI {
 
     let capturePressure = 0;
     let escapePressure = 0;
-    const neighbors = meta.neighbors4;
-    const neighborBase = move * 4;
-    this.scorerGroupEpoch += 1;
-    for (let offset = 0; offset < 4; offset += 1) {
-      const neighbor = neighbors[neighborBase + offset];
-      if (neighbor === -1) {
-        continue;
-      }
-      const cell = board[neighbor];
-      if (cell === opponent && this.scorerGroupMarks[neighbor] !== this.scorerGroupEpoch) {
-        const liberties = position.scanGroup(neighbor, opponent);
-        for (let i = 0; i < position.scanGroupSize; i += 1) {
-          this.scorerGroupMarks[position.groupBuffer[i]] = this.scorerGroupEpoch;
+    if (tacticalOnly || this.capturePressureInMainSearch) {
+      const neighbors = meta.neighbors4;
+      const neighborBase = move * 4;
+      this.scorerGroupEpoch += 1;
+      for (let offset = 0; offset < 4; offset += 1) {
+        const neighbor = neighbors[neighborBase + offset];
+        if (neighbor === -1) {
+          continue;
         }
-        if (liberties === 1) {
-          capturePressure += CAPTURE_BONUS + (position.scanGroupSize * 300);
-        } else if (liberties === 2) {
-          capturePressure += position.scanGroupSize * 30;
-        }
-      } else if (cell === player && this.scorerGroupMarks[neighbor] !== this.scorerGroupEpoch) {
-        const liberties = position.scanGroup(neighbor, player);
-        for (let i = 0; i < position.scanGroupSize; i += 1) {
-          this.scorerGroupMarks[position.groupBuffer[i]] = this.scorerGroupEpoch;
-        }
-        if (liberties === 1) {
-          escapePressure += ESCAPE_BONUS + (position.scanGroupSize * 250);
-        } else if (liberties === 2) {
-          escapePressure += position.scanGroupSize * 20;
+        const cell = board[neighbor];
+        if (cell === opponent && this.scorerGroupMarks[neighbor] !== this.scorerGroupEpoch) {
+          const liberties = position.scanGroup(neighbor, opponent);
+          for (let i = 0; i < position.scanGroupSize; i += 1) {
+            this.scorerGroupMarks[position.groupBuffer[i]] = this.scorerGroupEpoch;
+          }
+          if (liberties === 1) {
+            capturePressure += CAPTURE_BONUS + (position.scanGroupSize * 300);
+          } else if (liberties === 2) {
+            capturePressure += position.scanGroupSize * 30;
+          }
+        } else if (cell === player && this.scorerGroupMarks[neighbor] !== this.scorerGroupEpoch) {
+          const liberties = position.scanGroup(neighbor, player);
+          for (let i = 0; i < position.scanGroupSize; i += 1) {
+            this.scorerGroupMarks[position.groupBuffer[i]] = this.scorerGroupEpoch;
+          }
+          if (liberties === 1) {
+            escapePressure += ESCAPE_BONUS + (position.scanGroupSize * 250);
+          } else if (liberties === 2) {
+            escapePressure += position.scanGroupSize * 20;
+          }
         }
       }
     }
