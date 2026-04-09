@@ -512,6 +512,8 @@ describe('useGame', () => {
     };
     (worker as any).onmessage({ data: response } as MessageEvent);
 
+    expect(gameState.aiThinking.value).toBe(false);
+    expect(gameState.game.value.at(4, 4)).toBe(BLACK);
     expect(gameState.statusExtra.value).toContain('forced win');
     wrapper.unmount();
   });
