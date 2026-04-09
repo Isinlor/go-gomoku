@@ -782,7 +782,7 @@ test('AI terminates iterative deepening early when it finds a winning forcing se
   expect(result.depth).toBe(1);
 });
 
-test('AI searchRoot marks forced-loss moves in losingMoves and skips them on subsequent calls', () => {
+test('AI skips forced-loss moves in subsequent iterations and detects a truly lost position', () => {
   const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
   const anyAI = ai as any;
 
@@ -825,7 +825,7 @@ test('AI searchRoot marks forced-loss moves in losingMoves and skips them on sub
   expect(result2.move).toBe(-1);
 });
 
-test('AI searchRoot skips all ordered candidates in losingMoves without falling back to full-board search', () => {
+test('AI returns no move when all candidates are losing moves and avoids full-board fallback', () => {
   const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
   const anyAI = ai as any;
 
@@ -854,7 +854,7 @@ test('AI searchRoot skips all ordered candidates in losingMoves without falling 
 
   // Replace generateFullBoardMoves so we can detect if it is called.
   let fullBoardCalled = false;
-  anyAI.generateFullBoardMoves = (...args: unknown[]) => {
+  anyAI.generateFullBoardMoves = () => {
     fullBoardCalled = true;
     return 0;
   };
