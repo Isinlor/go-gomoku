@@ -217,11 +217,15 @@ export class GogoAI {
   // Transposition table: store
   private ttStore(hash: number, depth: number, score: number, flag: number, move: number): void {
     const index = (hash & TT_MASK) * TT_ENTRY_SIZE;
-    // Always replace (simple replacement scheme)
-    this.tt[index] = hash;
-    this.tt[index + 1] = move;
-    this.tt[index + 2] = (depth << 2) | flag;
-    this.tt[index + 3] = score;
+    // Depth-preferred replacement: only overwrite if new entry is at least as deep
+    const existingDepthFlag = this.tt[index + 2];
+    const existingDepth = existingDepthFlag >> 2;
+    if (this.tt[index] !== hash || depth >= existingDepth) {
+      this.tt[index] = hash;
+      this.tt[index + 1] = move;
+      this.tt[index + 2] = (depth << 2) | flag;
+      this.tt[index + 3] = score;
+    }
   }
 
   // Store killer move at a given ply
@@ -396,7 +400,16 @@ export class GogoAI {
     if (ttResult.hit) {
       return ttResult.score;
     }
-    const ttMove = ttResult.move; // may be -1 if no entry
+    let ttMove = ttResult.move; // may be -1 if no entry
+
+    // Internal Iterative Deepening: if no TT move at PV node, do a shallow search first
+    if (ttMove === -1 && depth >= 4 && beta - alpha > 1) {
+      this.search(position, depth - 2, alpha, beta, ply);
+      const iidResult = this.ttProbe(hash, 0, -WIN_SCORE, WIN_SCORE);
+      if (iidResult.move !== -1) {
+        ttMove = iidResult.move;
+      }
+    }
 
     // Null move pruning: skip our turn and do a reduced search
     // If even skipping a turn doesn't drop below beta, the position is so good
@@ -423,17 +436,58 @@ export class GogoAI {
     }
 
     this.searchPly = ply;
-    const moves = this.moveBuffers[ply];
-    const scores = this.scoreBuffers[ply];
-    let count = this.generateOrderedMoves(position, moves, scores, ttMove, false);
-    let usedFullBoard = false;
     let legalCount = 0;
     let bestScore = -WIN_SCORE;
     let bestMove = -1;
 
+    // Stage 1: Try TT move first in non-PV nodes (avoids expensive full move generation on cutoff)
+    if (ttMove !== -1 && beta - alpha === 1 &&
+        position.board[ttMove] === EMPTY && ttMove !== position.koPoint) {
+      if (position.play(ttMove)) {
+        legalCount += 1;
+        let score = 0;
+        try {
+          score = -this.search(position, depth - 1, -beta, -alpha, ply + 1);
+        } finally {
+          position.undo();
+        }
+        if (score > bestScore) {
+          bestScore = score;
+          bestMove = ttMove;
+        }
+        if (score > alpha) {
+          alpha = score;
+          if (alpha >= beta) {
+            this.history[(position.toMove - 1) * this.bufferArea + ttMove] += depth * depth * HISTORY_SCALE;
+            this.storeKiller(ply, ttMove);
+            this.ttStore(hash, depth, score, TT_LOWER, ttMove);
+            return score;
+          }
+        }
+      }
+    }
+
+    // Stage 2: Generate and search all candidate moves
+    const moves = this.moveBuffers[ply];
+    const scores = this.scoreBuffers[ply];
+    let count = this.generateOrderedMoves(position, moves, scores, ttMove, false);
+    let usedFullBoard = false;
+
     for (;;) {
       for (let i = 0; i < count; i += 1) {
         const move = moves[i];
+        if (move === ttMove && bestMove !== -1) {
+          continue; // Already searched TT move in stage 1
+        }
+
+        // Late Move Pruning: in non-PV nodes at shallow depths, skip late moves entirely
+        if (beta - alpha === 1 && legalCount > 0 && position.winner === EMPTY) {
+          const lmpThreshold = depth <= 1 ? 6 : depth <= 2 ? 10 : depth <= 3 ? 16 : depth <= 4 ? 24 : 0;
+          if (lmpThreshold > 0 && legalCount >= lmpThreshold && scores[i] < TACTICAL_PATTERN_THRESHOLD) {
+            continue;
+          }
+        }
+
         if (!position.play(move)) {
           continue;
         }
@@ -445,8 +499,10 @@ export class GogoAI {
           // Late Move Reductions: reduce depth for later moves in non-PV nodes
           if (legalCount > 3 && depth >= 3 && beta - alpha === 1 &&
               position.winner === EMPTY && position.lastCapturedCount === 0) {
-            // Try a reduced depth search
-            score = -this.search(position, depth - 2, -alpha - 1, -alpha, ply + 1);
+            // More aggressive reduction for moves later in the list
+            const reduction = legalCount > 8 ? 3 : 2;
+            const reducedDepth = Math.max(0, depth - reduction);
+            score = -this.search(position, reducedDepth, -alpha - 1, -alpha, ply + 1);
             needFullSearch = score > alpha;
           }
 
@@ -502,6 +558,14 @@ export class GogoAI {
       return -WIN_SCORE + ply;
     }
 
+    // TT probe in qsearch
+    const hash = position.hash;
+    const ttResult = this.ttProbe(hash, 0, alpha, beta);
+    if (ttResult.hit) {
+      return ttResult.score;
+    }
+
+    const originalAlpha = alpha;
     const standPat = this.evaluate(position);
     if (standPat >= beta) {
       return standPat;
@@ -540,12 +604,19 @@ export class GogoAI {
       if (score > alpha) {
         alpha = score;
         if (alpha >= beta) {
+          this.ttStore(hash, 0, score, TT_LOWER, move);
           return score;
         }
       }
     }
 
-    return legalCount === 0 ? standPat : bestScore;
+    const finalScore = legalCount === 0 ? standPat : bestScore;
+    if (finalScore > originalAlpha) {
+      this.ttStore(hash, 0, finalScore, TT_EXACT, -1);
+    } else {
+      this.ttStore(hash, 0, finalScore, TT_UPPER, -1);
+    }
+    return finalScore;
   }
 
   private evaluate(position: GogoPosition): number {
@@ -782,7 +853,7 @@ export class GogoAI {
 
   private checkTime(force: boolean): void {
     this.nodesVisited += 1;
-    if ((force || (this.nodesVisited & 127) === 0) && this.now() >= this.deadline) {
+    if ((force || (this.nodesVisited & 1023) === 0) && this.now() >= this.deadline) {
       throw this.timeoutSignal;
     }
   }
