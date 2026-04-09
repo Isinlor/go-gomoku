@@ -31,10 +31,14 @@ const LOCAL_LIBERTY_WEIGHTS = [-200, -80, 20, 60, 80] as const;
 const TACTICAL_PATTERN_THRESHOLD = ATTACK_WEIGHTS[4];
 const CENTER_MULTIPLIER = 3;
 const HINT_BONUS = 10_000_000;
+const KILLER_BONUS = 5_000_000;
 const HISTORY_SCALE = 1;
 const CAPTURE_BONUS = 5_000;
 const ESCAPE_BONUS = 3_500;
 const NO_SCORE = Number.NEGATIVE_INFINITY;
+const FUTILITY_MARGIN_1 = 3_000;
+const FUTILITY_MARGIN_2 = 12_000;
+const FUTILITY_MARGIN_3 = 30_000;
 
 function otherPlayer(player: Player): Player {
   return player === BLACK ? WHITE : BLACK;
@@ -49,6 +53,7 @@ export class GogoAI {
   private moveBuffers: Int16Array[] = [];
   private scoreBuffers: Int32Array[] = [];
   private history = new Int32Array(0);
+  private killerMoves = new Int16Array(0);
   private candidateMarks = new Uint32Array(0);
   private candidateEpoch = 1;
   private scorerGroupMarks = new Uint32Array(0);
@@ -57,6 +62,7 @@ export class GogoAI {
   private deadline = 0;
   private nodesVisited = 0;
   private timedOut = false;
+  private searchPly = 0;
   private readonly timeoutSignal = new Error('SEARCH_TIMEOUT');
 
   constructor(options: GogoAIOptions = {}) {
@@ -69,6 +75,7 @@ export class GogoAI {
   findBestMove(position: GogoPosition, timeLimitMs: number): SearchResult {
     this.ensureBuffers(position.area);
     this.history.fill(0);
+    this.killerMoves.fill(-1);
     this.deadline = this.now() + Math.max(0, timeLimitMs);
     this.nodesVisited = 0;
     this.timedOut = false;
@@ -127,6 +134,8 @@ export class GogoAI {
       this.scoreBuffers[ply] = new Int32Array(area);
     }
     this.history = new Int32Array(area * 2);
+    this.killerMoves = new Int16Array((this.maxPly + 1) * 2);
+    this.killerMoves.fill(-1);
     this.candidateMarks = new Uint32Array(area);
     this.candidateEpoch = 1;
     this.scorerGroupMarks = new Uint32Array(area);
@@ -163,6 +172,7 @@ export class GogoAI {
     this.checkTime(true);
     const moves = this.moveBuffers[0];
     const scores = this.scoreBuffers[0];
+    this.searchPly = 0;
     let count = this.generateOrderedMoves(position, moves, scores, hintMove, false);
     let usedFullBoard = false;
     let alpha = -WIN_SCORE;
@@ -180,7 +190,14 @@ export class GogoAI {
         legalCount += 1;
         let score = 0;
         try {
-          score = -this.search(position, depth - 1, -beta, -alpha, 1);
+          if (legalCount === 1) {
+            score = -this.search(position, depth - 1, -beta, -alpha, 1);
+          } else {
+            score = -this.search(position, depth - 1, -(alpha + 1), -alpha, 1);
+            if (score > alpha && score < beta) {
+              score = -this.search(position, depth - 1, -beta, -alpha, 1);
+            }
+          }
         } finally {
           position.undo();
         }
@@ -214,8 +231,18 @@ export class GogoAI {
       return this.quiescence(position, alpha, beta, ply, this.quiescenceDepth);
     }
 
+    // Futility pruning: at shallow depth, if static eval is far below alpha, skip search
+    if (depth <= 3 && alpha > -WIN_SCORE + 100 && beta < WIN_SCORE - 100) {
+      const staticEval = this.evaluate(position);
+      const margin = depth === 1 ? FUTILITY_MARGIN_1 : depth === 2 ? FUTILITY_MARGIN_2 : FUTILITY_MARGIN_3;
+      if (staticEval + margin <= alpha) {
+        return staticEval;
+      }
+    }
+
     const moves = this.moveBuffers[ply];
     const scores = this.scoreBuffers[ply];
+    this.searchPly = ply;
     let count = this.generateOrderedMoves(position, moves, scores, -1, false);
     let usedFullBoard = false;
     let legalCount = 0;
@@ -230,7 +257,14 @@ export class GogoAI {
         legalCount += 1;
         let score = 0;
         try {
-          score = -this.search(position, depth - 1, -beta, -alpha, ply + 1);
+          if (legalCount === 1) {
+            score = -this.search(position, depth - 1, -beta, -alpha, ply + 1);
+          } else {
+            score = -this.search(position, depth - 1, -(alpha + 1), -alpha, ply + 1);
+            if (score > alpha && score < beta) {
+              score = -this.search(position, depth - 1, -beta, -alpha, ply + 1);
+            }
+          }
         } finally {
           position.undo();
         }
@@ -241,6 +275,7 @@ export class GogoAI {
           alpha = score;
           if (alpha >= beta) {
             this.history[(position.toMove - 1) * this.bufferArea + move] += depth * depth * HISTORY_SCALE;
+            this.storeKiller(ply, move);
             return score;
           }
         }
@@ -274,6 +309,7 @@ export class GogoAI {
 
     const moves = this.moveBuffers[ply];
     const scores = this.scoreBuffers[ply];
+    this.searchPly = ply;
     const count = this.generateOrderedMoves(position, moves, scores, -1, true);
     if (count === 0) {
       return standPat;
@@ -315,13 +351,13 @@ export class GogoAI {
 
     for (let windowIndex = 0; windowIndex < meta.windowCount; windowIndex += 1) {
       const base = windowIndex * 5;
-      let black = 0;
-      let white = 0;
-      for (let step = 0; step < 5; step += 1) {
-        const cell = board[windows[base + step]];
-        black += cell === BLACK ? 1 : 0;
-        white += cell === WHITE ? 1 : 0;
-      }
+      const c0 = board[windows[base]];
+      const c1 = board[windows[base + 1]];
+      const c2 = board[windows[base + 2]];
+      const c3 = board[windows[base + 3]];
+      const c4 = board[windows[base + 4]];
+      const black = (c0 & 1) + (c1 & 1) + (c2 & 1) + (c3 & 1) + (c4 & 1);
+      const white = (c0 >> 1) + (c1 >> 1) + (c2 >> 1) + (c3 >> 1) + (c4 >> 1);
       if (black === 0 && white !== 0) {
         score -= EVAL_WEIGHTS[white];
       } else if (white === 0 && black !== 0) {
@@ -335,12 +371,16 @@ export class GogoAI {
       if (cell === EMPTY) {
         continue;
       }
-      let localLiberties = 0;
       const neighborBase = point * 4;
-      for (let offset = 0; offset < 4; offset += 1) {
-        const neighbor = neighbors[neighborBase + offset];
-        localLiberties += neighbor !== -1 && board[neighbor] === EMPTY ? 1 : 0;
-      }
+      const n0 = neighbors[neighborBase];
+      const n1 = neighbors[neighborBase + 1];
+      const n2 = neighbors[neighborBase + 2];
+      const n3 = neighbors[neighborBase + 3];
+      const localLiberties =
+        (n0 !== -1 && board[n0] === EMPTY ? 1 : 0) +
+        (n1 !== -1 && board[n1] === EMPTY ? 1 : 0) +
+        (n2 !== -1 && board[n2] === EMPTY ? 1 : 0) +
+        (n3 !== -1 && board[n3] === EMPTY ? 1 : 0);
       const libertyBucket = Math.min(localLiberties, LOCAL_LIBERTY_WEIGHTS.length - 1);
       const stoneScore = meta.centerBias[point] * CENTER_MULTIPLIER + LOCAL_LIBERTY_WEIGHTS[libertyBucket];
       score += cell === BLACK ? stoneScore : -stoneScore;
@@ -422,25 +462,30 @@ export class GogoAI {
 
   private scoreMove(position: GogoPosition, move: number, hintMove: number, tacticalOnly: boolean): number {
     const player = position.toMove;
-    const opponent = otherPlayer(player);
     const meta = position.meta;
     const windowsByPoint = meta.windowsByPoint;
     const windowOffsets = meta.windowsByPointOffsets;
     const windows = meta.windows;
     const board = position.board;
 
+    // Branchless bit trick: BLACK=1, WHITE=2
+    // For BLACK player: myShift=0, theirShift=1 → (cell>>0)&1 counts BLACK, (cell>>1)&1 counts WHITE
+    // For WHITE player: myShift=1, theirShift=0 → (cell>>1)&1 counts WHITE, (cell>>0)&1 counts BLACK
+    const myShift = player - 1; // 0 for BLACK, 1 for WHITE
+    const theirShift = 2 - player; // 1 for BLACK, 0 for WHITE
+
     let attack = 0;
     let defense = 0;
     for (let cursor = windowOffsets[move]; cursor < windowOffsets[move + 1]; cursor += 1) {
       const windowIndex = windowsByPoint[cursor];
       const base = windowIndex * 5;
-      let mine = 0;
-      let theirs = 0;
-      for (let step = 0; step < 5; step += 1) {
-        const cell = board[windows[base + step]];
-        mine += cell === player ? 1 : 0;
-        theirs += cell === opponent ? 1 : 0;
-      }
+      const c0 = board[windows[base]];
+      const c1 = board[windows[base + 1]];
+      const c2 = board[windows[base + 2]];
+      const c3 = board[windows[base + 3]];
+      const c4 = board[windows[base + 4]];
+      const mine = ((c0 >> myShift) & 1) + ((c1 >> myShift) & 1) + ((c2 >> myShift) & 1) + ((c3 >> myShift) & 1) + ((c4 >> myShift) & 1);
+      const theirs = ((c0 >> theirShift) & 1) + ((c1 >> theirShift) & 1) + ((c2 >> theirShift) & 1) + ((c3 >> theirShift) & 1) + ((c4 >> theirShift) & 1);
       if (theirs === 0) {
         attack += ATTACK_WEIGHTS[mine + 1];
       }
@@ -453,6 +498,7 @@ export class GogoAI {
     let escapePressure = 0;
     const neighbors = meta.neighbors4;
     const neighborBase = move * 4;
+    const opponent = otherPlayer(player);
     this.scorerGroupEpoch += 1;
     for (let offset = 0; offset < 4; offset += 1) {
       const neighbor = neighbors[neighborBase + offset];
@@ -499,6 +545,11 @@ export class GogoAI {
     if (move === hintMove) {
       score += HINT_BONUS;
     }
+    const ply = this.searchPly;
+    const killerBase = ply * 2;
+    if (move === this.killerMoves[killerBase] || move === this.killerMoves[killerBase + 1]) {
+      score += KILLER_BONUS;
+    }
     return score;
   }
 
@@ -515,8 +566,16 @@ export class GogoAI {
 
   private checkTime(force: boolean): void {
     this.nodesVisited += 1;
-    if ((force || (this.nodesVisited & 127) === 0) && this.now() >= this.deadline) {
+    if ((force || (this.nodesVisited & 255) === 0) && this.now() >= this.deadline) {
       throw this.timeoutSignal;
+    }
+  }
+
+  private storeKiller(ply: number, move: number): void {
+    const base = ply * 2;
+    if (this.killerMoves[base] !== move) {
+      this.killerMoves[base + 1] = this.killerMoves[base];
+      this.killerMoves[base] = move;
     }
   }
 }
