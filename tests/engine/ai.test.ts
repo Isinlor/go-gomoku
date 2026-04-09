@@ -795,25 +795,20 @@ test('MCTS findBestMove defensive branches: play-fail and terminal-node paths', 
 });
 
 test('AI continues iterative deepening after finding a shallow winning move', () => {
-  // BLACK has four in a row; playing the 5th stone wins immediately.
-  // Even with a shallow winning score, deeper passes should still run.
-  const winning = rawPosition([
-    'XXXX.....',
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-  ], BLACK);
-  const ai = new GogoAI({ maxDepth: 6, quiescenceDepth: 2, now: () => 0 });
-  const result = ai.findBestMove(winning, 10000);
-  expect(result.move).toBe(winning.index(4, 0));
-  // Score should still indicate a winning line.
+  const ai = new GogoAI({ maxDepth: 6, now: () => 0 });
+  const anyAI = ai as any;
+  const position = new GogoPosition(9);
+  const visitedDepths: number[] = [];
+  anyAI.searchRoot = (seenPosition: GogoPosition, depth: number) => {
+    expect(seenPosition).toBe(position);
+    visitedDepths.push(depth);
+    return { move: 40, score: 600_000_000 - depth, depth, nodes: depth, timedOut: false };
+  };
+
+  const result = ai.findBestMove(position, 100);
+  expect(visitedDepths).toEqual([1, 2, 3, 4, 5, 6]);
+  expect(result.move).toBe(40);
   expect(result.score > 500_000_000).toBeTruthy();
-  // Deeper iterations should complete, not stop at depth 1.
   expect(result.depth).toBe(6);
 });
 
