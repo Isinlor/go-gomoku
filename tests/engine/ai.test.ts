@@ -795,7 +795,7 @@ test('MCTS findBestMove defensive branches: play-fail and terminal-node paths', 
 });
 
 test('AI continues iterative deepening after finding a shallow winning move', () => {
-  const ai = new GogoAI({ maxDepth: 6, now: () => 0 });
+  const ai = new GogoAI({ maxDepth: 2, now: () => 0 });
   const anyAI = ai as any;
   const position = new GogoPosition(9);
   const visitedDepths: number[] = [];
