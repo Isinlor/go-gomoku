@@ -139,6 +139,41 @@ test('AI rethrows unexpected root errors instead of masking them as timeouts', (
   expect(() => ai.findBestMove(new GogoPosition(9), 100)).toThrow(/boom/);
 });
 
+test('AI iterative deepening re-evaluates root moves each depth instead of reusing one losing set', () => {
+  const ai = new GogoAI({ maxDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+  const seenLosingSets: Array<Set<number>> = [];
+  anyAI.searchRoot = (_position: GogoPosition, depth: number, _hintMove: number, losingMoves?: Set<number>) => {
+    if (losingMoves !== undefined) {
+      seenLosingSets.push(losingMoves);
+    }
+    return { move: 40, score: depth, depth, nodes: 1, timedOut: false };
+  };
+
+  const result = ai.findBestMove(new GogoPosition(9), 100);
+  expect(result.depth).toBe(2);
+  expect(seenLosingSets).toHaveLength(2);
+  expect(seenLosingSets[0]).not.toBe(seenLosingSets[1]);
+});
+
+test('AI iterative deepening does not stop early on shallow optimistic high score', () => {
+  const ai = new GogoAI({ maxDepth: 3, now: () => 0 });
+  const anyAI = ai as any;
+  const visitedDepths: number[] = [];
+  anyAI.searchRoot = (_position: GogoPosition, depth: number) => {
+    visitedDepths.push(depth);
+    if (depth === 1) {
+      return { move: 40, score: 600_000_000, depth, nodes: 1, timedOut: false };
+    }
+    return { move: 41, score: 10, depth, nodes: 1, timedOut: false };
+  };
+
+  const result = ai.findBestMove(new GogoPosition(9), 100);
+  expect(visitedDepths).toEqual([1, 2, 3]);
+  expect(result.depth).toBe(3);
+  expect(result.move).toBe(41);
+});
+
 test('AI constructor clamps explicit maxPly values', () => {
   const ai = new GogoAI({ maxPly: 1, maxDepth: 0, quiescenceDepth: -1 });
   expect(ai.maxPly).toBe(2);
@@ -759,9 +794,9 @@ test('MCTS findBestMove defensive branches: play-fail and terminal-node paths', 
   expect(r5.depth > 77).toBeTruthy();
 });
 
-test('AI terminates iterative deepening early when it finds a winning forcing sequence', () => {
+test('AI continues iterative deepening after finding a shallow winning move', () => {
   // BLACK has four in a row; playing the 5th stone wins immediately.
-  // At depth=1 the score is WIN_SCORE - 1 > WIN_SCORE >> 1, so the loop must break.
+  // Even with a shallow winning score, deeper passes should still run.
   const winning = rawPosition([
     'XXXX.....',
     '.........',
@@ -776,10 +811,10 @@ test('AI terminates iterative deepening early when it finds a winning forcing se
   const ai = new GogoAI({ maxDepth: 6, quiescenceDepth: 2, now: () => 0 });
   const result = ai.findBestMove(winning, 10000);
   expect(result.move).toBe(winning.index(4, 0));
-  // Score must exceed WIN_SCORE >> 1 (500_000_000) to confirm forced-win detection.
+  // Score should still indicate a winning line.
   expect(result.score > 500_000_000).toBeTruthy();
-  // Loop broke after depth 1, not after all 6 depths.
-  expect(result.depth).toBe(1);
+  // Deeper iterations should complete, not stop at depth 1.
+  expect(result.depth).toBe(6);
 });
 
 test('AI skips forced-loss moves in subsequent iterations and detects a truly lost position', () => {

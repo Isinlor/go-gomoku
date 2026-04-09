@@ -86,20 +86,16 @@ export class GogoAI {
     let bestScore = 0;
     let completedDepth = 0;
     let hintMove = fallbackMove;
-    const startPly = position.ply;
-    const losingMoves = new Set<number>();
 
     for (let depth = 1; depth <= this.maxDepth; depth += 1) {
       try {
+        const losingMoves = new Set<number>();
         const result = this.searchRoot(position, depth, hintMove, losingMoves);
         if (result.move !== -1) {
           bestMove = result.move;
           bestScore = result.score;
           hintMove = result.move;
           completedDepth = depth;
-          if (bestScore > WIN_SCORE >> 1) {
-            break;
-          }
         }
       } catch (error) {
         if (error !== this.timeoutSignal) {
