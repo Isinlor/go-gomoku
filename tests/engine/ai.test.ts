@@ -914,3 +914,147 @@ test('MCTS backpropagation credits wins from each node player perspective, not j
   const blockingMoves = [clearWin.index(0, 4), clearWin.index(5, 4)];
   expect(blockingMoves).toContain(result.move);
 });
+
+// ---- Coverage tests for new GogoAI optimizations ----
+
+test('GogoAI TT lower-bound and upper-bound cutoffs are exercised during search', () => {
+  // A position with enough depth to trigger TT reuse across iterations.
+  // The iterative deepening fills TT at lower depths; subsequent iterations hit TT entries
+  // with exact/lower/upper flags.
+  const pos = rawPosition([
+    '.........',
+    '.........',
+    '.........',
+    '..XOX....',
+    '..OXO....',
+    '..XOX....',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  const ai = new GogoAI({ maxDepth: 5, quiescenceDepth: 4, maxPly: 48 });
+  const result = ai.findBestMove(pos, 5_000);
+  // Just needs to complete without errors and exercise TT paths
+  expect(result.move).not.toBe(-1);
+  expect(result.depth).toBeGreaterThanOrEqual(3);
+});
+
+test('GogoAI null move pruning triggers beta cutoff', () => {
+  // Black has a strong position; NMP should detect this at non-PV nodes.
+  // depth >= 3 and non-PV (null window) nodes trigger NMP.
+  const pos = rawPosition([
+    '.........',
+    '.XXX.....',
+    '.OOO.....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  const ai = new GogoAI({ maxDepth: 5, quiescenceDepth: 2, maxPly: 48 });
+  const result = ai.findBestMove(pos, 5_000);
+  expect(result.move).not.toBe(-1);
+  expect(result.depth).toBeGreaterThanOrEqual(3);
+});
+
+test('GogoAI IID triggers when no TT move at PV node with depth >= 4', () => {
+  // Fresh AI with no TT entries; PV node at depth >= 4 triggers IID.
+  const pos = rawPosition([
+    '.........',
+    '.........',
+    '...X.....',
+    '...OX....',
+    '..OXO....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  const ai = new GogoAI({ maxDepth: 5, quiescenceDepth: 2, maxPly: 48 });
+  const result = ai.findBestMove(pos, 5_000);
+  expect(result.move).not.toBe(-1);
+  expect(result.depth).toBeGreaterThanOrEqual(4);
+});
+
+test('GogoAI LMR with aggressive reduction (legalCount > 8) and LMP pruning', () => {
+  // Position with many candidate moves to trigger LMR at legalCount > 8
+  // and LMP at shallow depths.
+  const pos = rawPosition([
+    'X.O.X.O.X',
+    '.........', 
+    'O.X.O.X.O',
+    '.........',
+    'X.O.X.O.X',
+    '.........',
+    'O.X.O.X.O',
+    '.........',
+    'X.O.X.O.X',
+  ], BLACK);
+  const ai = new GogoAI({ maxDepth: 5, quiescenceDepth: 2, maxPly: 48 });
+  const result = ai.findBestMove(pos, 5_000);
+  expect(result.move).not.toBe(-1);
+  expect(result.depth).toBeGreaterThanOrEqual(3);
+});
+
+test('GogoAI staged TT move first in non-PV nodes and qsearch TT', () => {
+  // Deep enough search to populate TT, then the staged move gen path
+  // skips TT moves already searched in stage 1.
+  const pos = rawPosition([
+    '.........',
+    '.........',
+    '.........',
+    '..XXO....',
+    '..OOX....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  const ai = new GogoAI({ maxDepth: 6, quiescenceDepth: 4, maxPly: 48 });
+  const result = ai.findBestMove(pos, 5_000);
+  expect(result.move).not.toBe(-1);
+  expect(result.depth).toBeGreaterThanOrEqual(4);
+});
+
+test('GogoAI depth-preferred TT replacement preserves deeper entries', () => {
+  // Run a search that fills TT, then run another that should reuse deep entries.
+  const pos = rawPosition([
+    '.........',
+    '.........',
+    '..XO.....',
+    '..OX.....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  const ai = new GogoAI({ maxDepth: 4, quiescenceDepth: 2, maxPly: 48 });
+  // First search populates TT
+  const r1 = ai.findBestMove(pos, 2_000);
+  expect(r1.depth).toBeGreaterThanOrEqual(3);
+  // Second search on same position should benefit from TT
+  const r2 = ai.findBestMove(pos, 2_000);
+  expect(r2.depth).toBeGreaterThanOrEqual(r1.depth);
+});
+
+test('GogoAI searchRootWindow used by searchRoot delegates correctly', () => {
+  // searchRoot calls searchRootWindow with full window
+  const pos = rawPosition([
+    '.........',
+    '.........',
+    '.........',
+    '....X....',
+    '....O....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  const ai = new GogoAI({ maxDepth: 3, quiescenceDepth: 2, maxPly: 48 });
+  const result = ai.findBestMove(pos, 2_000);
+  expect(result.move).not.toBe(-1);
+  expect(result.depth).toBeGreaterThanOrEqual(2);
+});

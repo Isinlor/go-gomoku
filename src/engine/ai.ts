@@ -830,27 +830,6 @@ export class GogoAI {
     scores[index] = score;
   }
 
-  // Swap the highest-scored move in [start..count) to position start
-  private pickBestToFront(moves: Int16Array, scores: Int32Array, start: number, count: number): void {
-    let bestIdx = start;
-    let bestScore = scores[start];
-    for (let i = start + 1; i < count; i += 1) {
-      if (scores[i] > bestScore) {
-        bestScore = scores[i];
-        bestIdx = i;
-      }
-    }
-    if (bestIdx !== start) {
-      // Swap
-      const tmpMove = moves[start];
-      const tmpScore = scores[start];
-      moves[start] = moves[bestIdx];
-      scores[start] = scores[bestIdx];
-      moves[bestIdx] = tmpMove;
-      scores[bestIdx] = tmpScore;
-    }
-  }
-
   private checkTime(force: boolean): void {
     this.nodesVisited += 1;
     if ((force || (this.nodesVisited & 1023) === 0) && this.now() >= this.deadline) {
