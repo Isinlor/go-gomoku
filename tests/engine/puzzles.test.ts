@@ -51,16 +51,16 @@ test.each(
   assertAISolves(puzzle, mcts, 3_000);
 });
 
-// Quick validation: Classic AI can solve a few generated depth-3 puzzles.
-// Some generated puzzles are deliberately non-obvious and need more search
-// time under coverage instrumentation, so we cherry-pick reliable ones.
-test.each([
-  ['gen-beginner-2', PUZZLES.find((p) => p.id === 'gen-beginner-2')!] as const,
-  ['gen-beginner-3', PUZZLES.find((p) => p.id === 'gen-beginner-3')!] as const,
-  ['gen-beginner-10', PUZZLES.find((p) => p.id === 'gen-beginner-10')!] as const,
-])('Classic AI solves generated puzzle %s', { timeout: 15_000 }, (_id, puzzle) => {
+// Smoke test: Classic AI solves ALL generated puzzles.
+// This confirms the puzzle generator's correctness independently.
+const generatedPuzzles = PUZZLES.filter((p) => p.id.startsWith('gen-'));
+const genClassicTimeMs: Record<number, number> = { 3: 15_000, 5: 15_000, 7: 20_000 };
+
+test.each(
+  generatedPuzzles.map((p) => [p.id, p] as const),
+)('Classic AI solves generated puzzle %s', { timeout: 30_000 }, (_id, puzzle) => {
   const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 8, maxPly: 96 });
-  assertAISolves(puzzle, ai, 3_000);
+  assertAISolves(puzzle, ai, genClassicTimeMs[puzzle.depth] ?? 5_000);
 });
 
 test('getPuzzleById returns the correct puzzle or undefined', () => {
@@ -80,5 +80,32 @@ test('all puzzles have valid encoded positions and solutions', () => {
     const solutionIndex = decodeMove(puzzle.solution, position.size);
     expect(solutionIndex).not.toBe(-1);
     expect(position.isLegal(solutionIndex)).toBe(true);
+  }
+});
+
+test('all puzzles have valid wonEncoded and winningMoves', () => {
+  for (const puzzle of PUZZLES) {
+    // wonEncoded should be decodable
+    const wonPos = decodeGame(puzzle.wonEncoded);
+    // The won position should have a winner
+    expect(wonPos.winner).not.toBe(0);
+    // The winner should be the puzzle's toMove player
+    expect(wonPos.winner).toBe(puzzle.toMove);
+
+    // winningMoves should start with the solution
+    expect(puzzle.winningMoves.length).toBeGreaterThanOrEqual(puzzle.depth);
+    expect(puzzle.winningMoves[0]).toBe(puzzle.solution);
+
+    // Playing the winning moves from the puzzle position should reach the won state
+    const pos = decodeGame(puzzle.encoded);
+    for (const moveStr of puzzle.winningMoves) {
+      const moveIdx = decodeMove(moveStr, pos.size);
+      expect(moveIdx).not.toBe(-1);
+      expect(pos.play(moveIdx)).toBe(true);
+    }
+    // After all winning moves, should have a winner
+    expect(pos.winner).toBe(puzzle.toMove);
+    // The encoded game should match wonEncoded
+    expect(pos.encodeGame()).toBe(puzzle.wonEncoded);
   }
 });

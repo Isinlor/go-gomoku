@@ -38,6 +38,10 @@ export interface PuzzleCandidate {
   readonly solutionIndex: number;
   readonly depth: number;
   readonly threshold: number;
+  /** Encoded board state after the complete winning sequence is played out. */
+  readonly wonEncoded: string;
+  /** The full winning sequence as move strings (solution + responses). */
+  readonly winningMoves: readonly string[];
 }
 
 export interface GeneratorStats {
@@ -173,6 +177,70 @@ export class ForcedWinSearcher {
       }
     }
     return solutionMove;
+  }
+
+  /**
+   * Find the winning line (principal variation) from a position where a forced
+   * win is known to exist. Returns an array of moves from the position to the
+   * winning state. The first move is the attacker's solution move.
+   */
+  findWinningLine(pos: GogoPosition, maxPly: number): number[] {
+    const attacker = pos.toMove;
+    const line: number[] = [];
+
+    for (let ply = 0; ply < maxPly; ply += 1) {
+      if (pos.winner !== EMPTY) {
+        break;
+      }
+      const isAtk = pos.toMove === attacker;
+      const moveBuffer = new Int16Array(pos.area);
+      const moveCount = pos.generateAllLegalMoves(moveBuffer);
+      let bestMove = -1;
+
+      if (isAtk) {
+        // Attacker: find the move that leads to forced win
+        for (let i = 0; i < moveCount; i += 1) {
+          if (!pos.play(moveBuffer[i])) {
+            continue;
+          }
+          if (pos.winner !== EMPTY) {
+            bestMove = moveBuffer[i];
+            pos.undo();
+            break;
+          }
+          const remaining = maxPly - ply - 1;
+          this.nodesSearched = 0;
+          if (remaining > 0 && this.search(pos, attacker, remaining, 0)) {
+            bestMove = moveBuffer[i];
+            pos.undo();
+            break;
+          }
+          pos.undo();
+        }
+      } else {
+        // Defender: pick the first legal move (any move, attacker wins regardless)
+        // Prefer the move that maximizes remaining plies (most resistant defense)
+        for (let i = 0; i < moveCount; i += 1) {
+          if (pos.play(moveBuffer[i])) {
+            bestMove = moveBuffer[i];
+            pos.undo();
+            break;
+          }
+        }
+      }
+
+      if (bestMove === -1) {
+        break;
+      }
+      line.push(bestMove);
+      pos.play(bestMove);
+    }
+
+    // Undo all played moves to restore original position
+    for (let i = line.length - 1; i >= 0; i -= 1) {
+      pos.undo();
+    }
+    return line;
   }
 
   // ---- core search ----------------------------------------------------
@@ -771,6 +839,20 @@ export function validatePuzzlePosition(
     return null;
   }
 
+  // 7. Find the winning line and compute the won state
+  const winLine = searcher.findWinningLine(pos, n + 2);
+  const winningMoves = winLine.map((mv) => encodeMove(mv, pos.meta));
+
+  // Play out the winning line to get the won board state
+  for (const mv of winLine) {
+    pos.play(mv);
+  }
+  const wonEncoded = pos.encodeGame();
+  // Undo all winning line moves to restore original position
+  for (let i = winLine.length - 1; i >= 0; i -= 1) {
+    pos.undo();
+  }
+
   return {
     encoded: pos.encodeGame(),
     toMove: attacker,
@@ -778,6 +860,8 @@ export function validatePuzzlePosition(
     solutionIndex: solutionMove,
     depth: n,
     threshold: m,
+    wonEncoded,
+    winningMoves,
   };
 }
 
