@@ -110,6 +110,30 @@ test('AI iterative deepening exits early once a forced win is proven at the root
   expect(result.score).toBeGreaterThanOrEqual(1000000000 - 1);
   expect(result.nodes).toBeLessThan(40);
   expect(result.forcedWin).toBe(true);
+  expect(result.forcedLoss).toBe(false);
+});
+
+test('AI marks forced loss and still returns one of the best delaying losing moves', () => {
+  const losing = rawPosition([
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.OOOO....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+
+  const ai = new GogoAI({ maxDepth: 6, quiescenceDepth: 4, now: () => 0 });
+  const result = ai.findBestMove(losing, 100);
+  const leftBlock = losing.index(0, 4);
+  const rightBlock = losing.index(5, 4);
+  expect([leftBlock, rightBlock]).toContain(result.move);
+  expect(result.depth).toBe(2);
+  expect(result.forcedWin).toBe(false);
+  expect(result.forcedLoss).toBe(true);
 });
 
 test('AI restores position state after a mid-search timeout so the board is not corrupted', () => {
