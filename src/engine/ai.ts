@@ -368,6 +368,7 @@ export class GogoAI {
       const c2 = board[windows[base + 2]];
       const c3 = board[windows[base + 3]];
       const c4 = board[windows[base + 4]];
+      // Branchless counting: EMPTY=0, BLACK=1 (bit 0), WHITE=2 (bit 1)
       const black = (c0 & 1) + (c1 & 1) + (c2 & 1) + (c3 & 1) + (c4 & 1);
       const white = (c0 >> 1) + (c1 >> 1) + (c2 >> 1) + (c3 >> 1) + (c4 >> 1);
       if (black === 0 && white !== 0) {
@@ -491,6 +492,7 @@ export class GogoAI {
       const c2 = board[windows[base + 2]];
       const c3 = board[windows[base + 3]];
       const c4 = board[windows[base + 4]];
+      // Branchless counting: playerShift/opponentShift map BLACK(1)→bit0, WHITE(2)→bit1
       const mine = ((c0 >> playerShift) & 1) + ((c1 >> playerShift) & 1) + ((c2 >> playerShift) & 1) + ((c3 >> playerShift) & 1) + ((c4 >> playerShift) & 1);
       const theirs = ((c0 >> opponentShift) & 1) + ((c1 >> opponentShift) & 1) + ((c2 >> opponentShift) & 1) + ((c3 >> opponentShift) & 1) + ((c4 >> opponentShift) & 1);
       if (theirs === 0) {
