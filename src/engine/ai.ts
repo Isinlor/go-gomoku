@@ -86,16 +86,23 @@ export class GogoAI {
     let bestScore = 0;
     let completedDepth = 0;
     let hintMove = fallbackMove;
-    const startPly = position.ply;
+    const rejectedMoves = new Set<number>();
 
     for (let depth = 1; depth <= this.maxDepth; depth += 1) {
       try {
-        const result = this.searchRoot(position, depth, hintMove);
+        const result = this.searchRoot(position, depth, hintMove, rejectedMoves);
         if (result.move !== -1) {
-          bestMove = result.move;
-          bestScore = result.score;
-          hintMove = result.move;
-          completedDepth = depth;
+          if (result.score <= -WIN_SCORE + this.maxPly) {
+            rejectedMoves.add(result.move);
+          } else {
+            bestMove = result.move;
+            bestScore = result.score;
+            hintMove = result.move;
+            completedDepth = depth;
+            if (bestScore >= WIN_SCORE - this.maxPly) {
+              break;
+            }
+          }
         }
       } catch (error) {
         if (error !== this.timeoutSignal) {
@@ -159,7 +166,7 @@ export class GogoAI {
     return -1;
   }
 
-  private searchRoot(position: GogoPosition, depth: number, hintMove: number): SearchResult {
+  private searchRoot(position: GogoPosition, depth: number, hintMove: number, rejectedMoves: Set<number>): SearchResult {
     this.checkTime(true);
     const moves = this.moveBuffers[0];
     const scores = this.scoreBuffers[0];
@@ -174,6 +181,9 @@ export class GogoAI {
     for (;;) {
       for (let i = 0; i < count; i += 1) {
         const move = moves[i];
+        if (rejectedMoves.has(move)) {
+          continue;
+        }
         if (!position.play(move)) {
           continue;
         }

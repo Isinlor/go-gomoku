@@ -130,6 +130,116 @@ test('AI restores position state after a mid-search timeout so the board is not 
   expect(pos.playXY(3, 3)).toBe(true);
 });
 
+test('iterative deepening rejects losing moves for subsequent iterations', () => {
+  // Mock searchRoot to track which moves are rejected at each depth.
+  // At depth 1, move 42 scores as a loss (-WIN_SCORE + ply offset).
+  // At depth 2, searchRoot should receive rejectedMoves containing 42.
+  const WIN = 1_000_000_000;
+  const ai = new GogoAI({ maxDepth: 3, now: () => 0 });
+  const anyAI = ai as any;
+  const pos = new GogoPosition(9);
+
+  const rejectedAtDepth: Map<number, Set<number>> = new Map();
+  const originalSearchRoot = anyAI.searchRoot.bind(anyAI);
+  anyAI.searchRoot = (position: any, depth: number, hintMove: number, rejected?: Set<number>) => {
+    rejectedAtDepth.set(depth, new Set(rejected ?? []));
+    if (depth === 1) {
+      // Simulate: move 42 is a loss
+      return { move: 42, score: -WIN + 5, depth, nodes: 10, timedOut: false };
+    }
+    if (depth === 2) {
+      // Now a different move wins — move 42 should be in rejected set
+      return { move: 50, score: 100, depth, nodes: 20, timedOut: false };
+    }
+    // depth 3: move 50 should still be best, move 42 still rejected
+    return { move: 50, score: 200, depth, nodes: 30, timedOut: false };
+  };
+
+  const result = ai.findBestMove(pos, 1000);
+
+  // At depth 1, no moves are rejected
+  expect(rejectedAtDepth.get(1)!.size).toBe(0);
+  // At depth 2+, move 42 should be rejected because it was a loss at depth 1
+  expect(rejectedAtDepth.get(2)!.has(42)).toBe(true);
+  expect(rejectedAtDepth.get(3)!.has(42)).toBe(true);
+  // Best move should be 50 (from deeper iteration)
+  expect(result.move).toBe(50);
+});
+
+test('iterative deepening stops early when a winning forcing sequence is found', () => {
+  const WIN = 1_000_000_000;
+  const ai = new GogoAI({ maxDepth: 5, now: () => 0 });
+  const anyAI = ai as any;
+  const pos = new GogoPosition(9);
+
+  let maxDepthSearched = 0;
+  anyAI.searchRoot = (_position: any, depth: number, _hintMove: number, _rejected?: Set<number>) => {
+    maxDepthSearched = depth;
+    if (depth === 2) {
+      // Found a winning sequence at depth 2
+      return { move: 40, score: WIN - 2, depth, nodes: 100, timedOut: false };
+    }
+    return { move: 40, score: 100, depth, nodes: 50, timedOut: false };
+  };
+
+  const result = ai.findBestMove(pos, 1000);
+
+  // Should stop at depth 2 since a win was found
+  expect(maxDepthSearched).toBe(2);
+  expect(result.score).toBe(WIN - 2);
+  expect(result.depth).toBe(2);
+  expect(result.move).toBe(40);
+  expect(result.timedOut).toBe(false);
+});
+
+test('iterative deepening does not reject non-losing moves', () => {
+  const ai = new GogoAI({ maxDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+  const pos = new GogoPosition(9);
+
+  const rejectedAtDepth: Map<number, Set<number>> = new Map();
+  anyAI.searchRoot = (_position: any, depth: number, _hintMove: number, rejected?: Set<number>) => {
+    rejectedAtDepth.set(depth, new Set(rejected ?? []));
+    // Return a normal (non-losing) score
+    return { move: 40, score: 200, depth, nodes: 10, timedOut: false };
+  };
+
+  ai.findBestMove(pos, 1000);
+
+  expect(rejectedAtDepth.get(1)!.size).toBe(0);
+  expect(rejectedAtDepth.get(2)!.size).toBe(0);
+});
+
+test('searchRoot skips moves that are in the rejectedMoves set', () => {
+  const ai = new GogoAI({ maxDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+  const pos = rawPosition([
+    '.........',
+    '.........',
+    '.........',
+    '....X....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  anyAI.ensureBuffers(pos.area);
+  anyAI.deadline = Infinity;
+  anyAI.nodesVisited = 0;
+
+  // Run searchRoot without rejected moves to find the best move
+  const baseline = anyAI.searchRoot(pos, 1, -1, new Set());
+  expect(baseline.move).not.toBe(-1);
+
+  // Now reject that best move and run again — it should pick a different one
+  const rejected = new Set([baseline.move]);
+  anyAI.nodesVisited = 0;
+  const result = anyAI.searchRoot(pos, 1, -1, rejected);
+  expect(result.move).not.toBe(-1);
+  expect(result.move).not.toBe(baseline.move);
+});
+
 test('AI rethrows unexpected root errors instead of masking them as timeouts', () => {
   const ai = new GogoAI({ maxDepth: 1 });
   const anyAI = ai as any;
@@ -222,7 +332,7 @@ test('white-box AI helpers cover generation, evaluation, quiescence, search fall
   anyAI.ensureBuffers(full.area);
   expect(anyAI.generateOrderedMoves(full, anyAI.moveBuffers[0], anyAI.scoreBuffers[0], -1, false)).toBe(0);
   expect(anyAI.generateFullBoardMoves(full, anyAI.moveBuffers[0], anyAI.scoreBuffers[0], -1, false)).toBe(0);
-  const root = anyAI.searchRoot(full, 1, -1);
+  const root = anyAI.searchRoot(full, 1, -1, new Set());
   expect(root.move).toBe(-1);
   expect(root.score).toBe(0);
   expect(anyAI.search(full, 1, -100, 100, 0)).toBe(0);
@@ -297,7 +407,7 @@ test('white-box AI helpers cover generation, evaluation, quiescence, search fall
   noPlay.undo = () => true;
   anyIllegal.generateOrderedMoves = (_position: any, moves: Int16Array) => { moves[0] = 0; return 1; };
   anyIllegal.generateFullBoardMoves = () => 0;
-  const illegalRoot = anyIllegal.searchRoot(noPlay, 1, -1);
+  const illegalRoot = anyIllegal.searchRoot(noPlay, 1, -1, new Set());
   expect(illegalRoot.move).toBe(-1);
   expect(anyIllegal.search(noPlay, 1, -100, 100, 0)).toBe(0);
   anyIllegal.generateOrderedMoves = (_position: any, moves: Int16Array) => { moves[0] = 0; return 1; };
