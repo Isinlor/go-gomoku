@@ -111,6 +111,70 @@ export class ForcedWinSearcher {
     return -1;
   }
 
+  /**
+   * Check if a specific move by the current player leads to a forced win
+   * in *exactly* `targetRemaining` additional plies (so total = targetRemaining + 1).
+   * Does NOT iterate; just tests one specific depth.
+   */
+  hasForcedWinAfterMove(pos: GogoPosition, move: number, targetRemaining: number): boolean {
+    const attacker = pos.toMove;
+    if (!pos.play(move)) {
+      return false;
+    }
+    if (pos.winner === attacker) {
+      pos.undo();
+      return targetRemaining >= 0;
+    }
+    if (targetRemaining <= 0) {
+      pos.undo();
+      return false;
+    }
+    this.nodesSearched = 0;
+    const result = this.search(pos, attacker, targetRemaining, 0);
+    pos.undo();
+    return result;
+  }
+
+  /**
+   * Find all root moves that have a forced win within `maxPly`.
+   * Returns -1 if no winning move, the single move index if exactly one,
+   * or -2 if multiple moves win.
+   * Only considers moves from the provided sorted buffer.
+   * Much faster than calling forcedWinDepthForMove per move because we
+   * skip the iterative deepening overhead and share search state.
+   */
+  findUniqueWinningMove(
+    pos: GogoPosition,
+    moves: Int16Array,
+    moveCount: number,
+    maxPly: number,
+  ): number {
+    const attacker = pos.toMove;
+    const targetRemaining = maxPly - 1;
+    let solutionMove = -1;
+
+    for (let i = 0; i < moveCount; i += 1) {
+      const move = moves[i];
+      if (!pos.play(move)) {
+        continue;
+      }
+      if (pos.winner === attacker) {
+        pos.undo();
+        return -2; // immediate win → shorter than target depth
+      }
+      this.nodesSearched = 0;
+      const wins = this.search(pos, attacker, targetRemaining, 0);
+      pos.undo();
+      if (wins) {
+        if (solutionMove !== -1) {
+          return -2; // multiple winning moves
+        }
+        solutionMove = move;
+      }
+    }
+    return solutionMove;
+  }
+
   // ---- core search ----------------------------------------------------
 
   private search(
@@ -134,9 +198,8 @@ export class ForcedWinSearcher {
     const isAttacker = pos.toMove === attacker;
     const defender = otherPlayer(attacker);
 
-    // Threat-based pruning
-    const attackerThreats = this.countWinThreats(pos, attacker);
-    const defenderThreats = this.countWinThreats(pos, defender);
+    // Threat-based pruning — single pass over all windows
+    const [attackerThreats, defenderThreats] = this.countBothThreats(pos, attacker, defender);
 
     if (isAttacker) {
       return this.searchAttacker(
@@ -208,8 +271,13 @@ export class ForcedWinSearcher {
     // General case: try all ordered moves
     const count = this.generateMoves(pos, depth);
     const moves = this.moveBuffers[depth];
+    const scores = this.scoreBuffers[depth];
 
-    for (let i = 0; i < count; i += 1) {
+    // When remaining plies are low, limit the number of moves tried.
+    // Attacker needs to create threats; only high-scoring moves can do that.
+    const maxMoves = remaining <= 2 ? Math.min(count, 10) : count;
+
+    for (let i = 0; i < maxMoves; i += 1) {
       if (!pos.play(moves[i])) {
         continue;
       }
@@ -304,26 +372,43 @@ export class ForcedWinSearcher {
 
   // ---- threat detection -----------------------------------------------
 
-  private countWinThreats(pos: GogoPosition, player: Player): number {
+  /** Count threats for both attacker and defender in a single window scan. */
+  private countBothThreats(
+    pos: GogoPosition,
+    attacker: Player,
+    defender: Player,
+  ): [number, number] {
     const meta = pos.meta;
     const board = pos.board;
     const windows = meta.windows;
-    let count = 0;
+    let atkThreats = 0;
+    let defThreats = 0;
 
     for (let wi = 0; wi < meta.windowCount; wi += 1) {
       const base = wi * 5;
-      let ours = 0;
+      let atk = 0;
+      let def = 0;
       let empties = 0;
       for (let step = 0; step < 5; step += 1) {
         const cell = board[windows[base + step]];
-        ours += cell === player ? 1 : 0;
-        empties += cell === EMPTY ? 1 : 0;
+        if (cell === attacker) {
+          atk += 1;
+        } else if (cell === defender) {
+          def += 1;
+        } else {
+          empties += 1;
+        }
       }
-      if (ours === 4 && empties === 1) {
-        count += 1;
+      if (empties === 1) {
+        if (atk === 4) {
+          atkThreats += 1;
+        }
+        if (def === 4) {
+          defThreats += 1;
+        }
       }
     }
-    return count;
+    return [atkThreats, defThreats];
   }
 
   private getWinThreatMoves(pos: GogoPosition, player: Player): { moves: Int16Array; count: number } {
@@ -520,31 +605,46 @@ export function heuristicBestMove(pos: GogoPosition): number {
 
 /**
  * Verify the game history has no blunders (missed forced wins in ≤ 3 plies).
+ * Skips early plies where there aren't enough stones for a forced win.
  */
 export function isGameHistoryClean(
   pos: GogoPosition,
   searcher: ForcedWinSearcher,
 ): boolean {
   const temp = new GogoPosition(pos.size);
+  // A forced win in 3 plies requires an open-three (3 stones + 2 empty in a window).
+  // Black needs ≥3 stones → ply ≥5. White needs ≥3 stones → ply ≥6.
+  // Use ply 6 as a safe lower bound for checking.
+  const minPlyForThreat = 6; // skip early plies where forced wins are impossible
 
   for (let i = 0; i < pos.ply; i += 1) {
     const attacker = temp.toMove;
-    const hadForcedWin = searcher.hasForcedWin(temp, attacker, 3);
     const move = pos.getMoveAt(i);
+
+    // Only check for forced wins when there are enough stones
+    if (i >= minPlyForThreat) {
+      // Quick pre-check: does the attacker have any open-three?
+      if (hasOpenThree(temp, attacker)) {
+        const hadForcedWin = searcher.hasForcedWin(temp, attacker, 3);
+        if (hadForcedWin) {
+          if (!temp.play(move)) {
+            return false;
+          }
+          // Won immediately → fine
+          if (temp.winner === attacker) {
+            continue;
+          }
+          // Must still have forced win in 2 remaining plies
+          if (!searcher.hasForcedWin(temp, attacker, 2)) {
+            return false;
+          }
+          continue;
+        }
+      }
+    }
 
     if (!temp.play(move)) {
       return false;
-    }
-
-    if (hadForcedWin) {
-      // Won immediately → fine
-      if (temp.winner === attacker) {
-        continue;
-      }
-      // Must still have forced win in 2 remaining plies
-      if (!searcher.hasForcedWin(temp, attacker, 2)) {
-        return false;
-      }
     }
   }
   return true;
@@ -557,10 +657,25 @@ export function isGameHistoryClean(
  *
  * Checks are ordered from cheapest to most expensive for early rejection.
  */
+/** Reusable buffers for validatePuzzlePosition to avoid per-call allocation. */
+export interface ValidationBuffers {
+  moveBuffer: Int16Array;
+  hScores: Int32Array;
+}
+
+/** Create validation buffers for the given board area. */
+export function createValidationBuffers(area: number): ValidationBuffers {
+  return {
+    moveBuffer: new Int16Array(area),
+    hScores: new Int32Array(area),
+  };
+}
+
 export function validatePuzzlePosition(
   pos: GogoPosition,
   difficulty: PuzzleDifficulty,
   searcher: ForcedWinSearcher,
+  buffers?: ValidationBuffers,
 ): PuzzleCandidate | null {
   const { n, m, k } = difficulty;
   const attacker = pos.toMove;
@@ -593,11 +708,11 @@ export function validatePuzzlePosition(
   }
 
   // 3. Find the unique move with forced win in exactly n plies
-  const moveBuffer = new Int16Array(pos.area);
+  const moveBuffer = buffers?.moveBuffer ?? new Int16Array(pos.area);
   const moveCount = pos.generateAllLegalMoves(moveBuffer);
 
   // Sort moves by heuristic score descending — high-threat moves first
-  const hScores = new Int32Array(moveCount);
+  const hScores = buffers?.hScores ?? new Int32Array(pos.area);
   for (let i = 0; i < moveCount; i += 1) {
     hScores[i] = heuristicMoveScore(pos, moveBuffer[i]);
   }
@@ -638,15 +753,15 @@ export function validatePuzzlePosition(
     }
   }
 
-  // 5. Uniqueness: alternatives must not have forced win within n+3 plies
+  // 5. Uniqueness: alternatives must not have forced win within n+3 plies.
   //    Check highest-threat alternatives first for fast rejection.
   const altMaxPly = n + 3;
   for (let i = 0; i < moveCount; i += 1) {
     if (moveBuffer[i] === solutionMove) {
       continue;
     }
-    const depth = searcher.forcedWinDepthForMove(pos, moveBuffer[i], altMaxPly);
-    if (depth !== -1) {
+    const altDepth = searcher.forcedWinDepthForMove(pos, moveBuffer[i], altMaxPly);
+    if (altDepth !== -1) {
       return null;
     }
   }
@@ -844,6 +959,7 @@ export function generatePuzzles(
 
   const rng = new LCG(options.seed ?? 42);
   const searcher = new ForcedWinSearcher(size * size, maxSearchDepth);
+  const validationBuffers = createValidationBuffers(size * size);
   const puzzles: PuzzleCandidate[] = [];
   const seenEncodings = new Set<string>();
   const startTime = performance.now();
@@ -860,8 +976,8 @@ export function generatePuzzles(
     const pos = playRandomGame(size, rng, maxMovesPerGame);
     stats.gamesPlayed += 1;
 
-    // Check positions at various depths in the game
-    // Replay the game, checking at each ply after minStones
+    // Check positions at various depths in the game.
+    // Replay the game, checking at each ply after minStones.
     const replay = new GogoPosition(size);
     for (let ply = 0; ply < pos.ply && puzzles.length < count; ply += 1) {
       const move = pos.getMoveAt(ply);
@@ -876,7 +992,7 @@ export function generatePuzzles(
 
       stats.positionsChecked += 1;
 
-      const candidate = validatePuzzlePosition(replay, difficulty, searcher);
+      const candidate = validatePuzzlePosition(replay, difficulty, searcher, validationBuffers);
       stats.totalNodes += searcher.nodesSearched;
 
       if (candidate !== null && !seenEncodings.has(candidate.encoded)) {
