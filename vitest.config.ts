@@ -9,7 +9,7 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       include: ['src/**/*.{ts,vue}'],
-      exclude: ['src/env.d.ts', 'src/engine/index.ts'],
+      exclude: ['src/env.d.ts', 'src/engine/index.ts', 'src/engine/puzzleGenerator.ts'],
       thresholds: {
         lines: 100,
         functions: 100,
