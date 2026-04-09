@@ -90,6 +90,28 @@ test('AI finds immediate wins, blocks forced replies at depth one, and returns b
   expect(timeout.depth).toBe(1);
 });
 
+test('AI iterative deepening exits early once a forced win is proven at the root', () => {
+  const winning = rawPosition([
+    'XXXX.....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+
+  const ai = new GogoAI({ maxDepth: 6, quiescenceDepth: 4, now: () => 0 });
+  const result = ai.findBestMove(winning, 100);
+  expect(result.move).toBe(winning.index(4, 0));
+  expect(result.depth).toBe(1);
+  expect(result.score).toBeGreaterThanOrEqual(1000000000 - 1);
+  expect(result.nodes).toBeLessThan(40);
+  expect(result.forcedWin).toBe(true);
+});
+
 test('AI restores position state after a mid-search timeout so the board is not corrupted', () => {
   // One stone gives the search real candidates to explore but keeps depth-1 well under 128 nodes,
   // so the non-forced timeout (fires every 128 nodes) hits inside the depth-2 subtree with

@@ -17,6 +17,7 @@ export interface AIResponse {
   depth: number;
   nodes: number;
   timedOut: boolean;
+  forcedWin: boolean;
 }
 
 export function handleAIRequest(data: AIRequest): AIResponse {
@@ -34,6 +35,7 @@ export function handleAIRequest(data: AIRequest): AIResponse {
     depth: result.depth,
     nodes: result.nodes,
     timedOut: result.timedOut,
+    forcedWin: result.forcedWin,
   };
 }
 

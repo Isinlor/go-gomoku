@@ -16,6 +16,7 @@ describe('handleAIRequest', () => {
     expect(typeof response.score).toBe('number');
     expect(typeof response.nodes).toBe('number');
     expect(typeof response.timedOut).toBe('boolean');
+    expect(typeof response.forcedWin).toBe('boolean');
   });
 
   test('returns move -1 for a terminal position', () => {
