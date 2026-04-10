@@ -36,7 +36,7 @@ const originalPuzzles = PUZZLES.filter((p) => !p.id.startsWith('gen-'));
 test.each(
   originalPuzzles.map((p) => [p.id, p] as const),
 )('Classic AI solves puzzle %s', { timeout: 30_000 }, (_id, puzzle) => {
-  const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 8, maxPly: 96 });
+  const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4 });
   assertAISolves(puzzle, ai, classicTimeMs[puzzle.depth] ?? 5_000);
 });
 
@@ -48,7 +48,7 @@ const genClassicTimeMs: Record<number, number> = { 3: 15_000, 5: 15_000, 7: 20_0
 test.each(
   generatedPuzzles.map((p) => [p.id, p] as const),
 )('Classic AI solves generated puzzle %s', { timeout: 30_000 }, (_id, puzzle) => {
-  const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 8, maxPly: 96 });
+  const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4 });
   assertAISolves(puzzle, ai, genClassicTimeMs[puzzle.depth] ?? 5_000);
 });
 
