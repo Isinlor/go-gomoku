@@ -1,4 +1,4 @@
-import { GogoAI, GogoMCTS, GogoPosition } from './engine/index.js';
+import { GogoAI, GogoPosition } from './engine/index.js';
 import type { SupportedSize } from './engine/index.js';
 
 declare const process: { argv: string[]; exit(code: number): never };
@@ -11,8 +11,8 @@ export interface CompareOptions {
   timeLimitMs: number;
   numPairs: number;
   boardSize: SupportedSize;
-  ai1?: 'classic' | 'mcts';
-  ai2?: 'classic' | 'mcts';
+  ai1?: 'classic';
+  ai2?: 'classic';
   seed?: number;
   now?: () => number;
 }
@@ -139,8 +139,8 @@ export function parseArgs(args: string[]): CompareOptions {
   let timeLimitMs = 100;
   let numPairs = 5;
   let boardSize: SupportedSize = 9;
-  let ai1: 'classic' | 'mcts' = 'classic';
-  let ai2: 'classic' | 'mcts' = 'classic';
+  let ai1: 'classic' = 'classic';
+  let ai2: 'classic' = 'classic';
   let seed = 1;
 
   for (let i = 0; i < args.length; i++) {
@@ -148,8 +148,8 @@ export function parseArgs(args: string[]): CompareOptions {
     if (args[i] === '--time' && hasValue) timeLimitMs = parseInt(args[++i], 10);
     else if (args[i] === '--pairs' && hasValue) numPairs = parseInt(args[++i], 10);
     else if (args[i] === '--size' && hasValue) boardSize = parseInt(args[++i], 10) as SupportedSize;
-    else if (args[i] === '--ai1' && hasValue) ai1 = args[++i] === 'mcts' ? 'mcts' : 'classic';
-    else if (args[i] === '--ai2' && hasValue) ai2 = args[++i] === 'mcts' ? 'mcts' : 'classic';
+    else if (args[i] === '--ai1' && hasValue) ai1 = 'classic';
+    else if (args[i] === '--ai2' && hasValue) ai2 = 'classic';
     else if (args[i] === '--seed' && hasValue) seed = parseInt(args[++i], 10);
   }
 
@@ -178,10 +178,7 @@ export function main(args: string[], createAI?: () => AIPlayer, createAI2?: () =
   const ai2Kind = options.ai2 ?? 'classic';
   const seed = options.seed ?? 1;
   /* v8 ignore stop */
-  const buildFactory = (kind: 'classic' | 'mcts', seedOffset: number) =>
-    kind === 'mcts'
-      ? () => new GogoMCTS({ seed: seed + seedOffset })
-      : () => new GogoAI();
+  const buildFactory = (_kind: 'classic', _seedOffset: number) => () => new GogoAI();
   const ai1Factory = createAI ?? buildFactory(ai1Kind, 17);
   const ai2Factory = createAI2 ?? createAI ?? buildFactory(ai2Kind, 101);
   console.log(

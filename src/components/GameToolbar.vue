@@ -89,7 +89,6 @@ function onBoardSizeChange(event: Event): void {
         AI type
         <select :value="props.blackAIType" @change="onBlackAITypeChange">
           <option value="classic">Classic</option>
-          <option value="mcts">MCTS</option>
         </select>
       </label>
       <label>
@@ -130,7 +129,6 @@ function onBoardSizeChange(event: Event): void {
         AI type
         <select :value="props.whiteAIType" @change="onWhiteAITypeChange">
           <option value="classic">Classic</option>
-          <option value="mcts">MCTS</option>
         </select>
       </label>
       <label>

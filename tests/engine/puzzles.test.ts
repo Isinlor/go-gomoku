@@ -2,7 +2,6 @@ import { test, expect } from 'vitest';
 
 import {
   GogoAI,
-  GogoMCTS,
   decodeGame,
   decodeMove,
   PUZZLES,
@@ -12,9 +11,9 @@ import {
 
 /**
  * Verify the AI finds the unique winning move for a puzzle.
- * Both Classic (alpha-beta) and MCTS are tested.
+ * Classic (alpha-beta) is tested.
  */
-function assertAISolves(puzzle: Puzzle, ai: GogoAI | GogoMCTS, timeMs: number): void {
+function assertAISolves(puzzle: Puzzle, ai: GogoAI, timeMs: number): void {
   const position = decodeGame(puzzle.encoded);
   expect(position.toMove).toBe(puzzle.toMove);
 
