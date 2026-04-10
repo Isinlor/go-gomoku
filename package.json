@@ -12,6 +12,7 @@
     "test": "vitest run",
     "coverage": "vitest run --coverage --exclude tests/engine/puzzles.test.ts",
     "test:puzzles": "vitest run tests/engine/puzzles.test.ts",
+    "benchmark": "tsx scripts/benchmark.ts",
     "check": "npm run coverage",
     "archive": "git archive -o latest-code.zip HEAD",
     "patch": "git format-patch --root master --stdout > latest-code.patch",

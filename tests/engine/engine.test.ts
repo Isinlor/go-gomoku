@@ -382,3 +382,78 @@ test('decodeGame throws on invalid board size token, unrecognised move, and ille
   expect(() => decodeGame('B9 z1')).toThrow(/Invalid move/);
   expect(() => decodeGame('B9 e5 e5')).toThrow(/Illegal move/);
 });
+
+test('Zobrist hash: changes on play, restores on undo, matches transpositions, and matches fromAscii', () => {
+  // Empty board with BLACK to move has hash = zobristBlackToMove
+  const pos = new GogoPosition(9);
+  expect(pos.hash).toBe(pos.meta.zobristBlackToMove);
+
+  // Hash changes after play
+  const hashBefore = pos.hash;
+  pos.playXY(4, 4);
+  expect(pos.hash).not.toBe(hashBefore);
+
+  // Hash restores after undo
+  pos.undo();
+  expect(pos.hash).toBe(hashBefore);
+
+  // Transpositions: two different move sequences reaching the same board are equal
+  // Sequence A: BLACK(4,4) WHITE(0,0) BLACK(3,3) WHITE(0,1)
+  const posA = new GogoPosition(9);
+  posA.playXY(4, 4);
+  posA.playXY(0, 0);
+  posA.playXY(3, 3);
+  posA.playXY(0, 1);
+
+  // Sequence B: same stones, different WHITE move order
+  const posB = new GogoPosition(9);
+  posB.playXY(4, 4);
+  posB.playXY(0, 1);
+  posB.playXY(3, 3);
+  posB.playXY(0, 0);
+
+  expect(posA.hash).toBe(posB.hash);
+
+  // fromAscii must compute the same hash as the incremental play sequence
+  // posA board: WHITE at (0,0)=a1 and (0,1)=a2; BLACK at (3,3)=d4 and (4,4)=e5; BLACK to move (4 plies played)
+  const posFromAscii = GogoPosition.fromAscii([
+    'O........',
+    'O........',
+    '.........',
+    '...X.....',
+    '....X....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ]); // default toMove = BLACK
+  expect(posFromAscii.hash).toBe(posA.hash);
+
+  // Empty board with WHITE to move has hash 0 (no black-to-move XOR, no stones)
+  const emptyWhite = GogoPosition.fromAscii([
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], WHITE);
+  expect(emptyWhite.hash).toBe(0);
+
+  // fromAscii with BLACK to move on empty board matches constructor
+  const emptyBlack = GogoPosition.fromAscii([
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ]);
+  expect(emptyBlack.hash).toBe(new GogoPosition(9).hash);
+});

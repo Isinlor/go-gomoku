@@ -1,6 +1,6 @@
 import { test, expect } from 'vitest';
 
-import { BLACK, EMPTY, GogoAI, GogoPosition, WHITE } from '../../src/engine';
+import { BLACK, EMPTY, GogoAI, GogoPosition, WHITE, decodeGame, PUZZLES } from '../../src/engine';
 
 function position(rows: string[], toMove = BLACK) {
   return GogoPosition.fromAscii(rows, toMove);
@@ -482,5 +482,143 @@ test('killer moves are stored on beta cutoffs and boost scores in scoreMove', ()
     anyAI.killerMoves[3] = -1;
     const withoutKiller = anyAI.scoreMove(pos, k0, -1, false, 1);
     expect(withKiller).toBeGreaterThan(withoutKiller);
+  }
+});
+
+test('TT: arrays are allocated with correct sizes and populated after a search', () => {
+  const ai = new GogoAI({ maxDepth: 4, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+
+  // TT arrays exist with correct size
+  expect(anyAI.ttHash instanceof Int32Array).toBe(true);
+  expect(anyAI.ttScore instanceof Int32Array).toBe(true);
+  expect(anyAI.ttMove instanceof Int16Array).toBe(true);
+  expect(anyAI.ttDepth instanceof Int8Array).toBe(true);
+  expect(anyAI.ttFlag instanceof Uint8Array).toBe(true);
+  expect(anyAI.ttHash.length).toBe(1 << 18);
+
+  // After a search, the TT entry for the root position is populated
+  const pos = new GogoPosition(9);
+  pos.playXY(4, 4);
+  anyAI.ensureBuffers(pos.area);
+  anyAI.history.fill(0);
+  anyAI.killerMoves.fill(-1);
+  anyAI.deadline = 1e15;
+  anyAI.nodesVisited = 0;
+  anyAI.timedOut = false;
+
+  anyAI.search(pos, 2, -1_000_000_000, 1_000_000_000, 1);
+
+  const ttMask = (1 << 18) - 1;
+  const ttIndex = (pos.hash >>> 0) & ttMask;
+  expect(anyAI.ttHash[ttIndex]).toBe(pos.hash);
+});
+
+test('TT: EXACT, LOWER, and UPPER hits return cached scores when depth is sufficient', () => {
+  const ai = new GogoAI({ maxDepth: 4, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+
+  const pos = new GogoPosition(9);
+  pos.playXY(4, 4);
+  anyAI.ensureBuffers(pos.area);
+  anyAI.deadline = 1e15;
+  anyAI.nodesVisited = 0;
+  anyAI.killerMoves.fill(-1);
+  anyAI.history.fill(0);
+  anyAI.timedOut = false;
+
+  const ttMask = (1 << 18) - 1;
+  const ttIndex = (pos.hash >>> 0) & ttMask;
+
+  // EXACT hit: returns stored score exactly
+  anyAI.ttHash[ttIndex] = pos.hash;
+  anyAI.ttDepth[ttIndex] = 3;
+  anyAI.ttScore[ttIndex] = 12345;
+  anyAI.ttFlag[ttIndex] = 0; // TT_EXACT
+  anyAI.ttMove[ttIndex] = -1;
+  expect(anyAI.search(pos, 3, -100_000, 100_000, 1)).toBe(12345);
+
+  // LOWER hit with score >= beta: returns stored score
+  anyAI.nodesVisited = 0;
+  anyAI.ttHash[ttIndex] = pos.hash;
+  anyAI.ttDepth[ttIndex] = 3;
+  anyAI.ttScore[ttIndex] = 50_000; // >= beta=1000
+  anyAI.ttFlag[ttIndex] = 1; // TT_LOWER
+  expect(anyAI.search(pos, 3, -100_000, 1_000, 1)).toBe(50_000);
+
+  // UPPER hit with score <= alpha: returns stored score
+  anyAI.nodesVisited = 0;
+  anyAI.ttHash[ttIndex] = pos.hash;
+  anyAI.ttDepth[ttIndex] = 3;
+  anyAI.ttScore[ttIndex] = -50_000; // <= alpha=-1000
+  anyAI.ttFlag[ttIndex] = 2; // TT_UPPER
+  expect(anyAI.search(pos, 3, -1_000, 100_000, 1)).toBe(-50_000);
+});
+
+test('TT: LOWER/UPPER bounds that do not meet threshold still run full search', () => {
+  const ai = new GogoAI({ maxDepth: 4, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+
+  const pos = new GogoPosition(9);
+  pos.playXY(4, 4);
+  anyAI.ensureBuffers(pos.area);
+  anyAI.deadline = 1e15;
+  anyAI.killerMoves.fill(-1);
+  anyAI.history.fill(0);
+  anyAI.timedOut = false;
+
+  const ttMask = (1 << 18) - 1;
+  const ttIndex = (pos.hash >>> 0) & ttMask;
+
+  // LOWER hit with score < beta: does NOT prune, full search runs
+  anyAI.nodesVisited = 0;
+  anyAI.ttHash[ttIndex] = pos.hash;
+  anyAI.ttDepth[ttIndex] = 3;
+  anyAI.ttScore[ttIndex] = -50_000; // < beta=1000, so LOWER does not trigger
+  anyAI.ttFlag[ttIndex] = 1; // TT_LOWER
+  anyAI.ttMove[ttIndex] = -1;
+  anyAI.search(pos, 3, -100_000, 1_000, 1);
+  expect(anyAI.nodesVisited).toBeGreaterThan(1);
+
+  // UPPER hit with score > alpha: does NOT prune, full search runs
+  anyAI.nodesVisited = 0;
+  anyAI.ttHash[ttIndex] = pos.hash;
+  anyAI.ttDepth[ttIndex] = 3;
+  anyAI.ttScore[ttIndex] = 50_000; // > alpha=-1000, so UPPER does not trigger
+  anyAI.ttFlag[ttIndex] = 2; // TT_UPPER
+  anyAI.ttMove[ttIndex] = -1;
+  anyAI.search(pos, 3, -1_000, 100_000, 1);
+  expect(anyAI.nodesVisited).toBeGreaterThan(1);
+
+  // Depth too shallow: TT score not used but move hint still applied
+  anyAI.nodesVisited = 0;
+  anyAI.ttHash[ttIndex] = pos.hash;
+  anyAI.ttDepth[ttIndex] = 1; // too shallow for depth=3
+  anyAI.ttScore[ttIndex] = 12345;
+  anyAI.ttFlag[ttIndex] = 0; // TT_EXACT
+  anyAI.ttMove[ttIndex] = pos.index(3, 3); // valid adjacent move as hint
+  anyAI.search(pos, 3, -100_000, 100_000, 1);
+  expect(anyAI.nodesVisited).toBeGreaterThan(1);
+});
+
+test('generateOrderedMoves caps candidates at MAX_CANDIDATES for crowded positions', () => {
+  const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+
+  // gen-beginner-6 has 36 moves (crowded board) — well above MAX_CANDIDATES
+  const puzzleEntry = PUZZLES.find((p) => p.id === 'gen-beginner-6');
+  expect(puzzleEntry).toBeDefined();
+  const crowded = decodeGame(puzzleEntry!.encoded);
+  anyAI.ensureBuffers(crowded.area);
+
+  const moves = anyAI.moveBuffers[0];
+  const scores = anyAI.scoreBuffers[0];
+  const count = anyAI.generateOrderedMoves(crowded, moves, scores, -1, false, 0);
+  expect(count).toBeLessThanOrEqual(15);
+  expect(count).toBeGreaterThan(0);
+
+  // Verify scores are in descending order (highest-scored moves first)
+  for (let i = 1; i < count; i += 1) {
+    expect(scores[i - 1]).toBeGreaterThanOrEqual(scores[i]);
   }
 });

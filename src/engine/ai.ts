@@ -31,6 +31,13 @@ const CAPTURE_BONUS = 5_000;
 const ESCAPE_BONUS = 3_500;
 const NO_SCORE = Number.NEGATIVE_INFINITY;
 
+const TT_SIZE = 1 << 18; // 262144 entries
+const TT_MASK = TT_SIZE - 1;
+const TT_EXACT = 0;
+const TT_LOWER = 1;
+const TT_UPPER = 2;
+const MAX_CANDIDATES = 15;
+
 function otherPlayer(player: Player): Player {
   return player === BLACK ? WHITE : BLACK;
 }
@@ -54,6 +61,11 @@ export class GogoAI {
   private timedOut = false;
   private killerMoves = new Int16Array(0);
   private readonly timeoutSignal = new Error('SEARCH_TIMEOUT');
+  private readonly ttHash = new Int32Array(TT_SIZE);
+  private readonly ttScore = new Int32Array(TT_SIZE);
+  private readonly ttDepth = new Int8Array(TT_SIZE);
+  private readonly ttMove = new Int16Array(TT_SIZE).fill(-1);
+  private readonly ttFlag = new Uint8Array(TT_SIZE);
 
   constructor(options: GogoAIOptions = {}) {
     this.maxDepth = Math.max(1, options.maxDepth ?? 6);
@@ -242,6 +254,26 @@ export class GogoAI {
       return this.quiescence(position, alpha, beta, ply, this.quiescenceDepth);
     }
 
+    // Transposition table lookup
+    const ttIndex = (position.hash >>> 0) & TT_MASK;
+    let ttBestMove = -1;
+    if (this.ttHash[ttIndex] === position.hash) {
+      ttBestMove = this.ttMove[ttIndex];
+      if (this.ttDepth[ttIndex] >= depth) {
+        const ttScore = this.ttScore[ttIndex];
+        const ttFlag = this.ttFlag[ttIndex];
+        if (ttFlag === TT_EXACT) {
+          return ttScore;
+        }
+        if (ttFlag === TT_LOWER && ttScore >= beta) {
+          return ttScore;
+        }
+        if (ttFlag === TT_UPPER && ttScore <= alpha) {
+          return ttScore;
+        }
+      }
+    }
+
     // Null move pruning: if we give the opponent a free move and they still
     // can't beat beta, the position is likely good enough to prune.
     if (depth >= 3 && canNullMove) {
@@ -261,12 +293,14 @@ export class GogoAI {
       }
     }
 
+    const alphaOrig = alpha;
     const moves = this.moveBuffers[ply];
     const scores = this.scoreBuffers[ply];
-    let count = this.generateOrderedMoves(position, moves, scores, -1, false, ply);
+    let count = this.generateOrderedMoves(position, moves, scores, ttBestMove, false, ply);
     let usedFullBoard = false;
     let legalCount = 0;
     let bestScore = -WIN_SCORE;
+    let bestMove = ttBestMove;
 
     for (;;) {
       for (let i = 0; i < count; i += 1) {
@@ -293,6 +327,7 @@ export class GogoAI {
         }
         if (score > bestScore) {
           bestScore = score;
+          bestMove = move;
         }
         if (score > alpha) {
           alpha = score;
@@ -303,6 +338,12 @@ export class GogoAI {
               this.killerMoves[ply * 2 + 1] = this.killerMoves[ply * 2];
               this.killerMoves[ply * 2] = move;
             }
+            // TT store: LOWER bound (failed high)
+            this.ttHash[ttIndex] = position.hash;
+            this.ttScore[ttIndex] = score;
+            this.ttDepth[ttIndex] = depth;
+            this.ttMove[ttIndex] = move;
+            this.ttFlag[ttIndex] = TT_LOWER;
             return score;
           }
         }
@@ -310,11 +351,23 @@ export class GogoAI {
       if (legalCount !== 0 || usedFullBoard) {
         break;
       }
-      count = this.generateFullBoardMoves(position, moves, scores, -1, false, ply);
+      count = this.generateFullBoardMoves(position, moves, scores, ttBestMove, false, ply);
       usedFullBoard = true;
     }
 
-    return legalCount === 0 ? 0 : bestScore;
+    if (legalCount === 0) {
+      return 0;
+    }
+
+    // TT store: EXACT (alpha improved) or UPPER bound (alpha never improved)
+    const ttFlag = bestScore <= alphaOrig ? TT_UPPER : TT_EXACT;
+    this.ttHash[ttIndex] = position.hash;
+    this.ttScore[ttIndex] = bestScore;
+    this.ttDepth[ttIndex] = depth;
+    this.ttMove[ttIndex] = bestMove;
+    this.ttFlag[ttIndex] = ttFlag;
+
+    return bestScore;
   }
 
   private quiescence(position: GogoPosition, alpha: number, beta: number, ply: number, remainingDepth: number): number {
@@ -459,7 +512,7 @@ export class GogoAI {
       }
     }
 
-    return count;
+    return Math.min(count, MAX_CANDIDATES);
   }
 
   private generateFullBoardMoves(
