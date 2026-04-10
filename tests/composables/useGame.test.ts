@@ -1300,4 +1300,215 @@ describe('useGame', () => {
     expect(gameState.game.value.toMove).toBe(BLACK);
     wrapper.unmount();
   });
+
+  test('newGame creates position with swapRule enabled', () => {
+    const worker = createMockWorker();
+    const { gameState, wrapper } = mountWithGame({
+      createWorker: () => worker,
+      getLocationHash: () => '',
+      setLocationHash: () => {},
+    });
+
+    expect(gameState.game.value.swapRule).toBe(true);
+    wrapper.unmount();
+  });
+
+  test('canSwap is false when game is fresh (ply=0)', () => {
+    const worker = createMockWorker();
+    const { gameState, wrapper } = mountWithGame({
+      createWorker: () => worker,
+      getLocationHash: () => '',
+      setLocationHash: () => {},
+    });
+
+    expect(gameState.canSwap.value).toBe(false);
+    wrapper.unmount();
+  });
+
+  test('canSwap is true after 3 moves when human is to move', () => {
+    const worker = createMockWorker();
+    const { gameState, wrapper } = mountWithGame({
+      createWorker: () => worker,
+      getLocationHash: () => '',
+      setLocationHash: () => {},
+    });
+
+    gameState.whiteIsAI.value = false;
+    gameState.playMove(40); // e5 black (center)
+    gameState.playMove(30); // d4 white
+    gameState.playMove(50); // f5 black - now ply=3, white to move
+    expect(gameState.game.value.ply).toBe(3);
+    expect(gameState.game.value.swapAvailable).toBe(true);
+    expect(gameState.canSwap.value).toBe(true);
+    wrapper.unmount();
+  });
+
+  test('canSwap is false when AI is thinking', () => {
+    const worker = createMockWorker();
+    const { gameState, wrapper } = mountWithGame({
+      createWorker: () => worker,
+      getLocationHash: () => '',
+      setLocationHash: () => {},
+    });
+
+    gameState.whiteIsAI.value = false;
+    gameState.playMove(40);
+    gameState.playMove(30);
+    gameState.playMove(50);
+    gameState.aiThinking.value = true;
+    expect(gameState.canSwap.value).toBe(false);
+    wrapper.unmount();
+  });
+
+  test('canSwap is false when it is AI turn', () => {
+    const worker = createMockWorker();
+    const { gameState, wrapper } = mountWithGame({
+      createWorker: () => worker,
+      getLocationHash: () => '',
+      setLocationHash: () => {},
+    });
+
+    // Both human for setup
+    gameState.whiteIsAI.value = false;
+    gameState.playMove(40);
+    gameState.playMove(30);
+    gameState.playMove(50);
+    // Now make white AI - swap should not be available to human
+    gameState.whiteIsAI.value = true;
+    expect(gameState.canSwap.value).toBe(false);
+    wrapper.unmount();
+  });
+
+  test('swapColors performs swap and updates status', () => {
+    const worker = createMockWorker();
+    const { gameState, wrapper } = mountWithGame({
+      createWorker: () => worker,
+      getLocationHash: () => '',
+      setLocationHash: () => {},
+    });
+
+    gameState.whiteIsAI.value = false;
+    gameState.playMove(40); // black center
+    gameState.playMove(30); // white
+    gameState.playMove(50); // black
+    expect(gameState.canSwap.value).toBe(true);
+
+    gameState.swapColors();
+    expect(gameState.statusExtra.value).toBe('colors swapped');
+    expect(gameState.game.value.swapAvailable).toBe(false);
+    // After swap, toMove should have toggled (was WHITE, now BLACK)
+    expect(gameState.game.value.toMove).toBe(BLACK);
+    wrapper.unmount();
+  });
+
+  test('swapColors does nothing when AI is thinking', () => {
+    const worker = createMockWorker();
+    const { gameState, wrapper } = mountWithGame({
+      createWorker: () => worker,
+      getLocationHash: () => '',
+      setLocationHash: () => {},
+    });
+
+    gameState.whiteIsAI.value = false;
+    gameState.playMove(40);
+    gameState.playMove(30);
+    gameState.playMove(50);
+    gameState.aiThinking.value = true;
+    gameState.swapColors();
+    expect(gameState.game.value.swapAvailable).toBe(true); // still available
+    wrapper.unmount();
+  });
+
+  test('swapColors does nothing when not human turn', () => {
+    const worker = createMockWorker();
+    const { gameState, wrapper } = mountWithGame({
+      createWorker: () => worker,
+      getLocationHash: () => '',
+      setLocationHash: () => {},
+    });
+
+    gameState.whiteIsAI.value = false;
+    gameState.playMove(40);
+    gameState.playMove(30);
+    gameState.playMove(50);
+    gameState.whiteIsAI.value = true;
+    gameState.swapColors();
+    expect(gameState.game.value.swapAvailable).toBe(true); // still available
+    wrapper.unmount();
+  });
+
+  test('swapColors does nothing when swap not available', () => {
+    const worker = createMockWorker();
+    const { gameState, wrapper } = mountWithGame({
+      createWorker: () => worker,
+      getLocationHash: () => '',
+      setLocationHash: () => {},
+    });
+
+    gameState.whiteIsAI.value = false;
+    // Only 1 move, swap not available
+    gameState.playMove(40);
+    gameState.swapColors();
+    expect(gameState.game.value.ply).toBe(1);
+    wrapper.unmount();
+  });
+
+  test('statusText shows swap option when swap is available and human to move', () => {
+    const worker = createMockWorker();
+    const { gameState, wrapper } = mountWithGame({
+      createWorker: () => worker,
+      getLocationHash: () => '',
+      setLocationHash: () => {},
+    });
+
+    gameState.whiteIsAI.value = false;
+    gameState.playMove(40);
+    gameState.playMove(30);
+    gameState.playMove(50);
+    expect(gameState.statusText.value).toContain('may swap colors or play');
+    wrapper.unmount();
+  });
+
+  test('AI worker response with swap=true triggers swap then play', () => {
+    const worker = createMockWorker();
+    const { gameState, wrapper } = mountWithGame({
+      createWorker: () => worker,
+      getLocationHash: () => '',
+      setLocationHash: () => {},
+    });
+
+    // Setup: play 3 moves so swap is available, then set white to AI
+    gameState.whiteIsAI.value = false;
+    gameState.blackIsAI.value = false;
+    gameState.playMove(40); // black center
+    gameState.playMove(30); // white
+    gameState.playMove(50); // black - ply=3, swap available
+    expect(gameState.game.value.swapAvailable).toBe(true);
+
+    // Now set white to AI to trigger AI evaluation
+    gameState.whiteIsAI.value = true;
+    gameState.onModeChange();
+    expect(gameState.aiThinking.value).toBe(true);
+
+    // Disable white AI before response so maybeRunAI at end of handler doesn't retrigger
+    gameState.whiteIsAI.value = false;
+
+    // Simulate AI responding with swap=true
+    const response: AIResponse = {
+      move: 31, // a move after swap
+      score: 200,
+      depth: 3,
+      nodes: 100,
+      timedOut: false,
+      forcedWin: false,
+      forcedLoss: false,
+      swap: true,
+    };
+    (worker as any).onmessage({ data: response } as MessageEvent);
+
+    expect(gameState.aiThinking.value).toBe(false);
+    expect(gameState.statusExtra.value).toContain('swapped colors');
+    expect(gameState.game.value.swapAvailable).toBe(false);
+    wrapper.unmount();
+  });
 });

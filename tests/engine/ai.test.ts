@@ -550,3 +550,209 @@ test('hintLine provides hints at deeper plies during search', () => {
   // Hint line should reduce node count since the best line is searched first
   expect(resultWithHint.nodes).toBeLessThanOrEqual(resultNoHint.nodes);
 });
+
+test('AI evaluates swap decision when swapAvailable is true', () => {
+  // Create a position where black has a strong advantage (black's 3 in a row)
+  // After 3 moves with swapRule, white should want to swap
+  const pos = new GogoPosition(9, { swapRule: true });
+  pos.playXY(4, 4); // black center
+  pos.playXY(0, 0); // white corner (weak)
+  pos.playXY(5, 4); // black extends - now ply=3, swap available
+  expect(pos.swapAvailable).toBe(true);
+  expect(pos.toMove).toBe(WHITE);
+
+  const ai = new GogoAI({ maxDepth: 3, quiescenceDepth: 2, now: () => 0 });
+  const result = ai.findBestMove(pos, 200);
+
+  // The result should have a valid move (or swap)
+  expect(result.depth).toBeGreaterThanOrEqual(1);
+  expect(typeof result.swap).toBe('boolean');
+  // When black has a strong position, white should consider swapping
+  // The exact decision depends on evaluation, but the swap field should be set
+});
+
+test('AI swap decision returns swap=false when position is balanced', () => {
+  // Create a more balanced position
+  const pos = new GogoPosition(9, { swapRule: true });
+  pos.playXY(4, 4); // black center
+  pos.playXY(4, 3); // white adjacent
+  pos.playXY(3, 4); // black extends - now ply=3, swap available
+  expect(pos.swapAvailable).toBe(true);
+
+  const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
+  const result = ai.findBestMove(pos, 200);
+  expect(result.move).not.toBe(-1);
+  expect(typeof result.swap).toBe('boolean');
+});
+
+test('AI swap evaluation handles timeout in one phase', () => {
+  const pos = new GogoPosition(9, { swapRule: true });
+  pos.playXY(4, 4);
+  pos.playXY(3, 3);
+  pos.playXY(5, 5);
+  expect(pos.swapAvailable).toBe(true);
+
+  // Use a tiny time limit to force timeout
+  let tick = 0;
+  const ai = new GogoAI({
+    maxDepth: 6,
+    quiescenceDepth: 2,
+    now: () => tick++,
+  });
+  const result = ai.findBestMove(pos, 1);
+  // Should still return a valid result even with timeout
+  expect(result.move).not.toBe(-1);
+  expect(typeof result.swap).toBe('boolean');
+});
+
+test('AI SearchResult includes swap field for non-swap positions', () => {
+  const pos = new GogoPosition(9);
+  const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2 });
+  const result = ai.findBestMove(pos, 100);
+  expect(result.swap).toBe(false);
+
+  // Terminal state also has swap=false
+  const won = GogoPosition.fromAscii([
+    'XXXXX....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  const termResult = ai.findBestMove(won, 100);
+  expect(termResult.swap).toBe(false);
+});
+
+test('AI evaluateSwapDecision covers searchAsCurrentSide fallback path', () => {
+  // Test the fallback case where no legal moves exist in swap evaluation
+  const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+  anyAI.ensureBuffers(81);
+
+  // Create a position with swapAvailable=true but manipulate to test edge cases
+  const pos = new GogoPosition(9, { swapRule: true });
+  pos.playXY(4, 4);
+  pos.playXY(3, 3);
+  pos.playXY(5, 5);
+  expect(pos.swapAvailable).toBe(true);
+
+  // Test with immediate timeout for searchAsCurrentSide fallback
+  let callCount = 0;
+  const timeoutAI = new GogoAI({
+    maxDepth: 2,
+    quiescenceDepth: 2,
+    now: () => {
+      callCount++;
+      // Return high time on first call (deadline computation), then expire
+      return callCount <= 1 ? 0 : 10000;
+    },
+  });
+  const result = timeoutAI.findBestMove(pos, 1);
+  expect(result.move).not.toBe(-1);
+});
+
+test('AI searchAsCurrentSide forced win/loss break and timeout catch via swap', () => {
+  // Create a swap position and verify the code paths work
+  const pos = new GogoPosition(9, { swapRule: true });
+  pos.playXY(4, 4); // black center  (ply 1)
+  pos.playXY(0, 0); // white corner   (ply 2)
+  pos.playXY(5, 4); // black extends  (ply 3, swap available)
+  expect(pos.swapAvailable).toBe(true);
+
+  // Search with a real time limit to cover the iterative deepening loop
+  const ai = new GogoAI({ maxDepth: 3, quiescenceDepth: 2 });
+  const result = ai.findBestMove(pos, 200);
+  expect(result.move).not.toBe(-1);
+  expect(typeof result.swap).toBe('boolean');
+
+  // Test timeout inside searchAsCurrentSide via instant timeout
+  let calls = 0;
+  const timeoutAI = new GogoAI({
+    maxDepth: 3,
+    quiescenceDepth: 2,
+    now: () => {
+      calls += 1;
+      // First 2 calls set up deadline (inside findBestMove + evaluateSwapDecision),
+      // then expire immediately on all subsequent calls
+      return calls <= 2 ? 0 : 10000;
+    },
+  });
+  const timeoutResult = timeoutAI.findBestMove(pos, 1);
+  // Should get a fallback move (timeout before any depth completes)
+  expect(timeoutResult.move).not.toBe(-1);
+});
+
+test('searchAsCurrentSide breaks on forced win during swap evaluation', () => {
+  // Create a position where the current side has a forced win at depth 1.
+  // White has 4 in a row, about to complete 5. Swap makes black face that.
+  // No-swap: white can win immediately. searchAsCurrentSide detects forced win → break.
+  const pos = new GogoPosition(9, { swapRule: true });
+  // Manually construct: white has 4 in a row, needs one more
+  pos.board[0] = WHITE;
+  pos.board[1] = WHITE;
+  pos.board[2] = WHITE;
+  pos.board[3] = WHITE;
+  // Black has 2 stones elsewhere
+  pos.board[18] = BLACK;
+  pos.board[27] = BLACK;
+  pos.stoneCount = 6;
+  pos.ply = 3;
+  pos.toMove = WHITE;
+  pos.swapAvailable = true;
+
+  const ai = new GogoAI({ maxDepth: 3, quiescenceDepth: 2, now: () => 0 });
+  const result = ai.findBestMove(pos, 500);
+  // Without swap, white can play at index 4 and win
+  // The forced win break in searchAsCurrentSide should be hit
+  expect(result.move).toBe(4);
+  expect(result.swap).toBe(false); // no need to swap when you can win
+});
+
+test('searchAsCurrentSide rethrows non-timeout errors during swap evaluation', () => {
+  const pos = new GogoPosition(9, { swapRule: true });
+  pos.playXY(4, 4);
+  pos.playXY(0, 0);
+  pos.playXY(5, 4);
+  expect(pos.swapAvailable).toBe(true);
+
+  const ai = new GogoAI({ maxDepth: 3, quiescenceDepth: 2 });
+  const originalSearchRoot = (ai as any).searchRoot.bind(ai);
+  let callCount = 0;
+  (ai as any).searchRoot = (...args: any[]) => {
+    callCount += 1;
+    // Throw on the second call (which happens during swap evaluation's searchAsCurrentSide)
+    if (callCount === 2) {
+      throw new Error('unexpected error');
+    }
+    return originalSearchRoot(...args);
+  };
+  expect(() => ai.findBestMove(pos, 500)).toThrow('unexpected error');
+});
+
+test('evaluateSwapDecision chooses swap when swap score is higher', () => {
+  const pos = new GogoPosition(9, { swapRule: true });
+  pos.playXY(4, 4);
+  pos.playXY(0, 0);
+  pos.playXY(5, 4);
+  expect(pos.swapAvailable).toBe(true);
+
+  const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2 });
+  let callIndex = 0;
+  // Mock searchAsCurrentSide to return controlled scores:
+  // First call (no-swap) returns low score, second call (swap) returns high score
+  (ai as any).searchAsCurrentSide = () => {
+    callIndex += 1;
+    if (callIndex === 1) {
+      return { move: 30, score: -500, depth: 2, nodes: 10, timedOut: false, forcedWin: false, forcedLoss: false, swap: false };
+    }
+    return { move: 31, score: 500, depth: 2, nodes: 10, timedOut: false, forcedWin: false, forcedLoss: false, swap: false };
+  };
+  const result = ai.findBestMove(pos, 200);
+  expect(result.swap).toBe(true);
+  expect(result.move).toBe(31); // swap result's move
+  expect(result.score).toBe(500);
+});

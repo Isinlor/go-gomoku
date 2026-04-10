@@ -12,6 +12,7 @@ describe('GameToolbar', () => {
     whiteAIType: 'classic' as const,
     boardSize: 9 as const,
     aiThinking: false,
+    canSwap: false,
   };
 
   test('renders all controls', () => {
@@ -169,5 +170,22 @@ describe('GameToolbar', () => {
     const wrapper = mount(GameToolbar, { props: { ...defaultProps, whiteAIType: 'classic' as const } });
     const select = wrapper.find('fieldset:last-of-type select');
     expect((select.element as HTMLSelectElement).value).toBe('classic');
+  });
+
+  test('swap button is hidden when canSwap is false', () => {
+    const wrapper = mount(GameToolbar, { props: { ...defaultProps, canSwap: false } });
+    expect(wrapper.find('.swap-button').exists()).toBe(false);
+  });
+
+  test('swap button is visible when canSwap is true', () => {
+    const wrapper = mount(GameToolbar, { props: { ...defaultProps, canSwap: true } });
+    expect(wrapper.find('.swap-button').exists()).toBe(true);
+    expect(wrapper.find('.swap-button').text()).toBe('Swap colors');
+  });
+
+  test('emits swap when Swap colors button is clicked', async () => {
+    const wrapper = mount(GameToolbar, { props: { ...defaultProps, canSwap: true } });
+    await wrapper.find('.swap-button').trigger('click');
+    expect(wrapper.emitted('swap')).toBeTruthy();
   });
 });

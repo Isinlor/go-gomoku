@@ -21,10 +21,12 @@ const mockGameState = () => {
     gameUrl: computed(() => '#B9'),
     loadError: ref(''),
     boardVersion: ref(0),
+    canSwap: computed(() => false),
     boardDisabled: () => false,
     newGame: vi.fn(),
     undo: vi.fn(),
     playMove: vi.fn(),
+    swapColors: vi.fn(),
     loadGame: vi.fn(),
     loadPuzzle: vi.fn(),
     setSize: vi.fn(),
@@ -173,5 +175,13 @@ describe('App', () => {
     puzzleSelect.vm.$emit('loadPuzzle', puzzle);
     await wrapper.vm.$nextTick();
     expect(currentMockState.loadPuzzle).toHaveBeenCalledWith(puzzle);
+  });
+
+  test('swap event on toolbar calls swapColors', async () => {
+    const wrapper = mount(App);
+    const toolbar = wrapper.findComponent({ name: 'GameToolbar' });
+    toolbar.vm.$emit('swap');
+    await wrapper.vm.$nextTick();
+    expect(currentMockState.swapColors).toHaveBeenCalled();
   });
 });
