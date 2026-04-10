@@ -406,3 +406,81 @@ test('scoreMove deduplicates adjacent groups that wrap around the candidate from
   anyAI.ensureBuffers(playerDedup.area);
   expect(anyAI.scoreMove(playerDedup, playerDedup.index(3, 2), -1, false)).toBe(6080);
 });
+
+test('null move pruning prunes when the position is strongly in favor of the side to move', () => {
+  // Position where BLACK has a strong 3-in-a-row pattern.
+  // The null move (giving WHITE a free move) still evaluates strongly
+  // for BLACK, so NMP returns beta and prunes the search tree.
+  const ai = new GogoAI({ maxDepth: 4, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+  const pos = rawPosition([
+    '.........',
+    '.........',
+    '.........',
+    '..XXX....',
+    '.........',
+    '..OO.....',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  anyAI.ensureBuffers(pos.area);
+  anyAI.deadline = 1e15;
+  anyAI.killerMoves.fill(-1);
+
+  // With depth=3, canNullMove=true, and beta=100, the null move search
+  // at depth=0 evaluates from WHITE's perspective (negative for WHITE
+  // since BLACK has strong patterns). Negated back → high score >= beta.
+  // NMP returns beta (100).
+  const score = anyAI.search(pos, 3, -1_000_000, 100, 1, true);
+  expect(score).toBe(100);
+
+  // With canNullMove=false, NMP is skipped and the full search runs.
+  // The result should differ since the full search explores all moves.
+  const scoreNoNmp = anyAI.search(pos, 3, -1_000_000, 100, 1, false);
+  expect(scoreNoNmp).toBeGreaterThanOrEqual(100);
+
+  // With a very wide beta window (beta=1_000_000), NMP fires but nullScore
+  // does not reach beta, so the search continues past the NMP check
+  // (covers the false branch of "if nullScore >= beta").
+  anyAI.killerMoves.fill(-1);
+  const scoreWide = anyAI.search(pos, 3, -1_000_000, 1_000_000, 1, true);
+  expect(scoreWide).toBeGreaterThan(0);
+});
+
+test('killer moves are stored on beta cutoffs and boost scores in scoreMove', () => {
+  const ai = new GogoAI({ maxDepth: 4, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+  const pos = rawPosition([
+    '.........',
+    '.........',
+    '.........',
+    '..XXX....',
+    '.........',
+    '..OO.....',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  anyAI.ensureBuffers(pos.area);
+  anyAI.deadline = 1e15;
+  anyAI.killerMoves.fill(-1);
+
+  // Run a search that will produce beta cutoffs, populating killer moves
+  anyAI.search(pos, 2, -1_000_000, 1_000_000, 1);
+
+  // Verify killer moves were stored at ply 1 (at least one should be set)
+  const k0 = anyAI.killerMoves[2]; // ply=1, slot 0
+  const k1 = anyAI.killerMoves[3]; // ply=1, slot 1
+  expect(k0 !== -1 || k1 !== -1).toBe(true);
+
+  // When the same killer move appears in scoreMove, it should get a bonus
+  if (k0 !== -1) {
+    const withKiller = anyAI.scoreMove(pos, k0, -1, false, 1);
+    // Reset killer and re-score without killer bonus
+    anyAI.killerMoves[2] = -1;
+    anyAI.killerMoves[3] = -1;
+    const withoutKiller = anyAI.scoreMove(pos, k0, -1, false, 1);
+    expect(withKiller).toBeGreaterThan(withoutKiller);
+  }
+});
