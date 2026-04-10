@@ -470,7 +470,7 @@ describe('useGame', () => {
     expect(worker.postMessage).toHaveBeenCalledTimes(1);
     const request = (worker.postMessage as any).mock.calls[0][0];
     expect(request.encodedGame).toBe('B9');
-    expect(request.maxDepth).toBe(6);
+    expect(request.maxDepth).toBe(12);
 
     // Simulate worker response
     const response: AIResponse = {
@@ -725,7 +725,7 @@ describe('useGame', () => {
     gameState.onModeChange();
     expect(worker.postMessage).toHaveBeenCalled();
     const request = (worker.postMessage as any).mock.calls[0][0];
-    expect(request.maxDepth).toBe(5); // 13x13 uses depth 5
+    expect(request.maxDepth).toBe(12); // uses generous search depth regardless of board size
     wrapper.unmount();
   });
 
