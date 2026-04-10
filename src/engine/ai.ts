@@ -15,6 +15,12 @@ export interface GogoAIOptions {
   quiescenceDepth?: number;
   maxPly?: number;
   now?: () => number;
+  /** When false, candidate moves are drawn from the full board instead of only
+   *  cells within distance 2 of an existing stone. Default: true. */
+  useNear2?: boolean;
+  /** When false, the center-proximity bias is excluded from move scoring and
+   *  static evaluation. Default: true. */
+  useCenterBias?: boolean;
 }
 
 const WIN_SCORE = 1_000_000_000;
@@ -39,6 +45,8 @@ export class GogoAI {
   readonly maxDepth: number;
   readonly quiescenceDepth: number;
   readonly maxPly: number;
+  readonly useNear2: boolean;
+  readonly useCenterBias: boolean;
 
   private readonly now: () => number;
   private moveBuffers: Int16Array[] = [];
@@ -60,6 +68,8 @@ export class GogoAI {
     this.quiescenceDepth = Math.max(0, options.quiescenceDepth ?? 6);
     this.maxPly = Math.max(2, options.maxPly ?? 64);
     this.now = options.now ?? (() => performance.now());
+    this.useNear2 = options.useNear2 ?? true;
+    this.useCenterBias = options.useCenterBias ?? true;
   }
 
   findBestMove(position: GogoPosition, timeLimitMs: number): SearchResult {
@@ -405,7 +415,8 @@ export class GogoAI {
         localLiberties += neighbor !== -1 && board[neighbor] === EMPTY ? 1 : 0;
       }
       const libertyBucket = Math.min(localLiberties, LOCAL_LIBERTY_WEIGHTS.length - 1);
-      const stoneScore = meta.centerBias[point] * CENTER_MULTIPLIER + LOCAL_LIBERTY_WEIGHTS[libertyBucket];
+      const centerComponent = this.useCenterBias ? meta.centerBias[point] * CENTER_MULTIPLIER : 0;
+      const stoneScore = centerComponent + LOCAL_LIBERTY_WEIGHTS[libertyBucket];
       score += cell === BLACK ? stoneScore : -stoneScore;
     }
 
@@ -435,25 +446,39 @@ export class GogoAI {
 
     const board = position.board;
     const meta = position.meta;
-    const near2 = meta.near2;
-    const near2Offsets = meta.near2Offsets;
     this.candidateEpoch += 1;
     let count = 0;
 
-    for (let point = 0; point < position.area; point += 1) {
-      if (board[point] === EMPTY) {
-        continue;
+    if (this.useNear2) {
+      const near2 = meta.near2;
+      const near2Offsets = meta.near2Offsets;
+      for (let point = 0; point < position.area; point += 1) {
+        if (board[point] === EMPTY) {
+          continue;
+        }
+        for (let cursor = near2Offsets[point]; cursor < near2Offsets[point + 1]; cursor += 1) {
+          const move = near2[cursor];
+          if (board[move] !== EMPTY || move === position.koPoint || this.candidateMarks[move] === this.candidateEpoch) {
+            continue;
+          }
+          const score = this.scoreMove(position, move, hintMove, tacticalOnly, ply);
+          if (score === NO_SCORE) {
+            continue;
+          }
+          this.candidateMarks[move] = this.candidateEpoch;
+          this.insertMove(moves, scores, count, move, score);
+          count += 1;
+        }
       }
-      for (let cursor = near2Offsets[point]; cursor < near2Offsets[point + 1]; cursor += 1) {
-        const move = near2[cursor];
-        if (board[move] !== EMPTY || move === position.koPoint || this.candidateMarks[move] === this.candidateEpoch) {
+    } else {
+      for (let move = 0; move < position.area; move += 1) {
+        if (board[move] !== EMPTY || move === position.koPoint) {
           continue;
         }
         const score = this.scoreMove(position, move, hintMove, tacticalOnly, ply);
         if (score === NO_SCORE) {
           continue;
         }
-        this.candidateMarks[move] = this.candidateEpoch;
         this.insertMove(moves, scores, count, move, score);
         count += 1;
       }
@@ -562,7 +587,9 @@ export class GogoAI {
     }
 
     let score = attack + defense + capturePressure + escapePressure;
-    score += meta.centerBias[move] * CENTER_MULTIPLIER;
+    if (this.useCenterBias) {
+      score += meta.centerBias[move] * CENTER_MULTIPLIER;
+    }
     score += this.history[(player - 1) * this.bufferArea + move];
     if (move === hintMove) {
       score += HINT_BONUS;
