@@ -337,6 +337,7 @@ export class GogoPosition {
 
     // Center opening rule: the first move must be the center point.
     if (this.centerOpening && this.ply === 0) {
+      // center = (size / 2) * size + (size / 2)
       const center = ((this.size >> 1) * this.size) + (this.size >> 1);
       if (index !== center) {
         return false;

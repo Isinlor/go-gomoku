@@ -536,13 +536,17 @@ test('hintLine provides hints at deeper plies during search', () => {
   const move2 = pos.index(4, 6); // arbitrary white response
   const move3 = pos.index(0, 0); // complete 5 in a row
 
-  // Provide a hint line for the first two plies
+  // Search with hint line pointing along the winning path
   const ai = new GogoAI({ maxDepth: 4, quiescenceDepth: 2, now: () => 0 });
-  const result = ai.findBestMove(pos, 100, [move1, move2, move3]);
-  // AI should still find the best move (which might be move1 or could be move3 directly)
-  expect(result.move).not.toBe(-1);
-  expect(result.score).toBeGreaterThan(0);
+  const resultWithHint = ai.findBestMove(pos, 100, [move1, move2, move3]);
+  expect(resultWithHint.move).toBe(move1);
+  expect(resultWithHint.forcedWin).toBe(true);
 
-  // Verify the search completes properly with hint line
-  expect(result.depth).toBeGreaterThanOrEqual(1);
+  // Search without hint line should find the same winning move
+  const resultNoHint = ai.findBestMove(pos, 100);
+  expect(resultNoHint.move).toBe(move1);
+  expect(resultNoHint.forcedWin).toBe(true);
+
+  // Hint line should reduce node count since the best line is searched first
+  expect(resultWithHint.nodes).toBeLessThanOrEqual(resultNoHint.nodes);
 });
