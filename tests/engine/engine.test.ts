@@ -382,3 +382,52 @@ test('decodeGame throws on invalid board size token, unrecognised move, and ille
   expect(() => decodeGame('B9 z1')).toThrow(/Invalid move/);
   expect(() => decodeGame('B9 e5 e5')).toThrow(/Illegal move/);
 });
+
+test('centerOpening restricts first move to center point', () => {
+  const game = new GogoPosition(9, { centerOpening: true });
+  expect(game.centerOpening).toBe(true);
+  const center = game.index(4, 4); // e5
+
+  // Non-center first moves are rejected
+  expect(game.playXY(0, 0)).toBe(false);
+  expect(game.playXY(4, 8)).toBe(false); // e9 - the edge exploit
+  expect(game.play(0)).toBe(false);
+  expect(game.isLegal(0)).toBe(false);
+  expect(game.ply).toBe(0);
+
+  // Center first move is allowed
+  expect(game.playXY(4, 4)).toBe(true);
+  expect(game.ply).toBe(1);
+
+  // Second move is unrestricted
+  expect(game.playXY(0, 0)).toBe(true);
+  expect(game.ply).toBe(2);
+
+  // Undo back to first move, restriction still applies
+  game.undo();
+  game.undo();
+  expect(game.ply).toBe(0);
+  expect(game.playXY(3, 3)).toBe(false);
+  expect(game.playXY(4, 4)).toBe(true);
+
+  // Without centerOpening, any first move is allowed
+  const free = new GogoPosition(9);
+  expect(free.centerOpening).toBe(false);
+  expect(free.playXY(0, 0)).toBe(true);
+
+  // Works on other board sizes
+  const game11 = new GogoPosition(11, { centerOpening: true });
+  expect(game11.playXY(5, 5)).toBe(true); // f6 is center of 11x11
+  expect(game11.ply).toBe(1);
+
+  const game13 = new GogoPosition(13, { centerOpening: true });
+  expect(game13.playXY(6, 6)).toBe(true); // g7 is center of 13x13
+
+  // hasAnyLegalMove and generateAllLegalMoves respect centerOpening
+  const restricted = new GogoPosition(9, { centerOpening: true });
+  expect(restricted.hasAnyLegalMove()).toBe(true);
+  const moveBuffer = new Int16Array(restricted.area);
+  const count = restricted.generateAllLegalMoves(moveBuffer);
+  expect(count).toBe(1);
+  expect(moveBuffer[0]).toBe(center);
+});

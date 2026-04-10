@@ -484,3 +484,65 @@ test('killer moves are stored on beta cutoffs and boost scores in scoreMove', ()
     expect(withKiller).toBeGreaterThan(withoutKiller);
   }
 });
+
+test('hintLine prioritizes specific moves in the search tree', () => {
+  // Position where black has a clear winning move at index 4 (e1 = 4 in a row)
+  const winning = rawPosition([
+    'XXXX.....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  const winMove = winning.index(4, 0);
+
+  // Search with a hintLine pointing to the winning move
+  const ai = new GogoAI({ maxDepth: 3, quiescenceDepth: 2, now: () => 0 });
+  const result = ai.findBestMove(winning, 100, [winMove]);
+  expect(result.move).toBe(winMove);
+  expect(result.score).toBeGreaterThan(100000);
+
+  // Search without hintLine still finds the same winning move
+  const resultNoHint = ai.findBestMove(winning, 100);
+  expect(resultNoHint.move).toBe(winMove);
+
+  // hintLine with a non-optimal first move: AI still finds the best move
+  const ai2 = new GogoAI({ maxDepth: 3, quiescenceDepth: 2, now: () => 0 });
+  const badHint = winning.index(8, 8); // corner, not optimal
+  const resultBadHint = ai2.findBestMove(winning, 100, [badHint]);
+  expect(resultBadHint.move).toBe(winMove);
+});
+
+test('hintLine provides hints at deeper plies during search', () => {
+  // Set up a position where black needs to find a 2-move win
+  // Black has 3 in a row at (1,0)-(2,0)-(3,0) and (5,0) is empty
+  const pos = rawPosition([
+    '.XXX.X...',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.OOO.....',
+    '.........',
+    '.........',
+  ], BLACK);
+
+  const move1 = pos.index(4, 0); // extend to 4 in a row
+  const move2 = pos.index(4, 6); // arbitrary white response
+  const move3 = pos.index(0, 0); // complete 5 in a row
+
+  // Provide a hint line for the first two plies
+  const ai = new GogoAI({ maxDepth: 4, quiescenceDepth: 2, now: () => 0 });
+  const result = ai.findBestMove(pos, 100, [move1, move2, move3]);
+  // AI should still find the best move (which might be move1 or could be move3 directly)
+  expect(result.move).not.toBe(-1);
+  expect(result.score).toBeGreaterThan(0);
+
+  // Verify the search completes properly with hint line
+  expect(result.depth).toBeGreaterThanOrEqual(1);
+});

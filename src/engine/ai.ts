@@ -53,6 +53,7 @@ export class GogoAI {
   private nodesVisited = 0;
   private timedOut = false;
   private killerMoves = new Int16Array(0);
+  private hintLine: number[] | undefined;
   private readonly timeoutSignal = new Error('SEARCH_TIMEOUT');
 
   constructor(options: GogoAIOptions = {}) {
@@ -62,10 +63,11 @@ export class GogoAI {
     this.now = options.now ?? (() => performance.now());
   }
 
-  findBestMove(position: GogoPosition, timeLimitMs: number): SearchResult {
+  findBestMove(position: GogoPosition, timeLimitMs: number, hintLine?: number[]): SearchResult {
     this.ensureBuffers(position.area);
     this.history.fill(0);
     this.killerMoves.fill(-1);
+    this.hintLine = hintLine;
     this.deadline = this.now() + Math.max(0, timeLimitMs);
     this.nodesVisited = 0;
     this.timedOut = false;
@@ -191,7 +193,8 @@ export class GogoAI {
     this.checkTime(true);
     const moves = this.moveBuffers[0];
     const scores = this.scoreBuffers[0];
-    let count = this.generateOrderedMoves(position, moves, scores, hintMove, false);
+    const effectiveHint = this.hintLine?.[0] ?? hintMove;
+    let count = this.generateOrderedMoves(position, moves, scores, effectiveHint, false);
     let usedFullBoard = false;
     let alpha = -WIN_SCORE;
     const beta = WIN_SCORE;
@@ -223,7 +226,7 @@ export class GogoAI {
       if (legalCount !== 0 || usedFullBoard) {
         break;
       }
-      count = this.generateFullBoardMoves(position, moves, scores, hintMove, false);
+      count = this.generateFullBoardMoves(position, moves, scores, effectiveHint, false);
       usedFullBoard = true;
     }
 
@@ -261,9 +264,10 @@ export class GogoAI {
       }
     }
 
+    const hintForPly = this.hintLine?.[ply] ?? -1;
     const moves = this.moveBuffers[ply];
     const scores = this.scoreBuffers[ply];
-    let count = this.generateOrderedMoves(position, moves, scores, -1, false, ply);
+    let count = this.generateOrderedMoves(position, moves, scores, hintForPly, false, ply);
     let usedFullBoard = false;
     let legalCount = 0;
     let bestScore = -WIN_SCORE;
@@ -310,7 +314,7 @@ export class GogoAI {
       if (legalCount !== 0 || usedFullBoard) {
         break;
       }
-      count = this.generateFullBoardMoves(position, moves, scores, -1, false, ply);
+      count = this.generateFullBoardMoves(position, moves, scores, hintForPly, false, ply);
       usedFullBoard = true;
     }
 

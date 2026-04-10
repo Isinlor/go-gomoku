@@ -9,6 +9,7 @@ export type SupportedSize = 9 | 11 | 13;
 export interface PositionOptions {
   historyCapacity?: number;
   captureCapacity?: number;
+  centerOpening?: boolean;
 }
 
 export interface BoardMeta {
@@ -178,6 +179,7 @@ export class GogoPosition {
   readonly area: number;
   readonly board: Uint8Array;
   readonly meta: BoardMeta;
+  readonly centerOpening: boolean;
 
   toMove: Player = BLACK;
   winner: Cell = EMPTY;
@@ -215,6 +217,7 @@ export class GogoPosition {
     this.area = size * size;
     this.meta = getBoardMeta(size);
     this.board = new Uint8Array(this.area);
+    this.centerOpening = options.centerOpening ?? false;
 
     const historyCapacity = Math.max(1, options.historyCapacity ?? this.area);
     const captureCapacity = Math.max(1, options.captureCapacity ?? this.area);
@@ -330,6 +333,14 @@ export class GogoPosition {
       index === this.koPoint
     ) {
       return false;
+    }
+
+    // Center opening rule: the first move must be the center point.
+    if (this.centerOpening && this.ply === 0) {
+      const center = ((this.size >> 1) * this.size) + (this.size >> 1);
+      if (index !== center) {
+        return false;
+      }
     }
 
     this.ensureHistoryCapacity(this.ply + 1);

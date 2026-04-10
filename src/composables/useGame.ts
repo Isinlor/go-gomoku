@@ -27,7 +27,7 @@ export function useGame(options: UseGameOptions = {}) {
   });
 
   const size = ref<SupportedSize>(9);
-  const game = shallowRef(new GogoPosition(9));
+  const game = shallowRef(new GogoPosition(9, { centerOpening: true }));
   const blackIsAI = ref(false);
   const whiteIsAI = ref(true);
   const blackTimeLimit = ref(75);
@@ -183,7 +183,7 @@ export function useGame(options: UseGameOptions = {}) {
   function newGame(): void {
     terminateWorker();
     aiThinking.value = false;
-    game.value = new GogoPosition(size.value);
+    game.value = new GogoPosition(size.value, { centerOpening: true });
     statusExtra.value = '';
     notifyBoardChange();
     updateLocationHash();
