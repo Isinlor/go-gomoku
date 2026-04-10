@@ -1214,13 +1214,13 @@ describe('useGame', () => {
       setLocationHash: () => {},
     });
 
-    gameState.blackAIType.value = 'mcts';
+    gameState.blackAIType.value = 'classic';
     gameState.blackIsAI.value = true;
     gameState.whiteIsAI.value = false;
     gameState.onModeChange();
 
     const request = (worker.postMessage as any).mock.calls[0][0];
-    expect(request.aiType).toBe('mcts');
+    expect(request.aiType).toBe('classic');
     wrapper.unmount();
   });
 
@@ -1236,12 +1236,12 @@ describe('useGame', () => {
     gameState.whiteIsAI.value = false;
     gameState.playMove(40);
 
-    gameState.whiteAIType.value = 'mcts';
+    gameState.whiteAIType.value = 'classic';
     gameState.whiteIsAI.value = true;
     gameState.onModeChange();
 
     const request = (worker.postMessage as any).mock.calls[0][0];
-    expect(request.aiType).toBe('mcts');
+    expect(request.aiType).toBe('classic');
     wrapper.unmount();
   });
 
