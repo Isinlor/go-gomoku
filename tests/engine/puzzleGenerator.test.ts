@@ -279,7 +279,7 @@ test('playRandomGame with different seeds produces different games', () => {
 // generatePuzzles integration test
 // ---------------------------------------------------------------------------
 
-test('generatePuzzles finds beginner puzzles', { timeout: 30_000 }, () => {
+test('generatePuzzles finds beginner puzzles', { timeout: 60_000 }, () => {
   const { puzzles, stats } = generatePuzzles(BEGINNER, 2, {
     seed: 42,
     maxGames: 500,

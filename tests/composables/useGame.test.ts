@@ -480,6 +480,7 @@ describe('useGame', () => {
       nodes: 50,
       timedOut: false,
       forcedWin: false,
+      forcedLoss: false,
     };
     (worker as any).onmessage({ data: response } as MessageEvent);
 
@@ -509,12 +510,42 @@ describe('useGame', () => {
       nodes: 1,
       timedOut: false,
       forcedWin: true,
+      forcedLoss: false,
     };
     (worker as any).onmessage({ data: response } as MessageEvent);
 
     expect(gameState.aiThinking.value).toBe(false);
     expect(gameState.game.value.at(4, 4)).toBe(BLACK);
     expect(gameState.statusExtra.value).toContain('forced win');
+    wrapper.unmount();
+  });
+
+  test('maybeRunAI statusExtra shows forced loss when result.forcedLoss is true', async () => {
+    const worker = createMockWorker();
+    const { gameState, wrapper } = mountWithGame({
+      createWorker: () => worker,
+      getLocationHash: () => '',
+      setLocationHash: () => {},
+    });
+
+    gameState.whiteIsAI.value = false;
+    gameState.blackIsAI.value = true;
+    gameState.onModeChange();
+
+    const response: AIResponse = {
+      move: 40,
+      score: -999999998,
+      depth: 2,
+      nodes: 10,
+      timedOut: false,
+      forcedWin: false,
+      forcedLoss: true,
+    };
+    (worker as any).onmessage({ data: response } as MessageEvent);
+
+    expect(gameState.aiThinking.value).toBe(false);
+    expect(gameState.game.value.at(4, 4)).toBe(BLACK);
+    expect(gameState.statusExtra.value).toContain('forced loss');
     wrapper.unmount();
   });
 
@@ -568,6 +599,7 @@ describe('useGame', () => {
       nodes: 0,
       timedOut: false,
       forcedWin: false,
+      forcedLoss: false,
     };
     (worker as any).onmessage({ data: response } as MessageEvent);
     expect(gameState.game.value.ply).toBe(0);
@@ -597,6 +629,7 @@ describe('useGame', () => {
       nodes: 50,
       timedOut: false,
       forcedWin: false,
+      forcedLoss: false,
     };
     // The worker was terminated by newGame, so onmessage won't fire on the old worker
     // But let's test the case where we get a response after the game changed
@@ -984,6 +1017,7 @@ describe('useGame', () => {
     (worker as any)._pendingId = 0;
     const staleResponse: AIResponse = {
       move: 40, score: 100, depth: 2, nodes: 50, timedOut: false, forcedWin: false,
+      forcedLoss: false,
     };
     (worker as any).onmessage({ data: staleResponse } as MessageEvent);
     // Should still be thinking (stale response not processed)
@@ -1040,6 +1074,7 @@ describe('useGame', () => {
     // Simulate a late message from Worker A's handler arriving after B is active
     const staleResponse: AIResponse = {
       move: 40, score: 100, depth: 2, nodes: 50, timedOut: false, forcedWin: false,
+      forcedLoss: false,
     };
     handlerA({ data: staleResponse } as MessageEvent);
 
@@ -1179,13 +1214,13 @@ describe('useGame', () => {
       setLocationHash: () => {},
     });
 
-    gameState.blackAIType.value = 'mcts';
+    gameState.blackAIType.value = 'classic';
     gameState.blackIsAI.value = true;
     gameState.whiteIsAI.value = false;
     gameState.onModeChange();
 
     const request = (worker.postMessage as any).mock.calls[0][0];
-    expect(request.aiType).toBe('mcts');
+    expect(request.aiType).toBe('classic');
     wrapper.unmount();
   });
 
@@ -1201,12 +1236,12 @@ describe('useGame', () => {
     gameState.whiteIsAI.value = false;
     gameState.playMove(40);
 
-    gameState.whiteAIType.value = 'mcts';
+    gameState.whiteAIType.value = 'classic';
     gameState.whiteIsAI.value = true;
     gameState.onModeChange();
 
     const request = (worker.postMessage as any).mock.calls[0][0];
-    expect(request.aiType).toBe('mcts');
+    expect(request.aiType).toBe('classic');
     wrapper.unmount();
   });
 

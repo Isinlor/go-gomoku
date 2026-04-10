@@ -155,8 +155,12 @@ export function useGame(options: UseGameOptions = {}) {
         game.value.play(result.move);
       }
       aiThinking.value = false;
-      const forcedWinSuffix = result.forcedWin ? ', forced win' : '';
-      statusExtra.value = `AI depth ${result.depth}, nodes ${result.nodes}${forcedWinSuffix}`;
+      const forcedOutcomeSuffix = result.forcedWin
+        ? ', forced win'
+        : result.forcedLoss
+          ? ', forced loss'
+          : '';
+      statusExtra.value = `AI depth ${result.depth}, nodes ${result.nodes}${forcedOutcomeSuffix}`;
       notifyBoardChange();
       updateLocationHash();
       maybeRunAI();

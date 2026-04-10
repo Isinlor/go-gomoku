@@ -1,6 +1,6 @@
-import { GogoAI, GogoMCTS, decodeGame } from '../engine';
+import { GogoAI, decodeGame } from '../engine';
 
-export type AIType = 'classic' | 'mcts';
+export type AIType = 'classic';
 
 export interface AIRequest {
   encodedGame: string;
@@ -18,17 +18,16 @@ export interface AIResponse {
   nodes: number;
   timedOut: boolean;
   forcedWin: boolean;
+  forcedLoss: boolean;
 }
 
 export function handleAIRequest(data: AIRequest): AIResponse {
   const position = decodeGame(data.encodedGame);
-  const result = data.aiType === 'mcts'
-    ? new GogoMCTS().findBestMove(position, data.timeLimitMs)
-    : new GogoAI({
-        maxDepth: data.maxDepth,
-        quiescenceDepth: data.quiescenceDepth,
-        maxPly: data.maxPly,
-      }).findBestMove(position, data.timeLimitMs);
+  const result = new GogoAI({
+    maxDepth: data.maxDepth,
+    quiescenceDepth: data.quiescenceDepth,
+    maxPly: data.maxPly,
+  }).findBestMove(position, data.timeLimitMs);
   return {
     move: result.move,
     score: result.score,
@@ -36,6 +35,7 @@ export function handleAIRequest(data: AIRequest): AIResponse {
     nodes: result.nodes,
     timedOut: result.timedOut,
     forcedWin: result.forcedWin,
+    forcedLoss: result.forcedLoss,
   };
 }
 
