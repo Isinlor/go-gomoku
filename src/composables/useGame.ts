@@ -27,7 +27,7 @@ export function useGame(options: UseGameOptions = {}) {
   });
 
   const size = ref<SupportedSize>(9);
-  const game = shallowRef(new GogoPosition(9, { centerOpening: true }));
+  const game = shallowRef(new GogoPosition(9, { centerOpening: true, swapRule: true }));
   const blackIsAI = ref(false);
   const whiteIsAI = ref(true);
   const blackTimeLimit = ref(75);
