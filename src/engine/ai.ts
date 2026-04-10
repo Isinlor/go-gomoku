@@ -30,6 +30,8 @@ const KILLER_BONUS = 1_000_000;
 const CAPTURE_BONUS = 5_000;
 const ESCAPE_BONUS = 3_500;
 const NO_SCORE = Number.NEGATIVE_INFINITY;
+const MAX_CANDIDATE_MOVES = 10;
+const DELTA_PRUNING_MARGIN = 30_000;
 
 const TT_SIZE_BITS = 18;
 const TT_SIZE = 1 << TT_SIZE_BITS;
@@ -328,7 +330,7 @@ export class GogoAI {
     const scores = this.scoreBuffers[ply];
     let count = this.generateOrderedMoves(position, moves, scores, hashMove, false, ply);
     // Limit branching: only consider top candidates at internal nodes
-    if (count > 10) count = 10;
+    if (count > MAX_CANDIDATE_MOVES) count = MAX_CANDIDATE_MOVES;
     let usedFullBoard = false;
     let legalCount = 0;
     let bestScore = -WIN_SCORE;
@@ -435,8 +437,7 @@ export class GogoAI {
 
     // Delta pruning: if standPat is so far below alpha that no single tactical
     // move can raise the evaluation above alpha, prune immediately.
-    const DELTA_MARGIN = 30_000;
-    if (standPat + DELTA_MARGIN < alpha) {
+    if (standPat + DELTA_PRUNING_MARGIN < alpha) {
       return standPat;
     }
 
