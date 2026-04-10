@@ -114,8 +114,8 @@ export function useGame(options: UseGameOptions = {}) {
 
   function makeAIConfig(): { maxDepth: number; quiescenceDepth: number; maxPly: number } {
     return {
-      maxDepth: game.value.size === 13 ? 5 : 6,
-      quiescenceDepth: 6,
+      maxDepth: 12,
+      quiescenceDepth: 4,
       maxPly: 96,
     };
   }
