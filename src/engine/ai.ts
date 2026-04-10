@@ -18,9 +18,9 @@ export interface GogoAIOptions {
 }
 
 const WIN_SCORE = 1_000_000_000;
-const ATTACK_WEIGHTS = [0, 12, 72, 540, 8_000, 500_000] as const;
+const ATTACK_WEIGHTS = [0, 12, 72, 540, 100_000, 500_000] as const;
 const DEFENSE_WEIGHTS = [0, 16, 96, 720, 100_000, 500_000] as const;
-const EVAL_WEIGHTS = [0, 6, 32, 240, 5_000, WIN_SCORE >> 2] as const;
+const EVAL_WEIGHTS = [0, 6, 32, 240, 500_000, WIN_SCORE >> 2] as const;
 const LOCAL_LIBERTY_WEIGHTS = [-200, -80, 20, 60, 80] as const;
 const TACTICAL_PATTERN_THRESHOLD = ATTACK_WEIGHTS[4];
 const CENTER_MULTIPLIER = 3;
