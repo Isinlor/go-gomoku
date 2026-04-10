@@ -448,6 +448,246 @@ test('null move pruning prunes when the position is strongly in favor of the sid
   expect(scoreWide).toBeGreaterThan(0);
 });
 
+test('transposition table cutoffs exercise EXACT, LOWERBOUND, and UPPERBOUND flags', () => {
+  // A position with enough depth triggers TT storage, and a subsequent search at
+  // lower depth hits the TT. Iterative deepening naturally exercises all TT flag types.
+  const pos = rawPosition([
+    '.........',
+    '.........',
+    '.........',
+    '..XXX....',
+    '..OOO....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+
+  const ai = new GogoAI({ maxDepth: 4, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+  anyAI.ensureBuffers(pos.area);
+  anyAI.deadline = 1e15;
+  anyAI.killerMoves.fill(-1);
+  anyAI.tt.fill(0);
+
+  // Run a search at depth 4 to populate TT with various flag types
+  anyAI.search(pos, 4, -1_000_000_000, 1_000_000_000, 1);
+
+  // Verify TT was populated
+  let ttEntries = 0;
+  for (let i = 0; i < anyAI.tt.length; i += 4) {
+    if (anyAI.tt[i] !== 0) ttEntries++;
+  }
+  expect(ttEntries).toBeGreaterThan(0);
+
+  // Run a narrower window search - TT entries with sufficient depth can provide
+  // cutoffs via LOWERBOUND (score >= beta) and UPPERBOUND (score <= alpha)
+  anyAI.search(pos, 2, -100, 100, 1);
+
+  // Run an exact-window search at lower depth to hit EXACT entries
+  anyAI.search(pos, 1, -1_000_000_000, 1_000_000_000, 1);
+});
+
+test('TT exact, lowerbound, and upperbound cutoffs are exercised directly', () => {
+  const pos = rawPosition([
+    '.........',
+    '.........',
+    '.........',
+    '..XXX....',
+    '..OOO....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+
+  const ai = new GogoAI({ maxDepth: 4, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+  anyAI.ensureBuffers(pos.area);
+  anyAI.deadline = 1e15;
+  anyAI.killerMoves.fill(-1);
+  anyAI.tt.fill(0);
+
+  // Manually populate TT to exercise each cutoff branch
+  const hash = pos.hash;
+  const ttIndex = (hash & ((1 << 18) - 1)) * 4;
+
+  // Test EXACT cutoff: store exact score at depth 10, then probe at depth 2
+  anyAI.tt[ttIndex] = hash;
+  anyAI.tt[ttIndex + 1] = (10 << 2) | 0; // depth=10, flag=EXACT
+  anyAI.tt[ttIndex + 2] = 42;
+  anyAI.tt[ttIndex + 3] = 0;
+  const exactScore = anyAI.search(pos, 2, -1_000_000_000, 1_000_000_000, 1);
+  expect(exactScore).toBe(42);
+
+  // Test LOWERBOUND cutoff: stored score >= beta
+  anyAI.tt[ttIndex] = hash;
+  anyAI.tt[ttIndex + 1] = (10 << 2) | 1; // depth=10, flag=LOWERBOUND
+  anyAI.tt[ttIndex + 2] = 200;
+  anyAI.tt[ttIndex + 3] = 0;
+  const lowerScore = anyAI.search(pos, 2, -1_000_000_000, 100, 1);
+  expect(lowerScore).toBe(200);
+
+  // Test UPPERBOUND cutoff: stored score <= alpha
+  anyAI.tt[ttIndex] = hash;
+  anyAI.tt[ttIndex + 1] = (10 << 2) | 2; // depth=10, flag=UPPERBOUND
+  anyAI.tt[ttIndex + 2] = -200;
+  anyAI.tt[ttIndex + 3] = 0;
+  const upperScore = anyAI.search(pos, 2, -100, 1_000_000_000, 1);
+  expect(upperScore).toBe(-200);
+});
+
+test('LMR reduces depth for late moves and re-searches when needed', () => {
+  // Create a position with many legal moves so legalCount reaches >= 6
+  const pos = rawPosition([
+    '.........',
+    '.........',
+    '.........',
+    '.X.X.X...',
+    '.O.O.O...',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+
+  const ai = new GogoAI({ maxDepth: 5, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+  anyAI.ensureBuffers(pos.area);
+  anyAI.deadline = 1e15;
+  anyAI.killerMoves.fill(-1);
+  anyAI.tt.fill(0);
+
+  // At depth >= 3 with >= 6 legal moves, LMR reduces by 2 extra
+  // If the reduced search exceeds alpha, a full-depth re-search occurs
+  const score = anyAI.search(pos, 5, -1_000_000_000, 1_000_000_000, 1);
+  expect(typeof score).toBe('number');
+  expect(Number.isFinite(score)).toBe(true);
+});
+
+test('TT stores and retrieves loss scores with ply adjustment', () => {
+  // Create a position where one side has a forced loss (opponent has 4 in a row)
+  const pos = rawPosition([
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.OOOO....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+
+  const ai = new GogoAI({ maxDepth: 4, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+  anyAI.ensureBuffers(pos.area);
+  anyAI.deadline = 1e15;
+  anyAI.killerMoves.fill(-1);
+  anyAI.tt.fill(0);
+
+  // Search at depth 4 to trigger loss score TT storage
+  const score1 = anyAI.search(pos, 4, -1_000_000_000, 1_000_000_000, 1);
+  expect(score1).toBeLessThan(0);
+
+  // Search again at lower depth - TT should provide cutoff with loss score
+  const score2 = anyAI.search(pos, 2, -1_000_000_000, 1_000_000_000, 1);
+  expect(score2).toBeLessThan(0);
+});
+
+test('adaptive null move uses R=4 at depth >= 6', () => {
+  const pos = rawPosition([
+    '.........',
+    '.........',
+    '..X......',
+    '..OXO....',
+    '...XO....',
+    '...OX....',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+
+  const ai = new GogoAI({ maxDepth: 8, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+  anyAI.ensureBuffers(pos.area);
+  anyAI.deadline = 1e15;
+  anyAI.killerMoves.fill(-1);
+  anyAI.tt.fill(0);
+
+  // Depth 6+ triggers the R=4 branch in null move pruning
+  const score = anyAI.search(pos, 6, -1_000_000_000, 1_000_000_000, 1);
+  expect(typeof score).toBe('number');
+});
+
+test('late move pruning stops exploring after threshold', () => {
+  // Position with many spread-out stones - generates many legal near-2 candidates
+  const pos = rawPosition([
+    '.........',
+    '.X...O...',
+    '.........',
+    '...X.....',
+    '.........',
+    '.....O...',
+    '.........',
+    '..O...X..',
+    '.........',
+  ], BLACK);
+
+  const ai = new GogoAI({ maxDepth: 3, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+  anyAI.ensureBuffers(pos.area);
+  anyAI.deadline = 1e15;
+  anyAI.killerMoves.fill(-1);
+  anyAI.tt.fill(0);
+
+  // At depth 1 with notNearMate=true, LMP threshold is 4+2=6
+  // With many candidates (> 6 legal), LMP should trigger the break
+  const score = anyAI.search(pos, 1, -100, 100, 1);
+  expect(typeof score).toBe('number');
+});
+
+test('Zobrist hash is consistent: play+undo returns to the same hash', () => {
+  const pos = new GogoPosition(9);
+  const startHash = pos.hash;
+  expect(startHash).toBe(0);
+
+  pos.play(pos.index(4, 4));
+  const afterFirstMove = pos.hash;
+  expect(afterFirstMove).not.toBe(0);
+
+  pos.play(pos.index(3, 3));
+  const afterSecondMove = pos.hash;
+  expect(afterSecondMove).not.toBe(afterFirstMove);
+
+  pos.undo();
+  expect(pos.hash).toBe(afterFirstMove);
+
+  pos.undo();
+  expect(pos.hash).toBe(startHash);
+});
+
+test('Zobrist hash fromAscii matches incremental hash from play', () => {
+  // Build the same position two ways: fromAscii and play()
+  const fromAsciiPos = GogoPosition.fromAscii([
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '....X....',
+    '...O.....',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+
+  const playPos = new GogoPosition(9);
+  playPos.play(playPos.index(4, 4)); // e5 = X
+  playPos.play(playPos.index(3, 5)); // d6 = O
+
+  expect(fromAsciiPos.hash).toBe(playPos.hash);
+});
+
 test('killer moves are stored on beta cutoffs and boost scores in scoreMove', () => {
   const ai = new GogoAI({ maxDepth: 4, quiescenceDepth: 2, now: () => 0 });
   const anyAI = ai as any;

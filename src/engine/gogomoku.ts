@@ -24,10 +24,23 @@ export interface BoardMeta {
   readonly windowsByPointOffsets: Uint16Array;
   readonly windowsByPoint: Int16Array;
   readonly centerBias: Int16Array;
+  readonly zobristBlack: Int32Array;
+  readonly zobristWhite: Int32Array;
+  readonly zobristToMove: number;
 }
 
 const SUPPORTED_SIZES = new Set<number>([9, 11, 13]);
 const META_CACHE = new Map<number, BoardMeta>();
+
+function xorshift32(seed: number): () => number {
+  let s = seed;
+  return () => {
+    s ^= s << 13;
+    s ^= s >> 17;
+    s ^= s << 5;
+    return s;
+  };
+}
 
 function otherPlayer(player: Player): Player {
   return player === BLACK ? WHITE : BLACK;
@@ -117,6 +130,15 @@ function createBoardMeta(size: SupportedSize): BoardMeta {
     windowsByPoint.set(windowsBucket[i], windowsByPointOffsets[i]);
   }
 
+  const rng = xorshift32(size * 31337);
+  const zobristBlack = new Int32Array(area);
+  const zobristWhite = new Int32Array(area);
+  for (let i = 0; i < area; i += 1) {
+    zobristBlack[i] = rng();
+    zobristWhite[i] = rng();
+  }
+  const zobristToMove = rng();
+
   return {
     size,
     area,
@@ -130,6 +152,9 @@ function createBoardMeta(size: SupportedSize): BoardMeta {
     windowsByPointOffsets,
     windowsByPoint,
     centerBias,
+    zobristBlack,
+    zobristWhite,
+    zobristToMove,
   };
 }
 
@@ -186,6 +211,7 @@ export class GogoPosition {
   stoneCount = 0;
   lastMove = -1;
   lastCapturedCount = 0;
+  hash = 0;
 
   private historyMoves: Int16Array;
   private historyPlayers: Uint8Array;
@@ -193,6 +219,7 @@ export class GogoPosition {
   private historyWinner: Uint8Array;
   private historyCaptureStart: Int32Array;
   private historyCaptureCount: Int16Array;
+  private historyHash: Int32Array;
   private capturePositions: Int16Array;
   private captureTop = 0;
 
@@ -224,6 +251,7 @@ export class GogoPosition {
     this.historyWinner = new Uint8Array(historyCapacity);
     this.historyCaptureStart = new Int32Array(historyCapacity);
     this.historyCaptureCount = new Int16Array(historyCapacity);
+    this.historyHash = new Int32Array(historyCapacity);
     this.capturePositions = new Int16Array(captureCapacity);
 
     this.groupVisitMarks = new Uint32Array(this.area);
@@ -267,6 +295,21 @@ export class GogoPosition {
     }
 
     position.winner = position.detectExistingWinner();
+
+    const meta = position.meta;
+    let hash = 0;
+    for (let i = 0; i < position.area; i += 1) {
+      if (position.board[i] === BLACK) {
+        hash ^= meta.zobristBlack[i];
+      } else if (position.board[i] === WHITE) {
+        hash ^= meta.zobristWhite[i];
+      }
+    }
+    if (toMove === WHITE) {
+      hash ^= meta.zobristToMove;
+    }
+    position.hash = hash;
+
     return position;
   }
 
@@ -337,11 +380,16 @@ export class GogoPosition {
     const opponent = otherPlayer(player);
     const captureStart = this.captureTop;
     let capturedCount = 0;
+    const savedHash = this.hash;
+    const meta = this.meta;
+    const playerZobrist = player === BLACK ? meta.zobristBlack : meta.zobristWhite;
+    const opponentZobrist = opponent === BLACK ? meta.zobristBlack : meta.zobristWhite;
 
     this.board[index] = player;
     this.stoneCount += 1;
+    this.hash ^= playerZobrist[index];
 
-    const neighbors = this.meta.neighbors4;
+    const neighbors = meta.neighbors4;
     const neighborBase = index * 4;
     this.adjacentGroupEpoch += 1;
 
@@ -363,6 +411,7 @@ export class GogoPosition {
         this.capturePositions[this.captureTop] = point;
         this.captureTop += 1;
         this.board[point] = EMPTY;
+        this.hash ^= opponentZobrist[point];
       }
       capturedCount += this.scanGroupSize;
       this.stoneCount -= this.scanGroupSize;
@@ -372,6 +421,7 @@ export class GogoPosition {
     const ownLiberties = this.scanGroup(index, player);
     const ownGroupSize = this.scanGroupSize;
     if (ownLiberties === 0 && !madeFive) {
+      this.hash = savedHash;
       this.rollbackIllegalMove(index, opponent, captureStart, capturedCount);
       return false;
     }
@@ -387,7 +437,10 @@ export class GogoPosition {
     this.historyWinner[this.ply] = this.winner;
     this.historyCaptureStart[this.ply] = captureStart;
     this.historyCaptureCount[this.ply] = capturedCount;
+    this.historyHash[this.ply] = savedHash;
     this.ply += 1;
+
+    this.hash ^= meta.zobristToMove;
 
     this.koPoint = nextKo;
     this.toMove = opponent;
@@ -408,6 +461,7 @@ export class GogoPosition {
     const captureStart = this.historyCaptureStart[this.ply];
     const captureCount = this.historyCaptureCount[this.ply];
 
+    this.hash = this.historyHash[this.ply];
     this.board[index] = EMPTY;
     this.stoneCount -= 1;
     for (let i = 0; i < captureCount; i += 1) {
@@ -504,6 +558,7 @@ export class GogoPosition {
     this.historyWinner = growUint8Array(this.historyWinner, minimumLength);
     this.historyCaptureStart = growInt32Array(this.historyCaptureStart, minimumLength);
     this.historyCaptureCount = growInt16Array(this.historyCaptureCount, minimumLength);
+    this.historyHash = growInt32Array(this.historyHash, minimumLength);
   }
 
   private ensureCaptureCapacity(minimumLength: number): void {

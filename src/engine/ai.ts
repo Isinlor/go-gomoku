@@ -31,8 +31,28 @@ const CAPTURE_BONUS = 5_000;
 const ESCAPE_BONUS = 3_500;
 const NO_SCORE = Number.NEGATIVE_INFINITY;
 
+const TT_SIZE_BITS = 18;
+const TT_SIZE = 1 << TT_SIZE_BITS;
+const TT_MASK = TT_SIZE - 1;
+const TT_EXACT = 0;
+const TT_LOWERBOUND = 1;
+const TT_UPPERBOUND = 2;
+const TT_ENTRY_INTS = 4;  // hash, depthFlag, score, move
+
 function otherPlayer(player: Player): Player {
   return player === BLACK ? WHITE : BLACK;
+}
+
+function ttAdjustScoreStore(score: number, ply: number): number {
+  if (score >= WIN_SCORE - 100) return score + ply;
+  if (score <= -WIN_SCORE + 100) return score - ply;
+  return score;
+}
+
+function ttAdjustScoreProbe(score: number, ply: number): number {
+  if (score >= WIN_SCORE - 100) return score - ply;
+  if (score <= -WIN_SCORE + 100) return score + ply;
+  return score;
 }
 
 export class GogoAI {
@@ -53,6 +73,7 @@ export class GogoAI {
   private nodesVisited = 0;
   private timedOut = false;
   private killerMoves = new Int16Array(0);
+  private tt = new Int32Array(0);
   private readonly timeoutSignal = new Error('SEARCH_TIMEOUT');
 
   constructor(options: GogoAIOptions = {}) {
@@ -66,6 +87,7 @@ export class GogoAI {
     this.ensureBuffers(position.area);
     this.history.fill(0);
     this.killerMoves.fill(-1);
+    this.tt.fill(0);
     this.deadline = this.now() + Math.max(0, timeLimitMs);
     this.nodesVisited = 0;
     this.timedOut = false;
@@ -151,6 +173,7 @@ export class GogoAI {
     this.scorerGroupEpoch = 1;
     this.killerMoves = new Int16Array((this.maxPly + 1) * 2);
     this.killerMoves.fill(-1);
+    this.tt = new Int32Array(TT_SIZE * TT_ENTRY_INTS);
   }
 
   private isForcedWinScore(score: number, depth: number): boolean {
@@ -239,7 +262,43 @@ export class GogoAI {
       return -WIN_SCORE + ply;
     }
     if (depth <= 0 || ply >= this.maxPly) {
-      return this.quiescence(position, alpha, beta, ply, this.quiescenceDepth);
+      return this.quiescence(position, alpha, beta, ply, Math.min(this.quiescenceDepth, 4));
+    }
+
+    const origAlpha = alpha;
+
+    // Transposition table probe
+    const hash = position.hash;
+    const ttIndex = (hash & TT_MASK) * TT_ENTRY_INTS;
+    let hashMove = -1;
+    if (this.tt[ttIndex] === hash) {
+      const depthFlag = this.tt[ttIndex + 1];
+      const storedDepth = depthFlag >> 2;
+      const storedFlag = depthFlag & 3;
+      hashMove = this.tt[ttIndex + 3];
+      if (storedDepth >= depth) {
+        const storedScore = ttAdjustScoreProbe(this.tt[ttIndex + 2], ply);
+        if (storedFlag === TT_EXACT) {
+          return storedScore;
+        }
+        if (storedFlag === TT_LOWERBOUND && storedScore >= beta) {
+          return storedScore;
+        }
+        if (storedFlag === TT_UPPERBOUND && storedScore <= alpha) {
+          return storedScore;
+        }
+      }
+    }
+
+    // Reverse futility pruning: if static eval is far above beta at low depth,
+    // the position is likely good enough to prune without further search.
+    const notNearMate = beta < WIN_SCORE - 100 && beta > -WIN_SCORE + 100;
+    if (depth <= 3 && notNearMate) {
+      const rfpMargins = [0, 200, 450, 750];
+      const staticEval = this.evaluate(position);
+      if (staticEval - rfpMargins[depth] >= beta) {
+        return staticEval;
+      }
     }
 
     // Null move pruning: if we give the opponent a free move and they still
@@ -247,14 +306,18 @@ export class GogoAI {
     if (depth >= 3 && canNullMove) {
       const savedToMove = position.toMove;
       const savedKo = position.koPoint;
+      const savedHash = position.hash;
       position.toMove = otherPlayer(savedToMove);
       position.koPoint = -1;
+      position.hash ^= position.meta.zobristToMove;
       let nullScore: number;
+      const nullR = depth >= 6 ? 4 : 3;
       try {
-        nullScore = -this.search(position, depth - 3, -beta, -beta + 1, ply + 1, false);
+        nullScore = -this.search(position, depth - nullR, -beta, -beta + 1, ply + 1, false);
       } finally {
         position.toMove = savedToMove;
         position.koPoint = savedKo;
+        position.hash = savedHash;
       }
       if (nullScore >= beta) {
         return beta;
@@ -263,13 +326,19 @@ export class GogoAI {
 
     const moves = this.moveBuffers[ply];
     const scores = this.scoreBuffers[ply];
-    let count = this.generateOrderedMoves(position, moves, scores, -1, false, ply);
+    let count = this.generateOrderedMoves(position, moves, scores, hashMove, false, ply);
+    // Limit branching: only consider top candidates at internal nodes
+    if (count > 10) count = 10;
     let usedFullBoard = false;
     let legalCount = 0;
     let bestScore = -WIN_SCORE;
+    let bestMove = -1;
+    // Late move pruning threshold: at low depths, stop exploring after enough moves
+    const lmpThreshold = notNearMate && depth <= 3 ? 4 + depth * 2 : 999;
 
     for (;;) {
       for (let i = 0; i < count; i += 1) {
+        if (legalCount >= lmpThreshold) break;
         const move = moves[i];
         if (!position.play(move)) {
           continue;
@@ -281,11 +350,26 @@ export class GogoAI {
             // PVS: full window for the first (best-ordered) move
             score = -this.search(position, depth - 1, -beta, -alpha, ply + 1);
           } else {
+            // LMR: reduce depth for late moves at sufficient depth
+            let reducedDepth = depth - 1;
+            if (depth >= 3) {
+              if (legalCount >= 6) {
+                reducedDepth = Math.max(1, depth - 3);
+              } else if (legalCount >= 3) {
+                reducedDepth = depth - 2;
+              }
+            }
             // PVS: zero-window scout search for subsequent moves
-            score = -this.search(position, depth - 1, -alpha - 1, -alpha, ply + 1);
-            if (score > alpha && score < beta) {
-              // Re-search with full window if scout indicates a better move
-              score = -this.search(position, depth - 1, -beta, -alpha, ply + 1);
+            score = -this.search(position, reducedDepth, -alpha - 1, -alpha, ply + 1);
+            if (score > alpha) {
+              if (reducedDepth < depth - 1) {
+                // LMR re-search at full depth with zero window
+                score = -this.search(position, depth - 1, -alpha - 1, -alpha, ply + 1);
+              }
+              if (score > alpha && score < beta) {
+                // Re-search with full window if scout indicates a better move
+                score = -this.search(position, depth - 1, -beta, -alpha, ply + 1);
+              }
             }
           }
         } finally {
@@ -293,6 +377,7 @@ export class GogoAI {
         }
         if (score > bestScore) {
           bestScore = score;
+          bestMove = move;
         }
         if (score > alpha) {
           alpha = score;
@@ -303,6 +388,11 @@ export class GogoAI {
               this.killerMoves[ply * 2 + 1] = this.killerMoves[ply * 2];
               this.killerMoves[ply * 2] = move;
             }
+            // Store in TT as lowerbound (failed high)
+            this.tt[ttIndex] = hash;
+            this.tt[ttIndex + 1] = (depth << 2) | TT_LOWERBOUND;
+            this.tt[ttIndex + 2] = ttAdjustScoreStore(score, ply);
+            this.tt[ttIndex + 3] = bestMove;
             return score;
           }
         }
@@ -310,8 +400,17 @@ export class GogoAI {
       if (legalCount !== 0 || usedFullBoard) {
         break;
       }
-      count = this.generateFullBoardMoves(position, moves, scores, -1, false, ply);
+      count = this.generateFullBoardMoves(position, moves, scores, hashMove, false, ply);
       usedFullBoard = true;
+    }
+
+    if (legalCount !== 0) {
+      // Store in TT
+      const flag = bestScore > origAlpha ? TT_EXACT : TT_UPPERBOUND;
+      this.tt[ttIndex] = hash;
+      this.tt[ttIndex + 1] = (depth << 2) | flag;
+      this.tt[ttIndex + 2] = ttAdjustScoreStore(bestScore, ply);
+      this.tt[ttIndex + 3] = bestMove;
     }
 
     return legalCount === 0 ? 0 : bestScore;
@@ -331,6 +430,13 @@ export class GogoAI {
       alpha = standPat;
     }
     if (remainingDepth === 0 || ply >= this.maxPly) {
+      return standPat;
+    }
+
+    // Delta pruning: if standPat is so far below alpha that no single tactical
+    // move can raise the evaluation above alpha, prune immediately.
+    const DELTA_MARGIN = 30_000;
+    if (standPat + DELTA_MARGIN < alpha) {
       return standPat;
     }
 
