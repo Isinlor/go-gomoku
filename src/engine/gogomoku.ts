@@ -10,6 +10,7 @@ export interface PositionOptions {
   historyCapacity?: number;
   captureCapacity?: number;
   centerOpening?: boolean;
+  swapRule?: boolean;
 }
 
 export interface BoardMeta {
@@ -180,6 +181,7 @@ export class GogoPosition {
   readonly board: Uint8Array;
   readonly meta: BoardMeta;
   readonly centerOpening: boolean;
+  readonly swapRule: boolean;
 
   toMove: Player = BLACK;
   winner: Cell = EMPTY;
@@ -188,6 +190,7 @@ export class GogoPosition {
   stoneCount = 0;
   lastMove = -1;
   lastCapturedCount = 0;
+  swapAvailable = false;
 
   private historyMoves: Int16Array;
   private historyPlayers: Uint8Array;
@@ -195,6 +198,7 @@ export class GogoPosition {
   private historyWinner: Uint8Array;
   private historyCaptureStart: Int32Array;
   private historyCaptureCount: Int16Array;
+  private historySwapAvailable: Uint8Array;
   private capturePositions: Int16Array;
   private captureTop = 0;
 
@@ -218,6 +222,7 @@ export class GogoPosition {
     this.meta = getBoardMeta(size);
     this.board = new Uint8Array(this.area);
     this.centerOpening = options.centerOpening ?? false;
+    this.swapRule = options.swapRule ?? false;
 
     const historyCapacity = Math.max(1, options.historyCapacity ?? this.area);
     const captureCapacity = Math.max(1, options.captureCapacity ?? this.area);
@@ -227,6 +232,7 @@ export class GogoPosition {
     this.historyWinner = new Uint8Array(historyCapacity);
     this.historyCaptureStart = new Int32Array(historyCapacity);
     this.historyCaptureCount = new Int16Array(historyCapacity);
+    this.historySwapAvailable = new Uint8Array(historyCapacity);
     this.capturePositions = new Int16Array(captureCapacity);
 
     this.groupVisitMarks = new Uint32Array(this.area);
@@ -399,6 +405,7 @@ export class GogoPosition {
     this.historyWinner[this.ply] = this.winner;
     this.historyCaptureStart[this.ply] = captureStart;
     this.historyCaptureCount[this.ply] = capturedCount;
+    this.historySwapAvailable[this.ply] = this.swapAvailable ? 1 : 0;
     this.ply += 1;
 
     this.koPoint = nextKo;
@@ -406,6 +413,9 @@ export class GogoPosition {
     this.winner = madeFive ? player : EMPTY;
     this.lastMove = index;
     this.lastCapturedCount = capturedCount;
+    // Swap rule: after 3 moves (ply becomes 3), white can swap.
+    // Playing a normal move at ply 3 as white consumes the swap option.
+    this.swapAvailable = this.swapRule && this.ply === 3 && this.winner === EMPTY;
     return true;
   }
 
@@ -431,8 +441,48 @@ export class GogoPosition {
     this.toMove = player;
     this.koPoint = this.historyKo[this.ply];
     this.winner = this.historyWinner[this.ply] as Cell;
+    this.swapAvailable = this.historySwapAvailable[this.ply] === 1;
     this.lastMove = this.ply === 0 ? -1 : this.historyMoves[this.ply - 1];
     this.lastCapturedCount = this.ply === 0 ? 0 : this.historyCaptureCount[this.ply - 1];
+    return true;
+  }
+
+  swap(): boolean {
+    if (!this.swapAvailable) {
+      return false;
+    }
+    // Flip all stone colors on the board
+    for (let i = 0; i < this.area; i += 1) {
+      const cell = this.board[i];
+      if (cell === BLACK) {
+        this.board[i] = WHITE;
+      } else if (cell === WHITE) {
+        this.board[i] = BLACK;
+      }
+    }
+    // Toggle side to move (white was to move, now black is to move)
+    this.toMove = otherPlayer(this.toMove);
+    this.swapAvailable = false;
+    return true;
+  }
+
+  undoSwap(): boolean {
+    // Can only undo a swap when ply === 3 and swapRule is on and swap is not available
+    // (meaning it was consumed by a swap)
+    if (!this.swapRule || this.ply !== 3 || this.swapAvailable) {
+      return false;
+    }
+    // Flip all stone colors back
+    for (let i = 0; i < this.area; i += 1) {
+      const cell = this.board[i];
+      if (cell === BLACK) {
+        this.board[i] = WHITE;
+      } else if (cell === WHITE) {
+        this.board[i] = BLACK;
+      }
+    }
+    this.toMove = otherPlayer(this.toMove);
+    this.swapAvailable = true;
     return true;
   }
 
@@ -516,6 +566,7 @@ export class GogoPosition {
     this.historyWinner = growUint8Array(this.historyWinner, minimumLength);
     this.historyCaptureStart = growInt32Array(this.historyCaptureStart, minimumLength);
     this.historyCaptureCount = growInt16Array(this.historyCaptureCount, minimumLength);
+    this.historySwapAvailable = growUint8Array(this.historySwapAvailable, minimumLength);
   }
 
   private ensureCaptureCapacity(minimumLength: number): void {

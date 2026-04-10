@@ -8,6 +8,7 @@ export interface SearchResult {
   timedOut: boolean;
   forcedWin: boolean;
   forcedLoss: boolean;
+  swap: boolean;
 }
 
 export interface GogoAIOptions {
@@ -81,7 +82,13 @@ export class GogoAI {
         timedOut: false,
         forcedWin: false,
         forcedLoss: true,
+        swap: false,
       };
+    }
+
+    // Swap rule: when swap is available, evaluate whether swapping is beneficial.
+    if (position.swapAvailable) {
+      return this.evaluateSwapDecision(position, timeLimitMs);
     }
 
     const fallbackMove = this.pickFallbackMove(position);
@@ -94,6 +101,7 @@ export class GogoAI {
         timedOut: fallbackMove !== -1,
         forcedWin: false,
         forcedLoss: false,
+        swap: false,
       };
     }
 
@@ -132,6 +140,102 @@ export class GogoAI {
       timedOut: this.timedOut,
       forcedWin: this.isForcedWinScore(bestScore, completedDepth),
       forcedLoss: this.isForcedLossScore(bestScore, completedDepth),
+      swap: false,
+    };
+  }
+
+  private evaluateSwapDecision(position: GogoPosition, timeLimitMs: number): SearchResult {
+    // Evaluate position without swapping (play best move as current color)
+    const halfTime = timeLimitMs / 2;
+
+    // Search as current side (no swap)
+    const noSwapResult = this.searchAsCurrentSide(position, halfTime);
+
+    // Now evaluate with swap: flip colors, search as new side
+    position.swap();
+    // Reset search state for the second evaluation
+    this.history.fill(0);
+    this.killerMoves.fill(-1);
+    this.deadline = this.now() + Math.max(0, halfTime);
+    this.nodesVisited = 0;
+    this.timedOut = false;
+
+    const swapResult = this.searchAsCurrentSide(position, halfTime);
+    position.undoSwap();
+
+    // Compare: noSwapResult.score is from current player perspective (higher = better for current player)
+    // swapResult.score is from swapped perspective (higher = better for swapped player, which is current player after swap)
+    const shouldSwap = swapResult.score > noSwapResult.score;
+
+    const chosen = shouldSwap ? swapResult : noSwapResult;
+    return {
+      move: chosen.move,
+      score: chosen.score,
+      depth: chosen.depth,
+      nodes: noSwapResult.nodes + swapResult.nodes,
+      timedOut: noSwapResult.timedOut || swapResult.timedOut,
+      forcedWin: this.isForcedWinScore(chosen.score, chosen.depth),
+      forcedLoss: this.isForcedLossScore(chosen.score, chosen.depth),
+      swap: shouldSwap,
+    };
+  }
+
+  private searchAsCurrentSide(position: GogoPosition, timeLimitMs: number): SearchResult {
+    this.history.fill(0);
+    this.killerMoves.fill(-1);
+    this.deadline = this.now() + Math.max(0, timeLimitMs);
+    this.nodesVisited = 0;
+    this.timedOut = false;
+
+    const fallbackMove = this.pickFallbackMove(position);
+    if (fallbackMove === -1 || this.now() >= this.deadline) {
+      return {
+        move: fallbackMove,
+        score: 0,
+        depth: 0,
+        nodes: 0,
+        timedOut: fallbackMove !== -1,
+        forcedWin: false,
+        forcedLoss: false,
+        swap: false,
+      };
+    }
+
+    let bestMove = fallbackMove;
+    let bestScore = 0;
+    let completedDepth = 0;
+    let hintMove = fallbackMove;
+
+    for (let depth = 1; depth <= this.maxDepth; depth += 1) {
+      try {
+        const result = this.searchRoot(position, depth, hintMove);
+        if (result.move !== -1) {
+          bestMove = result.move;
+          bestScore = result.score;
+          hintMove = result.move;
+          completedDepth = depth;
+          if (this.isForcedWinScore(result.score, depth) || this.isForcedLossScore(result.score, depth)) {
+            break;
+          }
+        }
+      } catch (error) {
+        if (error !== this.timeoutSignal) {
+          throw error;
+        }
+        this.timedOut = true;
+        break;
+      }
+    }
+
+    return {
+      move: bestMove,
+      score: bestScore,
+      depth: completedDepth,
+      nodes: this.nodesVisited,
+      timedOut: this.timedOut,
+      forcedWin: this.isForcedWinScore(bestScore, completedDepth),
+      forcedLoss: this.isForcedLossScore(bestScore, completedDepth),
+      swap: false,
     };
   }
 
@@ -231,9 +335,9 @@ export class GogoAI {
     }
 
     if (legalCount === 0) {
-      return { move: -1, score: 0, depth, nodes: this.nodesVisited, timedOut: false, forcedWin: false, forcedLoss: false };
+      return { move: -1, score: 0, depth, nodes: this.nodesVisited, timedOut: false, forcedWin: false, forcedLoss: false, swap: false };
     }
-    return { move: bestMove, score: bestScore, depth, nodes: this.nodesVisited, timedOut: false, forcedWin: false, forcedLoss: false };
+    return { move: bestMove, score: bestScore, depth, nodes: this.nodesVisited, timedOut: false, forcedWin: false, forcedLoss: false, swap: false };
   }
 
   private search(position: GogoPosition, depth: number, alpha: number, beta: number, ply: number, canNullMove = true): number {

@@ -278,6 +278,7 @@ test('white-box internals cover helper branches that are otherwise hard to trigg
   game.historyWinner = new Uint8Array(0);
   game.historyCaptureStart = new Int32Array(0);
   game.historyCaptureCount = new Int16Array(0);
+  game.historySwapAvailable = new Uint8Array(0);
   game.capturePositions = new Int16Array(0);
   game.ensureHistoryCapacity(2);
   game.ensureCaptureCapacity(2);
@@ -430,4 +431,151 @@ test('centerOpening restricts first move to center point', () => {
   const count = restricted.generateAllLegalMoves(moveBuffer);
   expect(count).toBe(1);
   expect(moveBuffer[0]).toBe(center);
+});
+
+test('swapRule enables swap option after 3 moves and swap flips board colors', () => {
+  const game = new GogoPosition(9, { swapRule: true });
+  expect(game.swapRule).toBe(true);
+  expect(game.swapAvailable).toBe(false);
+
+  // swap() fails when not available
+  expect(game.swap()).toBe(false);
+
+  // Play 3 moves
+  game.playXY(4, 4); // black center
+  expect(game.swapAvailable).toBe(false);
+  game.playXY(3, 3); // white
+  expect(game.swapAvailable).toBe(false);
+  game.playXY(5, 5); // black - now ply=3, white to move
+  expect(game.swapAvailable).toBe(true);
+  expect(game.toMove).toBe(WHITE);
+
+  // Board state before swap
+  expect(game.at(4, 4)).toBe(BLACK);
+  expect(game.at(3, 3)).toBe(WHITE);
+  expect(game.at(5, 5)).toBe(BLACK);
+
+  // Perform swap
+  expect(game.swap()).toBe(true);
+  expect(game.swapAvailable).toBe(false);
+
+  // After swap: colors are flipped, toMove is toggled (now BLACK)
+  expect(game.at(4, 4)).toBe(WHITE);
+  expect(game.at(3, 3)).toBe(BLACK);
+  expect(game.at(5, 5)).toBe(WHITE);
+  expect(game.toMove).toBe(BLACK);
+
+  // swap() fails again since it was consumed
+  expect(game.swap()).toBe(false);
+
+  // Game continues normally
+  expect(game.playXY(2, 2)).toBe(true);
+  expect(game.at(2, 2)).toBe(BLACK);
+});
+
+test('swapRule: playing a normal move at ply 3 consumes the swap option', () => {
+  const game = new GogoPosition(9, { swapRule: true });
+  game.playXY(4, 4);
+  game.playXY(3, 3);
+  game.playXY(5, 5);
+  expect(game.swapAvailable).toBe(true);
+
+  // White plays a normal move instead of swapping
+  game.playXY(6, 6);
+  expect(game.swapAvailable).toBe(false);
+  expect(game.ply).toBe(4);
+
+  // Undo restores swapAvailable
+  game.undo();
+  expect(game.swapAvailable).toBe(true);
+  expect(game.ply).toBe(3);
+});
+
+test('swapRule: undoSwap reverses a swap', () => {
+  const game = new GogoPosition(9, { swapRule: true });
+  game.playXY(4, 4);
+  game.playXY(3, 3);
+  game.playXY(5, 5);
+  expect(game.swapAvailable).toBe(true);
+
+  game.swap();
+  expect(game.at(4, 4)).toBe(WHITE);
+  expect(game.toMove).toBe(BLACK);
+  expect(game.swapAvailable).toBe(false);
+
+  // Undo the swap
+  expect(game.undoSwap()).toBe(true);
+  expect(game.at(4, 4)).toBe(BLACK);
+  expect(game.at(3, 3)).toBe(WHITE);
+  expect(game.at(5, 5)).toBe(BLACK);
+  expect(game.toMove).toBe(WHITE);
+  expect(game.swapAvailable).toBe(true);
+});
+
+test('swapRule: undoSwap fails in invalid situations', () => {
+  // No swap rule
+  const noSwap = new GogoPosition(9);
+  expect(noSwap.undoSwap()).toBe(false);
+
+  // Swap rule but wrong ply
+  const game = new GogoPosition(9, { swapRule: true });
+  expect(game.undoSwap()).toBe(false);
+
+  // Swap rule, ply 3, but swap still available (wasn't swapped)
+  game.playXY(4, 4);
+  game.playXY(3, 3);
+  game.playXY(5, 5);
+  expect(game.swapAvailable).toBe(true);
+  expect(game.undoSwap()).toBe(false);
+});
+
+test('swapRule defaults to false when not specified', () => {
+  const game = new GogoPosition(9);
+  expect(game.swapRule).toBe(false);
+  expect(game.swapAvailable).toBe(false);
+});
+
+test('swapRule: undo through 3rd move restores swapAvailable correctly', () => {
+  const game = new GogoPosition(9, { swapRule: true });
+  game.playXY(4, 4);
+  game.playXY(3, 3);
+  game.playXY(5, 5);
+  expect(game.swapAvailable).toBe(true);
+
+  // Undo 3rd move
+  game.undo();
+  expect(game.swapAvailable).toBe(false);
+  expect(game.ply).toBe(2);
+
+  // Replay 3rd move
+  game.playXY(5, 5);
+  expect(game.swapAvailable).toBe(true);
+});
+
+test('swapRule: swap not available if 3rd move wins', () => {
+  // Build a position where the 3rd move creates five-in-a-row
+  const game = new GogoPosition(9, { swapRule: true });
+  // We need a pre-set board for this
+  // Use fromAscii with existing stones, then play move 3
+  // Actually we can't use fromAscii easily here because ply tracking.
+  // Instead, just note that if black wins on move 3 with 5-in-a-row,
+  // swapAvailable should be false because winner !== EMPTY.
+  // This is handled by the condition: this.swapRule && this.ply === 3 && this.winner === EMPTY
+  // Let's test by using a position that could theoretically win quickly.
+  // Actually, on a 9x9 board you can't get 5 in a row in 3 moves with 2 black stones.
+  // So we test the logic path by creating a synthetic situation.
+  const synthetic = new GogoPosition(9, { swapRule: true });
+  // Manually set up a position where the 3rd stone completes 5
+  // Place 4 black stones in a row (index 0-3) manually
+  synthetic.board[0] = BLACK;
+  synthetic.board[1] = BLACK;
+  synthetic.board[2] = BLACK;
+  synthetic.board[3] = BLACK;
+  synthetic.stoneCount = 4;
+  synthetic.ply = 2;
+  synthetic.toMove = BLACK;
+  // Playing at index 4 should complete 5-in-a-row and NOT set swapAvailable
+  expect(synthetic.play(4)).toBe(true);
+  expect(synthetic.winner).toBe(BLACK);
+  expect(synthetic.swapAvailable).toBe(false);
 });

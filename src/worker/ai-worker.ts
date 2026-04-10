@@ -19,6 +19,7 @@ export interface AIResponse {
   timedOut: boolean;
   forcedWin: boolean;
   forcedLoss: boolean;
+  swap: boolean;
 }
 
 export function handleAIRequest(data: AIRequest): AIResponse {
@@ -36,6 +37,7 @@ export function handleAIRequest(data: AIRequest): AIResponse {
     timedOut: result.timedOut,
     forcedWin: result.forcedWin,
     forcedLoss: result.forcedLoss,
+    swap: result.swap,
   };
 }
 

@@ -11,6 +11,7 @@ const props = defineProps<{
   whiteAIType: AIType;
   boardSize: SupportedSize;
   aiThinking: boolean;
+  canSwap: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -23,6 +24,7 @@ const emit = defineEmits<{
   'update:boardSize': [value: SupportedSize];
   newGame: [];
   undo: [];
+  swap: [];
 }>();
 
 function onBlackModeChange(event: Event): void {
@@ -154,5 +156,6 @@ function onBoardSizeChange(event: Event): void {
 
     <button type="button" @click="emit('newGame')">New game</button>
     <button type="button" @click="emit('undo')">Undo</button>
+    <button v-if="props.canSwap" type="button" class="swap-button" @click="emit('swap')">Swap colors</button>
   </div>
 </template>

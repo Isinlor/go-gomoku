@@ -88,6 +88,7 @@ export function useGame(options: UseGameOptions = {}) {
 
   const statusText = computed(() => {
     const g = game.value;
+    void boardVersion.value; // reactive dependency for mutable board
     const extra = statusExtra.value;
     const suffix = extra ? ` — ${extra}` : '';
     if (g.winner !== EMPTY) {
@@ -96,7 +97,15 @@ export function useGame(options: UseGameOptions = {}) {
     if (!g.hasAnyLegalMove()) {
       return `draw${suffix}`;
     }
+    if (g.swapAvailable && isCurrentPlayerHuman()) {
+      return `${playerLabel(g.toMove)} to move — may swap colors or play${suffix}`;
+    }
     return `${playerLabel(g.toMove)} to move${suffix}`;
+  });
+
+  const canSwap = computed(() => {
+    void boardVersion.value; // reactive dependency for mutable board
+    return game.value.swapAvailable && isCurrentPlayerHuman() && !aiThinking.value;
   });
 
   const gameRecord = computed(() => {
@@ -151,16 +160,20 @@ export function useGame(options: UseGameOptions = {}) {
       const currentId = (expectedWorker as unknown as { _pendingId: number })._pendingId;
       if (currentId !== pendingGameId) return;
       const result = event.data;
+      if (result.swap) {
+        game.value.swap();
+      }
       if (result.move !== -1) {
         game.value.play(result.move);
       }
       aiThinking.value = false;
+      const swapSuffix = result.swap ? ', swapped colors' : '';
       const forcedOutcomeSuffix = result.forcedWin
         ? ', forced win'
         : result.forcedLoss
           ? ', forced loss'
           : '';
-      statusExtra.value = `AI depth ${result.depth}, nodes ${result.nodes}${forcedOutcomeSuffix}`;
+      statusExtra.value = `AI depth ${result.depth}, nodes ${result.nodes}${swapSuffix}${forcedOutcomeSuffix}`;
       notifyBoardChange();
       updateLocationHash();
       maybeRunAI();
@@ -183,7 +196,7 @@ export function useGame(options: UseGameOptions = {}) {
   function newGame(): void {
     terminateWorker();
     aiThinking.value = false;
-    game.value = new GogoPosition(size.value, { centerOpening: true });
+    game.value = new GogoPosition(size.value, { centerOpening: true, swapRule: true });
     statusExtra.value = '';
     notifyBoardChange();
     updateLocationHash();
@@ -215,6 +228,17 @@ export function useGame(options: UseGameOptions = {}) {
       return;
     }
     statusExtra.value = '';
+    notifyBoardChange();
+    updateLocationHash();
+    maybeRunAI();
+  }
+
+  function swapColors(): void {
+    if (aiThinking.value || !isCurrentPlayerHuman() || !game.value.swapAvailable) {
+      return;
+    }
+    game.value.swap();
+    statusExtra.value = 'colors swapped';
     notifyBoardChange();
     updateLocationHash();
     maybeRunAI();
@@ -304,10 +328,12 @@ export function useGame(options: UseGameOptions = {}) {
     gameUrl,
     loadError,
     boardVersion,
+    canSwap,
     boardDisabled,
     newGame,
     undo,
     playMove,
+    swapColors,
     loadGame,
     loadPuzzle,
     setSize,

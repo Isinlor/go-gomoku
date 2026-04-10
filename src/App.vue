@@ -24,9 +24,11 @@ const {
   loadError,
   boardDisabled,
   boardVersion,
+  canSwap,
   newGame,
   undo,
   playMove,
+  swapColors,
   loadGame,
   loadPuzzle,
   setSize,
@@ -80,6 +82,7 @@ function onLoadPuzzle(puzzle: Puzzle): void {
     :white-a-i-type="whiteAIType"
     :board-size="size"
     :ai-thinking="aiThinking"
+    :can-swap="canSwap"
     @update:black-is-a-i="onUpdateBlackIsAI"
     @update:white-is-a-i="onUpdateWhiteIsAI"
     @update:black-time-limit="blackTimeLimit = $event"
@@ -89,6 +92,7 @@ function onLoadPuzzle(puzzle: Puzzle): void {
     @update:board-size="onUpdateBoardSize"
     @new-game="newGame"
     @undo="undo"
+    @swap="swapColors"
   />
 
   <div id="status">{{ statusText }}</div>
