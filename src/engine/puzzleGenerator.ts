@@ -17,6 +17,13 @@ function otherPlayer(player: Player): Player {
 const ATTACK_WEIGHTS = [0, 12, 72, 540, 8_000, 500_000] as const;
 const DEFENSE_WEIGHTS = [0, 16, 96, 720, 100_000, 500_000] as const;
 
+// Transposition table constants for ForcedWinSearcher
+const TT_SIZE = 1 << 18;
+const TT_MASK = TT_SIZE - 1;
+const TT_PROVEN = 1;
+const TT_DISPROVEN = 2;
+const ATTACKER_XOR = 0x9E3779B9;
+
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
@@ -63,6 +70,9 @@ export class ForcedWinSearcher {
   private readonly threatBuffer: Int16Array;
   private candidateEpoch = 0;
   private readonly area: number;
+  private readonly ttKey: Int32Array;
+  private readonly ttDepth: Int8Array;
+  private readonly ttFlag: Uint8Array;
   nodesSearched = 0;
 
   constructor(area: number, maxDepth: number) {
@@ -75,6 +85,9 @@ export class ForcedWinSearcher {
     }
     this.candidateMarks = new Uint32Array(area);
     this.threatBuffer = new Int16Array(area);
+    this.ttKey = new Int32Array(TT_SIZE);
+    this.ttDepth = new Int8Array(TT_SIZE);
+    this.ttFlag = new Uint8Array(TT_SIZE);
   }
 
   /**
@@ -263,30 +276,38 @@ export class ForcedWinSearcher {
       return false;
     }
 
+    // Transposition table probe — pos.hash is maintained incrementally
+    const ttk = (pos.hash ^ (attacker === WHITE ? ATTACKER_XOR : 0)) | 0;
+    const ttIdx = (ttk >>> 0) & TT_MASK;
+    if (this.ttKey[ttIdx] === ttk) {
+      const sf = this.ttFlag[ttIdx];
+      const sd = this.ttDepth[ttIdx];
+      if (sf === TT_PROVEN && remaining >= sd) {
+        return true;
+      }
+      if (sf === TT_DISPROVEN && remaining <= sd) {
+        return false;
+      }
+    }
+
     const isAttacker = pos.toMove === attacker;
     const defender = otherPlayer(attacker);
 
     // Threat-based pruning — single pass over all windows
     const [attackerThreats, defenderThreats] = this.countBothThreats(pos, attacker, defender);
 
+    let result: boolean;
     if (isAttacker) {
-      return this.searchAttacker(
-        pos,
-        attacker,
-        remaining,
-        depth,
-        attackerThreats,
-        defenderThreats,
-      );
+      result = this.searchAttacker(pos, attacker, remaining, depth, attackerThreats, defenderThreats);
+    } else {
+      result = this.searchDefender(pos, attacker, remaining, depth, attackerThreats, defenderThreats);
     }
-    return this.searchDefender(
-      pos,
-      attacker,
-      remaining,
-      depth,
-      attackerThreats,
-      defenderThreats,
-    );
+
+    // Transposition table store
+    this.ttKey[ttIdx] = ttk;
+    this.ttDepth[ttIdx] = remaining;
+    this.ttFlag[ttIdx] = result ? TT_PROVEN : TT_DISPROVEN;
+    return result;
   }
 
   private searchAttacker(
@@ -823,13 +844,16 @@ export function validatePuzzlePosition(
 
   // 5. Uniqueness: alternatives must not have forced win within n+3 plies.
   //    Check highest-threat alternatives first for fast rejection.
+  //    Uses hasForcedWinAfterMove (single depth search) instead of
+  //    forcedWinDepthForMove (iterative deepening) for speed.
+  //    altMaxPly is always even (n is odd), so the deepest odd ply to check
+  //    is altMaxPly - 1, which requires remaining = altMaxPly - 2 after move.
   const altMaxPly = n + 3;
   for (let i = 0; i < moveCount; i += 1) {
     if (moveBuffer[i] === solutionMove) {
       continue;
     }
-    const altDepth = searcher.forcedWinDepthForMove(pos, moveBuffer[i], altMaxPly);
-    if (altDepth !== -1) {
+    if (searcher.hasForcedWinAfterMove(pos, moveBuffer[i], altMaxPly - 2)) {
       return null;
     }
   }
