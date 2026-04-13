@@ -73,6 +73,7 @@ export class ForcedWinSearcher {
   private readonly ttKey: Int32Array;
   private readonly ttDepth: Int8Array;
   private readonly ttFlag: Uint8Array;
+  private readonly killers: Int16Array; // 2 killer moves per depth
   nodesSearched = 0;
 
   constructor(area: number, maxDepth: number) {
@@ -88,6 +89,8 @@ export class ForcedWinSearcher {
     this.ttKey = new Int32Array(TT_SIZE);
     this.ttDepth = new Int8Array(TT_SIZE);
     this.ttFlag = new Uint8Array(TT_SIZE);
+    this.killers = new Int16Array((maxDepth + 1) * 2);
+    this.killers.fill(-1);
   }
 
   /**
@@ -357,22 +360,41 @@ export class ForcedWinSearcher {
       return result;
     }
 
-    // General case: try all ordered moves
+    // General case: try killer moves first, then all ordered moves
     const count = this.generateMoves(pos, depth);
     const moves = this.moveBuffers[depth];
-    const scores = this.scoreBuffers[depth];
 
     // When remaining plies are low, limit the number of moves tried.
     // Attacker needs to create threats; only high-scoring moves can do that.
     const maxMoves = remaining <= 2 ? Math.min(count, 10) : count;
 
+    // Try killer moves first (moves that caused cutoffs at this depth before)
+    const kBase = depth * 2;
+    for (let ki = 0; ki < 2; ki += 1) {
+      const km = this.killers[kBase + ki];
+      if (km < 0 || pos.board[km] !== EMPTY || km === pos.koPoint) { continue; }
+      if (!pos.play(km)) { continue; }
+      const result = this.search(pos, attacker, remaining - 1, depth + 1);
+      pos.undo();
+      if (result) {
+        return true;
+      }
+    }
+
     for (let i = 0; i < maxMoves; i += 1) {
-      if (!pos.play(moves[i])) {
+      const m = moves[i];
+      if (m === this.killers[kBase] || m === this.killers[kBase + 1]) { continue; }
+      if (!pos.play(m)) {
         continue;
       }
       const result = this.search(pos, attacker, remaining - 1, depth + 1);
       pos.undo();
       if (result) {
+        // Update killers
+        if (this.killers[kBase] !== m) {
+          this.killers[kBase + 1] = this.killers[kBase];
+          this.killers[kBase] = m;
+        }
         return true;
       }
     }
@@ -441,18 +463,44 @@ export class ForcedWinSearcher {
     }
 
     // General case: all defender moves must lead to attacker win
+    // Try killer moves first (moves that previously refuted attacker's win)
     const count = this.generateMoves(pos, depth);
     const moves = this.moveBuffers[depth];
     let anyLegal = false;
 
+    const kBase = depth * 2;
+    for (let ki = 0; ki < 2; ki += 1) {
+      const km = this.killers[kBase + ki];
+      if (km < 0 || pos.board[km] !== EMPTY || km === pos.koPoint) { continue; }
+      if (!pos.play(km)) { continue; }
+      anyLegal = true;
+      const result = this.search(pos, attacker, remaining - 1, depth + 1);
+      pos.undo();
+      if (!result) {
+        // Update killers
+        if (this.killers[kBase] !== km) {
+          this.killers[kBase + 1] = this.killers[kBase];
+          this.killers[kBase] = km;
+        }
+        return false;
+      }
+    }
+
     for (let i = 0; i < count; i += 1) {
-      if (!pos.play(moves[i])) {
+      const m = moves[i];
+      if (m === this.killers[kBase] || m === this.killers[kBase + 1]) { continue; }
+      if (!pos.play(m)) {
         continue;
       }
       anyLegal = true;
       const result = this.search(pos, attacker, remaining - 1, depth + 1);
       pos.undo();
       if (!result) {
+        // Update killers
+        if (this.killers[kBase] !== m) {
+          this.killers[kBase + 1] = this.killers[kBase];
+          this.killers[kBase] = m;
+        }
         return false;
       }
     }
@@ -473,28 +521,28 @@ export class ForcedWinSearcher {
     let atkThreats = 0;
     let defThreats = 0;
 
+    // Branchless cell counting via bit shifts:
+    // BLACK=1=0b01, WHITE=2=0b10 → (cell >> (player-1)) & 1
+    const atkS = attacker - 1;
+    const defS = 2 - attacker;
+
     for (let wi = 0; wi < meta.windowCount; wi += 1) {
       const base = wi * 5;
-      let atk = 0;
-      let def = 0;
-      let empties = 0;
-      for (let step = 0; step < 5; step += 1) {
-        const cell = board[windows[base + step]];
-        if (cell === attacker) {
-          atk += 1;
-        } else if (cell === defender) {
-          def += 1;
-        } else {
-          empties += 1;
-        }
-      }
-      if (empties === 1) {
-        if (atk === 4) {
-          atkThreats += 1;
-        }
-        if (def === 4) {
-          defThreats += 1;
-        }
+      const c0 = board[windows[base]];
+      const c1 = board[windows[base + 1]];
+      const c2 = board[windows[base + 2]];
+      const c3 = board[windows[base + 3]];
+      const c4 = board[windows[base + 4]];
+
+      const atk = ((c0 >> atkS) & 1) + ((c1 >> atkS) & 1) + ((c2 >> atkS) & 1) + ((c3 >> atkS) & 1) + ((c4 >> atkS) & 1);
+      if (atk >= 4) {
+        // Potential attacker threat: check no defender stones (→ exactly 1 empty)
+        const def = ((c0 >> defS) & 1) + ((c1 >> defS) & 1) + ((c2 >> defS) & 1) + ((c3 >> defS) & 1) + ((c4 >> defS) & 1);
+        if (def === 0) { atkThreats += 1; }
+      } else if (atk === 0) {
+        // All non-attacker: check for 4 defender + 1 empty
+        const def = ((c0 >> defS) & 1) + ((c1 >> defS) & 1) + ((c2 >> defS) & 1) + ((c3 >> defS) & 1) + ((c4 >> defS) & 1);
+        if (def === 4) { defThreats += 1; }
       }
     }
     return [atkThreats, defThreats];
@@ -506,24 +554,34 @@ export class ForcedWinSearcher {
     const windows = meta.windows;
     const buf = this.threatBuffer;
     let count = 0;
-    // Use high bits of candidateMarks with a separate epoch to avoid seen-set allocation
     const epoch = ++this.candidateEpoch;
+
+    // Branchless player count via bit shift
+    const pShift = player - 1;
 
     for (let wi = 0; wi < meta.windowCount; wi += 1) {
       const base = wi * 5;
-      let ours = 0;
-      let empties = 0;
-      let emptyPos = -1;
-      for (let step = 0; step < 5; step += 1) {
-        const cell = board[windows[base + step]];
-        if (cell === player) {
-          ours += 1;
-        } else if (cell === EMPTY) {
-          empties += 1;
-          emptyPos = windows[base + step];
-        }
-      }
-      if (ours === 4 && empties === 1 && this.candidateMarks[emptyPos] !== epoch) {
+      const c0 = board[windows[base]];
+      const c1 = board[windows[base + 1]];
+      const c2 = board[windows[base + 2]];
+      const c3 = board[windows[base + 3]];
+      const c4 = board[windows[base + 4]];
+
+      const ours = ((c0 >> pShift) & 1) + ((c1 >> pShift) & 1) + ((c2 >> pShift) & 1) + ((c3 >> pShift) & 1) + ((c4 >> pShift) & 1);
+      if (ours !== 4) { continue; }
+
+      // Exactly 4 of ours — find the single empty cell (if any)
+      const empties = +(c0 === 0) + +(c1 === 0) + +(c2 === 0) + +(c3 === 0) + +(c4 === 0);
+      if (empties !== 1) { continue; }
+
+      // Find the empty position
+      const emptyPos = c0 === 0 ? windows[base]
+        : c1 === 0 ? windows[base + 1]
+        : c2 === 0 ? windows[base + 2]
+        : c3 === 0 ? windows[base + 3]
+        : windows[base + 4];
+
+      if (this.candidateMarks[emptyPos] !== epoch) {
         this.candidateMarks[emptyPos] = epoch;
         buf[count] = emptyPos;
         count += 1;
@@ -600,23 +658,25 @@ export class ForcedWinSearcher {
   ): number {
     const meta = pos.meta;
     const board = pos.board;
+    const windows = meta.windows;
     let attack = 0;
     let defense = 0;
+    const pS = player - 1;
+    const oS = 2 - player;
 
     for (
       let cursor = meta.windowsByPointOffsets[move];
       cursor < meta.windowsByPointOffsets[move + 1];
       cursor += 1
     ) {
-      const windowIndex = meta.windowsByPoint[cursor];
-      const base = windowIndex * 5;
-      let mine = 0;
-      let theirs = 0;
-      for (let step = 0; step < 5; step += 1) {
-        const cell = board[meta.windows[base + step]];
-        mine += cell === player ? 1 : 0;
-        theirs += cell === opponent ? 1 : 0;
-      }
+      const base = meta.windowsByPoint[cursor] * 5;
+      const c0 = board[windows[base]];
+      const c1 = board[windows[base + 1]];
+      const c2 = board[windows[base + 2]];
+      const c3 = board[windows[base + 3]];
+      const c4 = board[windows[base + 4]];
+      const mine = ((c0 >> pS) & 1) + ((c1 >> pS) & 1) + ((c2 >> pS) & 1) + ((c3 >> pS) & 1) + ((c4 >> pS) & 1);
+      const theirs = ((c0 >> oS) & 1) + ((c1 >> oS) & 1) + ((c2 >> oS) & 1) + ((c3 >> oS) & 1) + ((c4 >> oS) & 1);
       if (theirs === 0) {
         attack += ATTACK_WEIGHTS[Math.min(mine + 1, 5)];
       }
@@ -638,26 +698,27 @@ export class ForcedWinSearcher {
  */
 export function heuristicMoveScore(pos: GogoPosition, move: number): number {
   const player = pos.toMove;
-  const opponent = otherPlayer(player);
   const meta = pos.meta;
   const board = pos.board;
+  const windows = meta.windows;
   let attack = 0;
   let defense = 0;
+  const pS = player - 1;
+  const oS = 2 - player;
 
   for (
     let cursor = meta.windowsByPointOffsets[move];
     cursor < meta.windowsByPointOffsets[move + 1];
     cursor += 1
   ) {
-    const windowIndex = meta.windowsByPoint[cursor];
-    const base = windowIndex * 5;
-    let mine = 0;
-    let theirs = 0;
-    for (let step = 0; step < 5; step += 1) {
-      const cell = board[meta.windows[base + step]];
-      mine += cell === player ? 1 : 0;
-      theirs += cell === opponent ? 1 : 0;
-    }
+    const base = meta.windowsByPoint[cursor] * 5;
+    const c0 = board[windows[base]];
+    const c1 = board[windows[base + 1]];
+    const c2 = board[windows[base + 2]];
+    const c3 = board[windows[base + 3]];
+    const c4 = board[windows[base + 4]];
+    const mine = ((c0 >> pS) & 1) + ((c1 >> pS) & 1) + ((c2 >> pS) & 1) + ((c3 >> pS) & 1) + ((c4 >> pS) & 1);
+    const theirs = ((c0 >> oS) & 1) + ((c1 >> oS) & 1) + ((c2 >> oS) & 1) + ((c3 >> oS) & 1) + ((c4 >> oS) & 1);
     if (theirs === 0) {
       attack += ATTACK_WEIGHTS[Math.min(mine + 1, 5)];
     }
@@ -781,8 +842,9 @@ export function validatePuzzlePosition(
     return null;
   }
 
-  // 1. No immediate threat: opponent cannot force a win in m plies
-  if (searcher.hasForcedWin(pos, defender, m)) {
+  // 1. No immediate threat: opponent cannot force a win in m plies.
+  //    Pre-filter: if defender has no open-three pattern, skip the search.
+  if (hasOpenThree(pos, defender) && searcher.hasForcedWin(pos, defender, m)) {
     return null;
   }
 
@@ -796,7 +858,9 @@ export function validatePuzzlePosition(
     return null; // no win at depth n either
   }
 
-  // 3. Find the unique move with forced win in exactly n plies
+  // 3. Find the unique move with forced win at exactly depth n.
+  //    Since step 2 ruled out shorter wins, findUniqueWinningMove at depth n
+  //    will only find wins at exactly n plies (avoids iterative deepening).
   const moveBuffer = buffers?.moveBuffer ?? new Int16Array(pos.area);
   const moveCount = pos.generateAllLegalMoves(moveBuffer);
 
@@ -807,24 +871,9 @@ export function validatePuzzlePosition(
   }
   sortMovesDescending(moveBuffer, hScores, moveCount);
 
-  let solutionMove = -1;
-  let solutionCount = 0;
-
-  for (let i = 0; i < moveCount; i += 1) {
-    const depth = searcher.forcedWinDepthForMove(pos, moveBuffer[i], n);
-    if (depth === n) {
-      solutionMove = moveBuffer[i];
-      solutionCount += 1;
-      if (solutionCount > 1) {
-        return null;
-      }
-    } else if (depth > 0 && depth < n) {
-      return null;
-    }
-  }
-
-  if (solutionCount !== 1) {
-    return null;
+  const solutionMove = searcher.findUniqueWinningMove(pos, moveBuffer, moveCount, n);
+  if (solutionMove < 0) {
+    return null; // no win (-1) or multiple/shorter wins (-2)
   }
 
   // 4. Not obvious: heuristic/AI at depth k must not select the solution
@@ -894,17 +943,19 @@ function hasOpenThree(pos: GogoPosition, player: Player): boolean {
   const meta = pos.meta;
   const board = pos.board;
   const windows = meta.windows;
+  const pS = player - 1;
 
   for (let wi = 0; wi < meta.windowCount; wi += 1) {
     const base = wi * 5;
-    let ours = 0;
-    let empties = 0;
-    for (let step = 0; step < 5; step += 1) {
-      const cell = board[windows[base + step]];
-      ours += cell === player ? 1 : 0;
-      empties += cell === EMPTY ? 1 : 0;
-    }
-    if (ours >= 3 && empties >= 2) {
+    const c0 = board[windows[base]];
+    const c1 = board[windows[base + 1]];
+    const c2 = board[windows[base + 2]];
+    const c3 = board[windows[base + 3]];
+    const c4 = board[windows[base + 4]];
+    const ours = ((c0 >> pS) & 1) + ((c1 >> pS) & 1) + ((c2 >> pS) & 1) + ((c3 >> pS) & 1) + ((c4 >> pS) & 1);
+    if (ours < 3) { continue; }
+    const empties = +(c0 === 0) + +(c1 === 0) + +(c2 === 0) + +(c3 === 0) + +(c4 === 0);
+    if (empties >= 2) {
       return true;
     }
   }
