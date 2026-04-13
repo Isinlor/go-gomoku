@@ -15,6 +15,7 @@ export interface GogoAIOptions {
   quiescenceDepth?: number;
   maxPly?: number;
   now?: () => number;
+  useTranspositionTable?: boolean;
 }
 
 const WIN_SCORE = 1_000_000_000;
@@ -30,6 +31,15 @@ const KILLER_BONUS = 1_000_000;
 const CAPTURE_BONUS = 5_000;
 const ESCAPE_BONUS = 3_500;
 const NO_SCORE = Number.NEGATIVE_INFINITY;
+const TT_EXACT = 0;
+const TT_LOWER = 1;
+const TT_UPPER = 2;
+const MATE_BAND = 2048;
+
+interface TTProbeResult {
+  cutoff: boolean;
+  score: number;
+}
 
 function otherPlayer(player: Player): Player {
   return player === BLACK ? WHITE : BLACK;
@@ -39,6 +49,7 @@ export class GogoAI {
   readonly maxDepth: number;
   readonly quiescenceDepth: number;
   readonly maxPly: number;
+  readonly useTranspositionTable: boolean;
 
   private readonly now: () => number;
   private moveBuffers: Int16Array[] = [];
@@ -54,12 +65,21 @@ export class GogoAI {
   private timedOut = false;
   private killerMoves = new Int16Array(0);
   private readonly timeoutSignal = new Error('SEARCH_TIMEOUT');
+  private ttMask = 0;
+  private ttKeyLo = new Uint32Array(0);
+  private ttKeyHi = new Uint32Array(0);
+  private ttDepth = new Int16Array(0);
+  private ttScore = new Int32Array(0);
+  private ttMove = new Int16Array(0);
+  private ttFlag = new Uint8Array(0);
 
   constructor(options: GogoAIOptions = {}) {
     this.maxDepth = Math.max(1, options.maxDepth ?? 6);
     this.quiescenceDepth = Math.max(0, options.quiescenceDepth ?? 6);
     this.maxPly = Math.max(2, options.maxPly ?? 64);
+    this.useTranspositionTable = options.useTranspositionTable ?? true;
     this.now = options.now ?? (() => performance.now());
+    this.initTranspositionTable();
   }
 
   findBestMove(position: GogoPosition, timeLimitMs: number): SearchResult {
@@ -69,6 +89,7 @@ export class GogoAI {
     this.deadline = this.now() + Math.max(0, timeLimitMs);
     this.nodesVisited = 0;
     this.timedOut = false;
+    this.clearTranspositionTable();
 
     if (position.winner !== EMPTY) {
       return {
@@ -131,6 +152,26 @@ export class GogoAI {
       forcedWin: this.isForcedWinScore(bestScore, completedDepth),
       forcedLoss: this.isForcedLossScore(bestScore, completedDepth),
     };
+  }
+
+  private initTranspositionTable(): void {
+    const entries = 1 << 19;
+    this.ttMask = entries - 1;
+    this.ttKeyLo = new Uint32Array(entries);
+    this.ttKeyHi = new Uint32Array(entries);
+    this.ttDepth = new Int16Array(entries);
+    this.ttScore = new Int32Array(entries);
+    this.ttMove = new Int16Array(entries);
+    this.ttMove.fill(-1);
+    this.ttFlag = new Uint8Array(entries);
+  }
+
+  private clearTranspositionTable(): void {
+    if (!this.useTranspositionTable) {
+      return;
+    }
+    this.ttDepth.fill(0);
+    this.ttMove.fill(-1);
   }
 
   private ensureBuffers(area: number): void {
@@ -242,19 +283,21 @@ export class GogoAI {
       return this.quiescence(position, alpha, beta, ply, this.quiescenceDepth);
     }
 
+    const alphaOriginal = alpha;
+    const ttProbe = this.probeTT(position, depth, alpha, beta, ply);
+    if (ttProbe.cutoff) {
+      return ttProbe.score;
+    }
+
     // Null move pruning: if we give the opponent a free move and they still
     // can't beat beta, the position is likely good enough to prune.
     if (depth >= 3 && canNullMove) {
-      const savedToMove = position.toMove;
-      const savedKo = position.koPoint;
-      position.toMove = otherPlayer(savedToMove);
-      position.koPoint = -1;
+      const nullState = position.applyNullMoveForSearch();
       let nullScore: number;
       try {
         nullScore = -this.search(position, depth - 3, -beta, -beta + 1, ply + 1, false);
       } finally {
-        position.toMove = savedToMove;
-        position.koPoint = savedKo;
+        position.undoNullMoveForSearch(nullState);
       }
       if (nullScore >= beta) {
         return beta;
@@ -267,6 +310,7 @@ export class GogoAI {
     let usedFullBoard = false;
     let legalCount = 0;
     let bestScore = -WIN_SCORE;
+    let bestMove = -1;
 
     for (;;) {
       for (let i = 0; i < count; i += 1) {
@@ -293,6 +337,7 @@ export class GogoAI {
         }
         if (score > bestScore) {
           bestScore = score;
+          bestMove = move;
         }
         if (score > alpha) {
           alpha = score;
@@ -303,6 +348,7 @@ export class GogoAI {
               this.killerMoves[ply * 2 + 1] = this.killerMoves[ply * 2];
               this.killerMoves[ply * 2] = move;
             }
+            this.storeTT(position, depth, score, TT_LOWER, move, ply);
             return score;
           }
         }
@@ -314,7 +360,14 @@ export class GogoAI {
       usedFullBoard = true;
     }
 
-    return legalCount === 0 ? 0 : bestScore;
+    if (legalCount === 0) {
+      this.storeTT(position, depth, 0, TT_EXACT, -1, ply);
+      return 0;
+    }
+
+    const flag = bestScore <= alphaOriginal ? TT_UPPER : TT_EXACT;
+    this.storeTT(position, depth, bestScore, flag, bestMove, ply);
+    return bestScore;
   }
 
   private quiescence(position: GogoPosition, alpha: number, beta: number, ply: number, remainingDepth: number): number {
@@ -589,5 +642,68 @@ export class GogoAI {
     if ((force || (this.nodesVisited & 127) === 0) && this.now() >= this.deadline) {
       throw this.timeoutSignal;
     }
+  }
+
+  private probeTT(position: GogoPosition, depth: number, alpha: number, beta: number, ply: number): TTProbeResult {
+    if (!this.useTranspositionTable) {
+      return { cutoff: false, score: 0 };
+    }
+    const keyLo = position.hashLo32;
+    const keyHi = position.hashHi32;
+    const slot = keyLo & this.ttMask;
+    if (this.ttKeyLo[slot] !== keyLo || this.ttKeyHi[slot] !== keyHi || this.ttDepth[slot] < depth) {
+      return { cutoff: false, score: 0 };
+    }
+    const score = this.ttUnpackScore(this.ttScore[slot], ply);
+    const flag = this.ttFlag[slot];
+    if (flag === TT_EXACT) {
+      return { cutoff: true, score };
+    }
+    if (flag === TT_LOWER && score >= beta) {
+      return { cutoff: true, score };
+    }
+    if (flag === TT_UPPER && score <= alpha) {
+      return { cutoff: true, score };
+    }
+    return { cutoff: false, score };
+  }
+
+  private storeTT(position: GogoPosition, depth: number, score: number, flag: number, move: number, ply: number): void {
+    if (!this.useTranspositionTable) {
+      return;
+    }
+    const keyLo = position.hashLo32;
+    const keyHi = position.hashHi32;
+    const slot = keyLo & this.ttMask;
+    const sameKey = this.ttKeyLo[slot] === keyLo && this.ttKeyHi[slot] === keyHi;
+    if (sameKey && this.ttDepth[slot] > depth) {
+      return;
+    }
+    this.ttKeyLo[slot] = keyLo;
+    this.ttKeyHi[slot] = keyHi;
+    this.ttDepth[slot] = depth;
+    this.ttScore[slot] = this.ttPackScore(score, ply);
+    this.ttFlag[slot] = flag;
+    this.ttMove[slot] = move;
+  }
+
+  private ttPackScore(score: number, ply: number): number {
+    if (score >= WIN_SCORE - MATE_BAND) {
+      return score + ply;
+    }
+    if (score <= -WIN_SCORE + MATE_BAND) {
+      return score - ply;
+    }
+    return score;
+  }
+
+  private ttUnpackScore(score: number, ply: number): number {
+    if (score >= WIN_SCORE - MATE_BAND) {
+      return score - ply;
+    }
+    if (score <= -WIN_SCORE + MATE_BAND) {
+      return score + ply;
+    }
+    return score;
   }
 }

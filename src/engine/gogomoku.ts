@@ -24,6 +24,12 @@ export interface BoardMeta {
   readonly windowsByPointOffsets: Uint16Array;
   readonly windowsByPoint: Int16Array;
   readonly centerBias: Int16Array;
+  readonly zobristStoneLo: Uint32Array;
+  readonly zobristStoneHi: Uint32Array;
+  readonly zobristKoLo: Uint32Array;
+  readonly zobristKoHi: Uint32Array;
+  readonly zobristTurnLo: number;
+  readonly zobristTurnHi: number;
 }
 
 const SUPPORTED_SIZES = new Set<number>([9, 11, 13]);
@@ -117,6 +123,32 @@ function createBoardMeta(size: SupportedSize): BoardMeta {
     windowsByPoint.set(windowsBucket[i], windowsByPointOffsets[i]);
   }
 
+  let rngState = (0x9e3779b9 ^ (size * 0x85ebca6b)) >>> 0;
+  const nextRand32 = (): number => {
+    rngState = (rngState + 0x9e3779b9) >>> 0;
+    let z = rngState;
+    z = Math.imul(z ^ (z >>> 16), 0x85ebca6b) >>> 0;
+    z = Math.imul(z ^ (z >>> 13), 0xc2b2ae35) >>> 0;
+    return (z ^ (z >>> 16)) >>> 0;
+  };
+
+  const zobristStoneLo = new Uint32Array(area * 2);
+  const zobristStoneHi = new Uint32Array(area * 2);
+  for (let i = 0; i < area * 2; i += 1) {
+    zobristStoneLo[i] = nextRand32();
+    zobristStoneHi[i] = nextRand32();
+  }
+
+  const zobristKoLo = new Uint32Array(area + 1);
+  const zobristKoHi = new Uint32Array(area + 1);
+  for (let i = 0; i <= area; i += 1) {
+    zobristKoLo[i] = nextRand32();
+    zobristKoHi[i] = nextRand32();
+  }
+
+  const zobristTurnLo = nextRand32();
+  const zobristTurnHi = nextRand32();
+
   return {
     size,
     area,
@@ -130,6 +162,12 @@ function createBoardMeta(size: SupportedSize): BoardMeta {
     windowsByPointOffsets,
     windowsByPoint,
     centerBias,
+    zobristStoneLo,
+    zobristStoneHi,
+    zobristKoLo,
+    zobristKoHi,
+    zobristTurnLo,
+    zobristTurnHi,
   };
 }
 
@@ -187,12 +225,17 @@ export class GogoPosition {
   lastMove = -1;
   lastCapturedCount = 0;
 
+  private hashLo = 0;
+  private hashHi = 0;
+
   private historyMoves: Int16Array;
   private historyPlayers: Uint8Array;
   private historyKo: Int16Array;
   private historyWinner: Uint8Array;
   private historyCaptureStart: Int32Array;
   private historyCaptureCount: Int16Array;
+  private historyHashLo: Uint32Array;
+  private historyHashHi: Uint32Array;
   private capturePositions: Int16Array;
   private captureTop = 0;
 
@@ -224,6 +267,8 @@ export class GogoPosition {
     this.historyWinner = new Uint8Array(historyCapacity);
     this.historyCaptureStart = new Int32Array(historyCapacity);
     this.historyCaptureCount = new Int16Array(historyCapacity);
+    this.historyHashLo = new Uint32Array(historyCapacity);
+    this.historyHashHi = new Uint32Array(historyCapacity);
     this.capturePositions = new Int16Array(captureCapacity);
 
     this.groupVisitMarks = new Uint32Array(this.area);
@@ -231,6 +276,34 @@ export class GogoPosition {
     this.adjacentGroupMarks = new Uint32Array(this.area);
     this.groupStack = new Int16Array(this.area);
     this.groupBuffer = new Int16Array(this.area);
+  }
+
+  get hash(): bigint {
+    return (BigInt(this.hashHi >>> 0) << 32n) | BigInt(this.hashLo >>> 0);
+  }
+
+  get hashLo32(): number {
+    return this.hashLo >>> 0;
+  }
+
+  get hashHi32(): number {
+    return this.hashHi >>> 0;
+  }
+
+  applyNullMoveForSearch(): { toMove: Player; koPoint: number } {
+    const saved = { toMove: this.toMove, koPoint: this.koPoint };
+    this.toggleTurnHash();
+    this.setKoHash(this.koPoint, -1);
+    this.toMove = otherPlayer(this.toMove);
+    this.koPoint = -1;
+    return saved;
+  }
+
+  undoNullMoveForSearch(saved: { toMove: Player; koPoint: number }): void {
+    this.toggleTurnHash();
+    this.setKoHash(this.koPoint, saved.koPoint);
+    this.toMove = saved.toMove;
+    this.koPoint = saved.koPoint;
   }
 
   static fromAscii(rows: string[], toMove: Player = BLACK, options: PositionOptions = {}): GogoPosition {
@@ -267,6 +340,7 @@ export class GogoPosition {
     }
 
     position.winner = position.detectExistingWinner();
+    position.recomputeHash();
     return position;
   }
 
@@ -335,11 +409,14 @@ export class GogoPosition {
     this.ensureHistoryCapacity(this.ply + 1);
     const player = this.toMove;
     const opponent = otherPlayer(player);
+    const previousHashLo = this.hashLo;
+    const previousHashHi = this.hashHi;
     const captureStart = this.captureTop;
     let capturedCount = 0;
 
     this.board[index] = player;
     this.stoneCount += 1;
+    this.toggleStoneHash(index, player);
 
     const neighbors = this.meta.neighbors4;
     const neighborBase = index * 4;
@@ -363,6 +440,7 @@ export class GogoPosition {
         this.capturePositions[this.captureTop] = point;
         this.captureTop += 1;
         this.board[point] = EMPTY;
+        this.toggleStoneHash(point, opponent);
       }
       capturedCount += this.scanGroupSize;
       this.stoneCount -= this.scanGroupSize;
@@ -387,10 +465,14 @@ export class GogoPosition {
     this.historyWinner[this.ply] = this.winner;
     this.historyCaptureStart[this.ply] = captureStart;
     this.historyCaptureCount[this.ply] = capturedCount;
+    this.historyHashLo[this.ply] = previousHashLo;
+    this.historyHashHi[this.ply] = previousHashHi;
     this.ply += 1;
 
     this.koPoint = nextKo;
     this.toMove = opponent;
+    this.toggleTurnHash();
+    this.setKoHash(this.historyKo[this.ply - 1], this.koPoint);
     this.winner = madeFive ? player : EMPTY;
     this.lastMove = index;
     this.lastCapturedCount = capturedCount;
@@ -408,6 +490,8 @@ export class GogoPosition {
     const captureStart = this.historyCaptureStart[this.ply];
     const captureCount = this.historyCaptureCount[this.ply];
 
+    this.hashLo = this.historyHashLo[this.ply];
+    this.hashHi = this.historyHashHi[this.ply];
     this.board[index] = EMPTY;
     this.stoneCount -= 1;
     for (let i = 0; i < captureCount; i += 1) {
@@ -504,6 +588,8 @@ export class GogoPosition {
     this.historyWinner = growUint8Array(this.historyWinner, minimumLength);
     this.historyCaptureStart = growInt32Array(this.historyCaptureStart, minimumLength);
     this.historyCaptureCount = growInt16Array(this.historyCaptureCount, minimumLength);
+    this.historyHashLo = growUint32Array(this.historyHashLo, minimumLength);
+    this.historyHashHi = growUint32Array(this.historyHashHi, minimumLength);
   }
 
   private ensureCaptureCapacity(minimumLength: number): void {
@@ -516,9 +602,11 @@ export class GogoPosition {
   private rollbackIllegalMove(index: number, opponent: Player, captureStart: number, capturedCount: number): void {
     this.board[index] = EMPTY;
     this.stoneCount -= 1;
+    this.toggleStoneHash(index, this.toMove);
     for (let i = captureStart; i < this.captureTop; i += 1) {
       const point = this.capturePositions[i];
       this.board[point] = opponent;
+      this.toggleStoneHash(point, opponent);
     }
     this.stoneCount += capturedCount;
     this.captureTop = captureStart;
@@ -579,6 +667,49 @@ export class GogoPosition {
 
     return false;
   }
+
+  private recomputeHash(): void {
+    this.hashLo = 0;
+    this.hashHi = 0;
+    for (let point = 0; point < this.area; point += 1) {
+      const cell = this.board[point];
+      if (cell === EMPTY) {
+        continue;
+      }
+      this.toggleStoneHash(point, cell as Player);
+    }
+    if (this.toMove === WHITE) {
+      this.toggleTurnHash();
+    }
+    this.hashLo ^= this.meta.zobristKoLo[this.koPoint + 1];
+    this.hashHi ^= this.meta.zobristKoHi[this.koPoint + 1];
+  }
+
+  private toggleStoneHash(point: number, player: Player): void {
+    const keyIndex = point * 2 + (player - 1);
+    this.hashLo ^= this.meta.zobristStoneLo[keyIndex];
+    this.hashHi ^= this.meta.zobristStoneHi[keyIndex];
+  }
+
+  private toggleTurnHash(): void {
+    this.hashLo ^= this.meta.zobristTurnLo;
+    this.hashHi ^= this.meta.zobristTurnHi;
+  }
+
+  private setKoHash(previousKo: number, nextKo: number): void {
+    this.hashLo ^= this.meta.zobristKoLo[previousKo + 1] ^ this.meta.zobristKoLo[nextKo + 1];
+    this.hashHi ^= this.meta.zobristKoHi[previousKo + 1] ^ this.meta.zobristKoHi[nextKo + 1];
+  }
+}
+
+function growUint32Array(current: Uint32Array, minimumLength: number): Uint32Array {
+  let nextLength = current.length;
+  while (nextLength < minimumLength) {
+    nextLength <<= 1;
+  }
+  const next = new Uint32Array(nextLength);
+  next.set(current);
+  return next;
 }
 
 export function playerName(player: Player): 'black' | 'white' {

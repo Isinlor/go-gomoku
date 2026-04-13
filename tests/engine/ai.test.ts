@@ -484,3 +484,76 @@ test('killer moves are stored on beta cutoffs and boost scores in scoreMove', ()
     expect(withKiller).toBeGreaterThan(withoutKiller);
   }
 });
+
+test('position hash tracks ko and null move transitions, and undo restores hash exactly', () => {
+  const pos = rawPosition([
+    '..O......',
+    '.O.O.....',
+    '.XOX.....',
+    '..X......',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+
+  const startHash = pos.hash;
+  expect(pos.playXY(2, 1)).toBe(true);
+  const koHash = pos.hash;
+  expect(pos.koPoint).toBe(pos.index(2, 2));
+  expect(koHash).not.toBe(startHash);
+
+  const nullState = pos.applyNullMoveForSearch();
+  expect(pos.hash).not.toBe(koHash);
+  pos.undoNullMoveForSearch(nullState);
+  expect(pos.hash).toBe(koHash);
+
+  expect(pos.undo()).toBe(true);
+  expect(pos.hash).toBe(startHash);
+});
+
+test('transposition table can be toggled and produces legal puzzle moves', { timeout: 20_000 }, () => {
+  const puzzle = rawPosition([
+    '.........',
+    '.........',
+    '.........',
+    '...XX....',
+    '...OO....',
+    '....X....',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+
+  const withTT = new GogoAI({ maxDepth: 6, quiescenceDepth: 4, now: () => 0, useTranspositionTable: true });
+  const withoutTT = new GogoAI({ maxDepth: 6, quiescenceDepth: 4, now: () => 0, useTranspositionTable: false });
+
+  const withResult = withTT.findBestMove(puzzle, 1_000);
+  const withoutResult = withoutTT.findBestMove(puzzle, 1_000);
+
+  expect(withResult.timedOut).toBe(false);
+  expect(withoutResult.timedOut).toBe(false);
+  expect(puzzle.isLegal(withResult.move)).toBe(true);
+  expect(puzzle.isLegal(withoutResult.move)).toBe(true);
+});
+
+test('transposition table replacement is depth-preferred only for the same key', () => {
+  const ai = new GogoAI({ useTranspositionTable: true });
+  const anyAI = ai as any;
+
+  // Same-slot, same-key, shallower depth must not overwrite deeper entry.
+  const sameKeyPos = { hashLo32: 0x1234, hashHi32: 0xabcd };
+  anyAI.storeTT(sameKeyPos, 8, 111, 0, 7, 1);
+  anyAI.storeTT(sameKeyPos, 4, 222, 0, 8, 1);
+  const slot = sameKeyPos.hashLo32 & anyAI.ttMask;
+  expect(anyAI.ttDepth[slot]).toBe(8);
+  expect(anyAI.ttScore[slot]).toBe(anyAI.ttPackScore(111, 1));
+
+  // Same slot, different key should overwrite even if incoming depth is shallower.
+  const differentKeySameSlotPos = { hashLo32: sameKeyPos.hashLo32, hashHi32: 0xface };
+  anyAI.storeTT(differentKeySameSlotPos, 2, 333, 1, 9, 1);
+  expect(anyAI.ttKeyHi[slot]).toBe(0xface);
+  expect(anyAI.ttDepth[slot]).toBe(2);
+  expect(anyAI.ttScore[slot]).toBe(anyAI.ttPackScore(333, 1));
+});
