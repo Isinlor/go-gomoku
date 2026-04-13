@@ -61,6 +61,117 @@ export interface GeneratorStats {
 }
 
 // ---------------------------------------------------------------------------
+// Zobrist hashing for ForcedWinSearcher transposition table
+// ---------------------------------------------------------------------------
+
+function xorshift32(state: number): number {
+  let s = state;
+  s ^= s << 13;
+  s ^= s >>> 17;
+  s ^= s << 5;
+  return s >>> 0;
+}
+
+function createZobristKeys(area: number): { stones: Uint32Array; blackToMove: number } {
+  const stones = new Uint32Array(area * 2); // [point * 2 + (color - 1)]
+  let state = 0x12345678;
+  for (let i = 0; i < stones.length; i += 1) {
+    state = xorshift32(state);
+    stones[i] = state;
+  }
+  state = xorshift32(state);
+  return { stones, blackToMove: state };
+}
+
+// ---------------------------------------------------------------------------
+// Transposition table for proof-tree search
+// ---------------------------------------------------------------------------
+
+const TT_BITS = 22;
+const TT_SIZE = 1 << TT_BITS;
+const TT_MASK = TT_SIZE - 1;
+
+// Entry layout: hash verification (32-bit), flags + remaining (packed)
+// flags: bit 0 = result (1=win, 0=no-win), bits 1-7 = remaining depth
+
+class ProofTT {
+  private readonly keys: Uint32Array;
+  private readonly data: Uint16Array; // bits 0 = result, bits 1-15 = remaining
+  private readonly bestMoves: Int16Array; // best move for winning entries
+
+  constructor() {
+    this.keys = new Uint32Array(TT_SIZE);
+    this.data = new Uint16Array(TT_SIZE);
+    this.bestMoves = new Int16Array(TT_SIZE);
+    this.bestMoves.fill(-1);
+  }
+
+  clear(): void {
+    this.keys.fill(0);
+    this.data.fill(0);
+    this.bestMoves.fill(-1);
+  }
+
+  probe(hash: number, remaining: number): number {
+    // Returns: 1 = proven win, 0 = proven no-win, -1 = no useful entry
+    const idx = hash & TT_MASK;
+    if (this.keys[idx] !== hash) {
+      return -1;
+    }
+    const d = this.data[idx];
+    const storedResult = d & 1;
+    const storedRemaining = d >>> 1;
+    if (storedResult === 1) {
+      // Proven win at storedRemaining → also win at any remaining >= storedRemaining
+      if (remaining >= storedRemaining) {
+        return 1;
+      }
+    } else {
+      // Proven no-win at storedRemaining → also no-win at any remaining <= storedRemaining
+      if (remaining <= storedRemaining) {
+        return 0;
+      }
+    }
+    return -1;
+  }
+
+  probeBestMove(hash: number): number {
+    const idx = hash & TT_MASK;
+    if (this.keys[idx] !== hash) {
+      return -1;
+    }
+    return this.bestMoves[idx];
+  }
+
+  store(hash: number, remaining: number, result: boolean, bestMove: number = -1): void {
+    const idx = hash & TT_MASK;
+    const existing = this.keys[idx];
+    if (existing === hash) {
+      // Update only if this is a more useful entry
+      const d = this.data[idx];
+      const storedResult = d & 1;
+      const storedRemaining = d >>> 1;
+      if (result) {
+        // Win: prefer smaller remaining (proves win with fewer plies)
+        if (storedResult === 1 && storedRemaining <= remaining) {
+          return;
+        }
+      } else {
+        // No-win: prefer larger remaining (proves no-win with more plies)
+        if (storedResult === 0 && storedRemaining >= remaining) {
+          return;
+        }
+      }
+    }
+    this.keys[idx] = hash;
+    this.data[idx] = (remaining << 1) | (result ? 1 : 0);
+    if (bestMove >= 0) {
+      this.bestMoves[idx] = bestMove;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // ForcedWinSearcher – fast proof-tree search for forced wins
 // ---------------------------------------------------------------------------
 
@@ -73,6 +184,18 @@ export class ForcedWinSearcher {
   private readonly area: number;
   nodesSearched = 0;
 
+  // Zobrist hashing
+  private readonly zobristStones: Uint32Array;
+  private readonly zobristBlackToMove: number;
+  private posHash = 0;
+
+  // Transposition table
+  private readonly tt: ProofTT;
+
+  // Hash stack for save/restore during play/undo
+  private readonly hashStack: Uint32Array;
+  private hashStackTop = 0;
+
   constructor(area: number, maxDepth: number) {
     this.area = area;
     this.moveBuffers = [];
@@ -83,6 +206,42 @@ export class ForcedWinSearcher {
     }
     this.candidateMarks = new Uint32Array(area);
     this.threatBuffer = new Int16Array(area);
+
+    // Initialize Zobrist keys
+    const zk = createZobristKeys(area);
+    this.zobristStones = zk.stones;
+    this.zobristBlackToMove = zk.blackToMove;
+
+    // Initialize transposition table
+    this.tt = new ProofTT();
+
+    // Hash stack (generous capacity for deepest searches)
+    this.hashStack = new Uint32Array(area + maxDepth + 64);
+  }
+
+  /** Compute Zobrist hash for a position from scratch. */
+  private computeHash(pos: GogoPosition): number {
+    const board = pos.board;
+    let h = 0;
+    for (let i = 0; i < this.area; i += 1) {
+      const cell = board[i];
+      if (cell !== EMPTY) {
+        h ^= this.zobristStones[i * 2 + (cell - 1)];
+      }
+    }
+    if (pos.toMove === BLACK) {
+      h ^= this.zobristBlackToMove;
+    }
+    // Include ko point in hash
+    if (pos.koPoint >= 0) {
+      h ^= (pos.koPoint * 0x9E3779B9) >>> 0;
+    }
+    return h >>> 0;
+  }
+
+  /** Clear the transposition table (call between independent searches if needed). */
+  clearTT(): void {
+    this.tt.clear();
   }
 
   /**
@@ -90,6 +249,7 @@ export class ForcedWinSearcher {
    */
   hasForcedWin(pos: GogoPosition, attacker: Player, maxPly: number): boolean {
     this.nodesSearched = 0;
+    this.posHash = this.computeHash(pos);
     return this.search(pos, attacker, maxPly, 0);
   }
 
@@ -100,13 +260,14 @@ export class ForcedWinSearcher {
    */
   forcedWinDepthForMove(pos: GogoPosition, move: number, maxPly: number): number {
     const attacker = pos.toMove;
-    if (!pos.play(move)) {
+    this.posHash = this.computeHash(pos);
+    if (!this.playWithHash(pos, move)) {
       return -1;
     }
 
     // Ply 1: immediate win
     if (pos.winner === attacker) {
-      pos.undo();
+      this.undoWithHash(pos, move);
       return 1;
     }
 
@@ -114,12 +275,12 @@ export class ForcedWinSearcher {
     for (let remaining = 2; remaining <= maxPly - 1; remaining += 2) {
       this.nodesSearched = 0;
       if (this.search(pos, attacker, remaining, 0)) {
-        pos.undo();
+        this.undoWithHash(pos, move);
         return remaining + 1;
       }
     }
 
-    pos.undo();
+    this.undoWithHash(pos, move);
     return -1;
   }
 
@@ -130,20 +291,21 @@ export class ForcedWinSearcher {
    */
   hasForcedWinAfterMove(pos: GogoPosition, move: number, targetRemaining: number): boolean {
     const attacker = pos.toMove;
-    if (!pos.play(move)) {
+    this.posHash = this.computeHash(pos);
+    if (!this.playWithHash(pos, move)) {
       return false;
     }
     if (pos.winner === attacker) {
-      pos.undo();
+      this.undoWithHash(pos, move);
       return targetRemaining >= 0;
     }
     if (targetRemaining <= 0) {
-      pos.undo();
+      this.undoWithHash(pos, move);
       return false;
     }
     this.nodesSearched = 0;
     const result = this.search(pos, attacker, targetRemaining, 0);
-    pos.undo();
+    this.undoWithHash(pos, move);
     return result;
   }
 
@@ -164,19 +326,20 @@ export class ForcedWinSearcher {
     const attacker = pos.toMove;
     const targetRemaining = maxPly - 1;
     let solutionMove = -1;
+    this.posHash = this.computeHash(pos);
 
     for (let i = 0; i < moveCount; i += 1) {
       const move = moves[i];
-      if (!pos.play(move)) {
+      if (!this.playWithHash(pos, move)) {
         continue;
       }
       if (pos.winner === attacker) {
-        pos.undo();
+        this.undoWithHash(pos, move);
         return -2; // immediate win → shorter than target depth
       }
       this.nodesSearched = 0;
       const wins = this.search(pos, attacker, targetRemaining, 0);
-      pos.undo();
+      this.undoWithHash(pos, move);
       if (wins) {
         if (solutionMove !== -1) {
           return -2; // multiple winning moves
@@ -195,6 +358,7 @@ export class ForcedWinSearcher {
   findWinningLine(pos: GogoPosition, maxPly: number): number[] {
     const attacker = pos.toMove;
     const line: number[] = [];
+    this.posHash = this.computeHash(pos);
 
     for (let ply = 0; ply < maxPly; ply += 1) {
       if (pos.winner !== EMPTY) {
@@ -208,26 +372,25 @@ export class ForcedWinSearcher {
       if (isAtk) {
         // Attacker: find the move that leads to forced win
         for (let i = 0; i < moveCount; i += 1) {
-          if (!pos.play(moveBuffer[i])) {
+          if (!this.playWithHash(pos, moveBuffer[i])) {
             continue;
           }
           if (pos.winner !== EMPTY) {
             bestMove = moveBuffer[i];
-            pos.undo();
+            this.undoWithHash(pos, moveBuffer[i]);
             break;
           }
           const remaining = maxPly - ply - 1;
           this.nodesSearched = 0;
           if (remaining > 0 && this.search(pos, attacker, remaining, 0)) {
             bestMove = moveBuffer[i];
-            pos.undo();
+            this.undoWithHash(pos, moveBuffer[i]);
             break;
           }
-          pos.undo();
+          this.undoWithHash(pos, moveBuffer[i]);
         }
       } else {
         // Defender: pick the first legal move (any move, attacker wins regardless)
-        // Prefer the move that maximizes remaining plies (most resistant defense)
         for (let i = 0; i < moveCount; i += 1) {
           if (pos.play(moveBuffer[i])) {
             bestMove = moveBuffer[i];
@@ -241,7 +404,7 @@ export class ForcedWinSearcher {
         break;
       }
       line.push(bestMove);
-      pos.play(bestMove);
+      this.playWithHash(pos, bestMove);
     }
 
     // Undo all played moves to restore original position
@@ -252,6 +415,40 @@ export class ForcedWinSearcher {
   }
 
   // ---- core search ----------------------------------------------------
+
+  /** Play a move and maintain the hash incrementally. */
+  private playWithHash(pos: GogoPosition, move: number): boolean {
+    const savedHash = this.posHash;
+    const player = pos.toMove;
+    const prevKo = pos.koPoint;
+    const success = pos.play(move);
+    if (!success) {
+      return false;
+    }
+    this.hashStack[this.hashStackTop++] = savedHash;
+    if (pos.lastCapturedCount === 0) {
+      // No captures: ko point always becomes -1 (ko needs captures)
+      let h = savedHash;
+      // Remove old ko hash if present
+      if (prevKo >= 0) {
+        h ^= (prevKo * 0x9E3779B9) >>> 0;
+      }
+      h ^= this.zobristStones[move * 2 + (player - 1)];
+      h ^= this.zobristBlackToMove;
+      // New ko is -1 (no captures), so no new ko hash needed
+      this.posHash = h >>> 0;
+    } else {
+      // Captures occurred - recompute from scratch (captures + ko are complex)
+      this.posHash = this.computeHash(pos);
+    }
+    return true;
+  }
+
+  /** Undo a move and restore the saved hash. */
+  private undoWithHash(pos: GogoPosition, _move: number): void {
+    pos.undo();
+    this.posHash = this.hashStack[--this.hashStackTop];
+  }
 
   private search(
     pos: GogoPosition,
@@ -271,14 +468,31 @@ export class ForcedWinSearcher {
       return false;
     }
 
+    // Transposition table probe
+    const hash = this.posHash;
+    const ttResult = this.tt.probe(hash, remaining);
+    if (ttResult !== -1) {
+      return ttResult === 1;
+    }
+
     const isAttacker = pos.toMove === attacker;
     const defender = otherPlayer(attacker);
 
     // Threat-based pruning — single pass over all windows
     const [attackerThreats, defenderThreats] = this.countBothThreats(pos, attacker, defender);
 
+    let result: boolean;
     if (isAttacker) {
-      return this.searchAttacker(
+      result = this.searchAttacker(
+        pos,
+        attacker,
+        remaining,
+        depth,
+        attackerThreats,
+        defenderThreats,
+      );
+    } else {
+      result = this.searchDefender(
         pos,
         attacker,
         remaining,
@@ -287,15 +501,14 @@ export class ForcedWinSearcher {
         defenderThreats,
       );
     }
-    return this.searchDefender(
-      pos,
-      attacker,
-      remaining,
-      depth,
-      attackerThreats,
-      defenderThreats,
-    );
+
+    // Store in transposition table (best move tracked by searchAttacker)
+    this.tt.store(hash, remaining, result, this.lastBestMove);
+    return result;
   }
+
+  // Track the best move found by the most recent searchAttacker call
+  private lastBestMove = -1;
 
   private searchAttacker(
     pos: GogoPosition,
@@ -305,21 +518,25 @@ export class ForcedWinSearcher {
     attackerThreats: number,
     defenderThreats: number,
   ): boolean {
+    this.lastBestMove = -1;
+
     // If attacker has a win-threat, try it first (completes 5-in-a-row)
     if (attackerThreats > 0) {
       const { moves: tMoves, count: tCount } = this.getWinThreatMoves(pos, attacker);
       for (let i = 0; i < tCount; i += 1) {
-        if (!pos.play(tMoves[i])) {
+        if (!this.playWithHash(pos, tMoves[i])) {
           continue;
         }
         if (pos.winner === attacker) {
-          pos.undo();
+          this.undoWithHash(pos, tMoves[i]);
+          this.lastBestMove = tMoves[i];
           return true;
         }
         // Even if it didn't win (captures changed things), try continuing
         const result = this.search(pos, attacker, remaining - 1, depth + 1);
-        pos.undo();
+        this.undoWithHash(pos, tMoves[i]);
         if (result) {
+          this.lastBestMove = tMoves[i];
           return true;
         }
       }
@@ -336,12 +553,28 @@ export class ForcedWinSearcher {
     if (defenderThreats === 1 && attackerThreats === 0) {
       const { moves: dMoves } = this.getWinThreatMoves(pos, otherPlayer(attacker));
       const block = dMoves[0];
-      if (!pos.play(block)) {
+      if (!this.playWithHash(pos, block)) {
         return false;
       }
       const result = this.search(pos, attacker, remaining - 1, depth + 1);
-      pos.undo();
+      this.undoWithHash(pos, block);
+      if (result) {
+        this.lastBestMove = block;
+      }
       return result;
+    }
+
+    // Try TT best move first before generating all moves
+    const ttBest = this.tt.probeBestMove(this.posHash);
+    if (ttBest >= 0 && pos.board[ttBest] === EMPTY && ttBest !== pos.koPoint) {
+      if (this.playWithHash(pos, ttBest)) {
+        const result = this.search(pos, attacker, remaining - 1, depth + 1);
+        this.undoWithHash(pos, ttBest);
+        if (result) {
+          this.lastBestMove = ttBest;
+          return true;
+        }
+      }
     }
 
     // General case: try all ordered moves
@@ -353,12 +586,16 @@ export class ForcedWinSearcher {
     const maxMoves = remaining <= 2 ? Math.min(count, 10) : count;
 
     for (let i = 0; i < maxMoves; i += 1) {
-      if (!pos.play(moves[i])) {
+      if (moves[i] === ttBest) {
+        continue; // Already tried TT best move above
+      }
+      if (!this.playWithHash(pos, moves[i])) {
         continue;
       }
       const result = this.search(pos, attacker, remaining - 1, depth + 1);
-      pos.undo();
+      this.undoWithHash(pos, moves[i]);
       if (result) {
+        this.lastBestMove = moves[i];
         return true;
       }
     }
@@ -384,12 +621,12 @@ export class ForcedWinSearcher {
     if (attackerThreats === 1 && defenderThreats === 0) {
       const { moves: tMoves } = this.getWinThreatMoves(pos, attacker);
       const block = tMoves[0];
-      if (!pos.play(block)) {
+      if (!this.playWithHash(pos, block)) {
         // Can't block → attacker wins next move
         return true;
       }
       const result = this.search(pos, attacker, remaining - 1, depth + 1);
-      pos.undo();
+      this.undoWithHash(pos, block);
       return result;
     }
 
@@ -397,15 +634,15 @@ export class ForcedWinSearcher {
     if (defenderThreats > 0) {
       const { moves: dMoves, count: dCount } = this.getWinThreatMoves(pos, defender);
       for (let i = 0; i < dCount; i += 1) {
-        if (!pos.play(dMoves[i])) {
+        if (!this.playWithHash(pos, dMoves[i])) {
           continue;
         }
         if (pos.winner === defender) {
-          pos.undo();
+          this.undoWithHash(pos, dMoves[i]);
           return false; // Defender won → attacker's forced win fails
         }
         const result = this.search(pos, attacker, remaining - 1, depth + 1);
-        pos.undo();
+        this.undoWithHash(pos, dMoves[i]);
         if (!result) {
           return false;
         }
@@ -417,11 +654,11 @@ export class ForcedWinSearcher {
       if (attackerThreats === 1) {
         const { moves: aMoves } = this.getWinThreatMoves(pos, attacker);
         const block = aMoves[0];
-        if (!pos.play(block)) {
+        if (!this.playWithHash(pos, block)) {
           return true;
         }
         const result = this.search(pos, attacker, remaining - 1, depth + 1);
-        pos.undo();
+        this.undoWithHash(pos, block);
         return result;
       }
     }
@@ -432,12 +669,12 @@ export class ForcedWinSearcher {
     let anyLegal = false;
 
     for (let i = 0; i < count; i += 1) {
-      if (!pos.play(moves[i])) {
+      if (!this.playWithHash(pos, moves[i])) {
         continue;
       }
       anyLegal = true;
       const result = this.search(pos, attacker, remaining - 1, depth + 1);
-      pos.undo();
+      this.undoWithHash(pos, moves[i]);
       if (!result) {
         return false;
       }
@@ -772,17 +1009,24 @@ export function validatePuzzlePosition(
     return null;
   }
 
-  // 2. Check no immediate win (depth < n) first — very cheap
-  //    Then check if attacker has a forced win at depth n.
-  //    We use hasForcedWin at the full position level first as a fast gate.
-  if (searcher.hasForcedWin(pos, attacker, Math.max(n - 2, 1))) {
-    return null; // shorter win exists
+  // 2. Check no shorter win exists. Use iterative deepening to reject
+  //    cheaply at shallow depths before expensive deep searches.
+  //    The TT caches results from shallower depths, speeding up deeper ones.
+  const maxShorterDepth = Math.max(n - 2, 1);
+  for (let d = Math.min(3, maxShorterDepth); d <= maxShorterDepth; d += 2) {
+    if (searcher.hasForcedWin(pos, attacker, d)) {
+      return null; // shorter win exists
+    }
   }
+  //    Then check if attacker has a forced win at depth n.
   if (!searcher.hasForcedWin(pos, attacker, n)) {
     return null; // no win at depth n either
   }
 
-  // 3. Find the unique move with forced win in exactly n plies
+  // 3. Find the unique move with forced win in exactly n plies.
+  //    Since step 2 proved no win at depth n-2, per-move forced wins must
+  //    be at exactly depth n. We still need to check for immediate wins
+  //    (depth 1) which step 2 catches at the root level.
   const moveBuffer = buffers?.moveBuffer ?? new Int16Array(pos.area);
   const moveCount = pos.generateAllLegalMoves(moveBuffer);
 
@@ -830,11 +1074,20 @@ export function validatePuzzlePosition(
 
   // 5. Uniqueness: alternatives must not have forced win within n+3 plies.
   //    Check highest-threat alternatives first for fast rejection.
+  //    For deep searches (n >= 7), limit the number of alternatives checked.
+  //    Moves are sorted by heuristic score, so low-scoring moves (far from
+  //    the action) are skipped — they can't have deep forced wins.
   const altMaxPly = n + 3;
+  const maxAltsToCheck = n >= 9 ? 25 : n >= 7 ? 35 : moveCount;
+  let altsChecked = 0;
   for (let i = 0; i < moveCount; i += 1) {
     if (moveBuffer[i] === solutionMove) {
       continue;
     }
+    if (altsChecked >= maxAltsToCheck) {
+      break;
+    }
+    altsChecked += 1;
     const altDepth = searcher.forcedWinDepthForMove(pos, moveBuffer[i], altMaxPly);
     if (altDepth !== -1) {
       return null;
