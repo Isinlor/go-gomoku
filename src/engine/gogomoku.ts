@@ -24,6 +24,9 @@ export interface BoardMeta {
   readonly windowsByPointOffsets: Uint16Array;
   readonly windowsByPoint: Int16Array;
   readonly centerBias: Int16Array;
+  readonly zobristStone: Uint32Array;
+  readonly zobristKo: Uint32Array;
+  readonly zobristTurn: Uint32Array;
 }
 
 const SUPPORTED_SIZES = new Set<number>([9, 11, 13]);
@@ -46,6 +49,13 @@ function createBoardMeta(size: SupportedSize): BoardMeta {
   const windowsBucket: number[][] = Array.from({ length: area }, () => []);
   const windows: number[] = [];
   let windowCount = 0;
+  let zobristSeed = (size * 0x9e3779b9) >>> 0;
+  const nextRand = (): number => {
+    zobristSeed ^= zobristSeed << 13;
+    zobristSeed ^= zobristSeed >>> 17;
+    zobristSeed ^= zobristSeed << 5;
+    return zobristSeed >>> 0;
+  };
 
   for (let y = 0; y < size; y += 1) {
     for (let x = 0; x < size; x += 1) {
@@ -117,6 +127,18 @@ function createBoardMeta(size: SupportedSize): BoardMeta {
     windowsByPoint.set(windowsBucket[i], windowsByPointOffsets[i]);
   }
 
+  const zobristStone = new Uint32Array(area * 4);
+  for (let i = 0; i < zobristStone.length; i += 1) {
+    zobristStone[i] = nextRand();
+  }
+  const zobristKo = new Uint32Array((area + 1) * 2);
+  for (let i = 0; i < zobristKo.length; i += 1) {
+    zobristKo[i] = nextRand();
+  }
+  const zobristTurn = new Uint32Array(2);
+  zobristTurn[0] = nextRand();
+  zobristTurn[1] = nextRand();
+
   return {
     size,
     area,
@@ -130,6 +152,9 @@ function createBoardMeta(size: SupportedSize): BoardMeta {
     windowsByPointOffsets,
     windowsByPoint,
     centerBias,
+    zobristStone,
+    zobristKo,
+    zobristTurn,
   };
 }
 
@@ -186,6 +211,8 @@ export class GogoPosition {
   stoneCount = 0;
   lastMove = -1;
   lastCapturedCount = 0;
+  hashLo = 0;
+  hashHi = 0;
 
   private historyMoves: Int16Array;
   private historyPlayers: Uint8Array;
@@ -231,6 +258,7 @@ export class GogoPosition {
     this.adjacentGroupMarks = new Uint32Array(this.area);
     this.groupStack = new Int16Array(this.area);
     this.groupBuffer = new Int16Array(this.area);
+    this.recomputeHash();
   }
 
   static fromAscii(rows: string[], toMove: Player = BLACK, options: PositionOptions = {}): GogoPosition {
@@ -267,6 +295,7 @@ export class GogoPosition {
     }
 
     position.winner = position.detectExistingWinner();
+    position.recomputeHash();
     return position;
   }
 
@@ -335,11 +364,14 @@ export class GogoPosition {
     this.ensureHistoryCapacity(this.ply + 1);
     const player = this.toMove;
     const opponent = otherPlayer(player);
+    const previousKo = this.koPoint;
     const captureStart = this.captureTop;
     let capturedCount = 0;
 
+    this.xorKo(previousKo);
     this.board[index] = player;
     this.stoneCount += 1;
+    this.xorStone(index, player);
 
     const neighbors = this.meta.neighbors4;
     const neighborBase = index * 4;
@@ -363,6 +395,7 @@ export class GogoPosition {
         this.capturePositions[this.captureTop] = point;
         this.captureTop += 1;
         this.board[point] = EMPTY;
+        this.xorStone(point, opponent);
       }
       capturedCount += this.scanGroupSize;
       this.stoneCount -= this.scanGroupSize;
@@ -373,6 +406,7 @@ export class GogoPosition {
     const ownGroupSize = this.scanGroupSize;
     if (ownLiberties === 0 && !madeFive) {
       this.rollbackIllegalMove(index, opponent, captureStart, capturedCount);
+      this.xorKo(previousKo);
       return false;
     }
 
@@ -383,12 +417,14 @@ export class GogoPosition {
 
     this.historyMoves[this.ply] = index;
     this.historyPlayers[this.ply] = player;
-    this.historyKo[this.ply] = this.koPoint;
+    this.historyKo[this.ply] = previousKo;
     this.historyWinner[this.ply] = this.winner;
     this.historyCaptureStart[this.ply] = captureStart;
     this.historyCaptureCount[this.ply] = capturedCount;
     this.ply += 1;
 
+    this.xorTurn();
+    this.xorKo(nextKo);
     this.koPoint = nextKo;
     this.toMove = opponent;
     this.winner = madeFive ? player : EMPTY;
@@ -408,16 +444,21 @@ export class GogoPosition {
     const captureStart = this.historyCaptureStart[this.ply];
     const captureCount = this.historyCaptureCount[this.ply];
 
+    this.xorKo(this.koPoint);
+    this.xorTurn();
     this.board[index] = EMPTY;
     this.stoneCount -= 1;
+    this.xorStone(index, player);
     for (let i = 0; i < captureCount; i += 1) {
       const point = this.capturePositions[captureStart + i];
       this.board[point] = opponent;
+      this.xorStone(point, opponent);
     }
     this.stoneCount += captureCount;
     this.captureTop = captureStart;
     this.toMove = player;
     this.koPoint = this.historyKo[this.ply];
+    this.xorKo(this.koPoint);
     this.winner = this.historyWinner[this.ply] as Cell;
     this.lastMove = this.ply === 0 ? -1 : this.historyMoves[this.ply - 1];
     this.lastCapturedCount = this.ply === 0 ? 0 : this.historyCaptureCount[this.ply - 1];
@@ -516,12 +557,47 @@ export class GogoPosition {
   private rollbackIllegalMove(index: number, opponent: Player, captureStart: number, capturedCount: number): void {
     this.board[index] = EMPTY;
     this.stoneCount -= 1;
+    this.xorStone(index, this.toMove);
     for (let i = captureStart; i < this.captureTop; i += 1) {
       const point = this.capturePositions[i];
       this.board[point] = opponent;
+      this.xorStone(point, opponent);
     }
     this.stoneCount += capturedCount;
     this.captureTop = captureStart;
+  }
+
+  recomputeHash(): void {
+    this.hashLo = 0;
+    this.hashHi = 0;
+    for (let point = 0; point < this.area; point += 1) {
+      const cell = this.board[point];
+      if (cell !== EMPTY) {
+        this.xorStone(point, cell as Player);
+      }
+    }
+    if (this.toMove === BLACK) {
+      this.xorTurn();
+    }
+    this.xorKo(this.koPoint);
+  }
+
+  private xorStone(point: number, color: Player): void {
+    const base = ((point * 2) + (color - 1)) * 2;
+    this.hashLo ^= this.meta.zobristStone[base];
+    this.hashHi ^= this.meta.zobristStone[base + 1];
+  }
+
+  private xorKo(koPoint: number): void {
+    const point = koPoint === -1 ? this.area : koPoint;
+    const base = point * 2;
+    this.hashLo ^= this.meta.zobristKo[base];
+    this.hashHi ^= this.meta.zobristKo[base + 1];
+  }
+
+  private xorTurn(): void {
+    this.hashLo ^= this.meta.zobristTurn[0];
+    this.hashHi ^= this.meta.zobristTurn[1];
   }
 
   getMoveAt(ply: number): number {

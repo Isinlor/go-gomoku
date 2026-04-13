@@ -306,6 +306,51 @@ test('white-box internals cover helper branches that are otherwise hard to trigg
   expect(game.checkFiveFrom(game.index(4, 4), BLACK)).toBe(true);
 });
 
+test('zobrist hash tracks board, side-to-move, ko, and undo correctly', () => {
+  const game = new GogoPosition(9);
+  const startLo = (game as any).hashLo;
+  const startHi = (game as any).hashHi;
+
+  expect(game.playXY(4, 4)).toBe(true);
+  expect((game as any).hashLo === startLo && (game as any).hashHi === startHi).toBe(false);
+  const afterMoveLo = (game as any).hashLo;
+  const afterMoveHi = (game as any).hashHi;
+  expect(game.undo()).toBe(true);
+  expect((game as any).hashLo).toBe(startLo);
+  expect((game as any).hashHi).toBe(startHi);
+  expect(game.playXY(4, 4)).toBe(true);
+  expect((game as any).hashLo).toBe(afterMoveLo);
+  expect((game as any).hashHi).toBe(afterMoveHi);
+
+  const koA = rawPosition([
+    '..O......',
+    '.O.O.....',
+    '.XOX.....',
+    '..X......',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  expect(koA.playXY(2, 1)).toBe(true);
+
+  const koB = rawPosition([
+    '..O......',
+    '.O.O.....',
+    '.XOX.....',
+    '..X......',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], WHITE);
+  koB.koPoint = koA.koPoint;
+  (koB as any).recomputeHash();
+  expect((koA as any).hashLo === (koB as any).hashLo && (koA as any).hashHi === (koB as any).hashHi).toBe(false);
+});
+
 test('encodeMove converts a board index to column-letter + row-number notation', () => {
   const game9 = new GogoPosition(9);
   expect(encodeMove(0, game9.meta)).toBe('a1');

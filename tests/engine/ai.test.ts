@@ -199,6 +199,43 @@ test('AI constructor also uses default search parameters when options are omitte
   expect(ai.maxPly).toBe(64);
 });
 
+test('transposition table reduces repeated-state node visits and is ko-aware via position hash', () => {
+  const pos = rawPosition([
+    '.........',
+    '..X......',
+    '.OXO.....',
+    '..X......',
+    '....O....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+
+  const withTT = new GogoAI({ maxDepth: 4, quiescenceDepth: 2, transpositionTableSize: 1 << 16, now: () => 0 });
+  const withTTFirst = withTT.findBestMove(pos, 100);
+  const withTTSecond = withTT.findBestMove(pos, 100);
+  expect(withTTSecond.nodes <= withTTFirst.nodes).toBeTruthy();
+
+  const ko = rawPosition([
+    '..O......',
+    '.O.O.....',
+    '.XOX.....',
+    '..X......',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  expect(ko.playXY(2, 1)).toBe(true);
+  const koA = withTT.findBestMove(ko, 100);
+  ko.koPoint = -1;
+  (ko as any).recomputeHash();
+  const koB = withTT.findBestMove(ko, 100);
+  expect(koA.move === koB.move && koA.score === koB.score && koA.nodes === koB.nodes).toBe(false);
+});
+
 test('white-box AI helpers cover generation, evaluation, quiescence, search fallback, insertion ordering, and timing', () => {
   const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
   const anyAI = ai as any;
@@ -483,4 +520,56 @@ test('killer moves are stored on beta cutoffs and boost scores in scoreMove', ()
     const withoutKiller = anyAI.scoreMove(pos, k0, -1, false, 1);
     expect(withKiller).toBeGreaterThan(withoutKiller);
   }
+});
+
+test('transposition internals handle disabled mode, cached probing, and mate-score packing', () => {
+  const noTT = new GogoAI({ transpositionTableSize: 0, now: () => 0 }) as any;
+  const pos = new GogoPosition(9);
+  noTT.ensureBuffers(pos.area);
+  expect(noTT.ttMask).toBe(-1);
+  expect(noTT.probeTransposition(pos, 1, -10, 10, 0).cutoff).toBe(false);
+  noTT.storeTransposition(pos, 1, 0, 10, 1, -1);
+
+  const ai = new GogoAI({ maxDepth: 3, quiescenceDepth: 2, transpositionTableSize: 8, now: () => 0 }) as any;
+  ai.ensureBuffers(pos.area);
+  const sizeBefore = ai.ttKeyLo.length;
+  ai.ensureTranspositionTable();
+  expect(ai.ttKeyLo.length).toBe(sizeBefore);
+
+  const index = (pos.hashLo >>> 0) & ai.ttMask;
+  ai.ttKeyLo[index] = pos.hashLo >>> 0;
+  ai.ttKeyHi[index] = pos.hashHi >>> 0;
+  ai.ttDepth[index] = 5;
+  ai.ttBestMove[index] = 12;
+  ai.ttFlag[index] = 2; // TT_LOWER
+  ai.ttValue[index] = 250;
+  const lowerProbe = ai.probeTransposition(pos, 3, -100, 200, 0);
+  expect(lowerProbe.cutoff).toBe(true);
+  expect(lowerProbe.move).toBe(12);
+
+  const tactical = rawPosition([
+    'XXXX.....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  ai.ensureBuffers(tactical.area);
+  ai.deadline = 1;
+  expect(ai.search(tactical, 2, -1, 0, 1) >= 0).toBeTruthy();
+
+  const noLegal = new GogoPosition(9);
+  noLegal.board.fill(BLACK);
+  noLegal.stoneCount = noLegal.area;
+  noLegal.winner = EMPTY;
+  noLegal.recomputeHash();
+  ai.ensureBuffers(noLegal.area);
+  expect(ai.search(noLegal, 1, -2, -1, 0)).toBe(0);
+
+  const packedMate = ai.toTTScore(1_000_000_000 - 3, 2);
+  expect(ai.fromTTScore(packedMate, 2)).toBe(1_000_000_000 - 3);
 });
