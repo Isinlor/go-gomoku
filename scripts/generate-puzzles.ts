@@ -12,6 +12,7 @@ import {
   BEGINNER,
   INTERMEDIATE,
   ADVANCED,
+  EXPERT,
   generatePuzzles,
   type PuzzleDifficulty,
   type GeneratorStats,
@@ -22,6 +23,7 @@ const difficultyMap: Record<string, PuzzleDifficulty> = {
   beginner: BEGINNER,
   intermediate: INTERMEDIATE,
   advanced: ADVANCED,
+  expert: EXPERT
 };
 
 const diffArg = process.argv[2] ?? 'beginner';
