@@ -4,11 +4,18 @@ import {
   WHITE,
   GogoPosition,
   encodeMove,
-  type Cell,
   type Player,
   type SupportedSize,
 } from './gogomoku';
 import { GogoAI } from './ai';
+
+/**
+ * Validation criteria for a puzzle position at a given difficulty level:
+ * 1. unique correct answer: a unique move that has a shortest forced winning sequence in exactly n plies, there maybe other winning moves but the alternative forcing sequence must be strictly longer than n+3 plies
+ * 2. no immediate threats: there is no forced loosing sequence for the moving player in m plies
+ * 3. not obvious: a basic heuristic search with ply k must not select the unique correct answer
+ * 4. realistic: there must be no obvious blunders in game history; no missed forced win sequences in ply 3
+ */
 
 function otherPlayer(player: Player): Player {
   return player === BLACK ? WHITE : BLACK;
@@ -30,6 +37,7 @@ export interface PuzzleDifficulty {
 export const BEGINNER: PuzzleDifficulty = { n: 3, m: 2, k: 0 };
 export const INTERMEDIATE: PuzzleDifficulty = { n: 5, m: 4, k: 2 };
 export const ADVANCED: PuzzleDifficulty = { n: 7, m: 4, k: 2 };
+export const EXPERT: PuzzleDifficulty = { n: 9, m: 4, k: 4 };
 
 export interface PuzzleCandidate {
   readonly encoded: string;
@@ -339,7 +347,6 @@ export class ForcedWinSearcher {
     // General case: try all ordered moves
     const count = this.generateMoves(pos, depth);
     const moves = this.moveBuffers[depth];
-    const scores = this.scoreBuffers[depth];
 
     // When remaining plies are low, limit the number of moves tried.
     // Attacker needs to create threats; only high-scoring moves can do that.
