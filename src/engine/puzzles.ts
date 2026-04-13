@@ -268,6 +268,38 @@ export const PUZZLES: readonly Puzzle[] = [
     wonEncoded: 'B9 e5 h4 i3 a8 b6 h8 b8 e1 c6 c5 e8 h1 g3 g1 i1 h2 f1 f6 f5 f2 a1 b1 c1 d1 a2 f1',
     winningMoves: ['f2', 'a1', 'b1', 'c1', 'd1', 'a2', 'f1'],
   },
+
+  // ---- Generated intermediate puzzles (n=5, m=4, k=2) ----------------
+  {
+    id: 'gen-intermediate-1',
+    encoded: 'B9 e5 g2 g4 d5 c3 b8 g3 h9 c4 g5 c2 c1 f6 b2 g7 d4 f7 h8 c5 c6 f3 d3 d2',
+    toMove: WHITE,
+    solution: 'd7',
+    depth: 5,
+    threshold: 4,
+    wonEncoded: 'B9 e5 g2 g4 d5 c3 b8 g3 h9 c4 g5 c2 c1 f6 b2 g7 d4 f7 h8 c5 c6 f3 d3 d2 d7 a1 b1 d1 d6',
+    winningMoves: ['d7', 'a1', 'b1', 'd1', 'd6'],
+  },
+  {
+    id: 'gen-intermediate-2',
+    encoded: 'B9 e5 b2 g6 e6 d3 i4 h7 e4 h3 h4 a2 g8 f4 d6 d7 c6 b6 g5 b7 a5 i3 b8 c3 g3 c4 e3 a6 e2 d2 g1 g4 f7 d5 d1 i5 a7 b5 c5',
+    toMove: BLACK,
+    solution: 'b3',
+    depth: 5,
+    threshold: 4,
+    wonEncoded: 'B9 e5 b2 g6 e6 d3 i4 h7 e4 h3 h4 a2 g8 f4 d6 d7 c6 b6 g5 b7 a5 i3 b8 c3 g3 c4 e3 a6 e2 d2 g1 g4 f7 d5 d1 i5 a7 b5 c5 b3 a1 b1 c1 a4 a1 b4',
+    winningMoves: ['b3', 'a1', 'b1', 'c1', 'a4', 'a1', 'b4'],
+  },
+  {
+    id: 'gen-intermediate-3',
+    encoded: 'B9 e5 g2 b6 h7 b7 h5 d5 b8 d3 b4 a3 d1 d4 d6 f3 e4 g7 h8',
+    toMove: BLACK,
+    solution: 'c3',
+    depth: 5,
+    threshold: 4,
+    wonEncoded: 'B9 e5 g2 b6 h7 b7 h5 d5 b8 d3 b4 a3 d1 d4 d6 f3 e4 g7 h8 c3 a1 b1 c1 b2 e1 f6',
+    winningMoves: ['c3', 'a1', 'b1', 'c1', 'b2', 'e1', 'f6'],
+  },
 ];
 
 export function getPuzzleById(id: string): Puzzle | undefined {
