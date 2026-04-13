@@ -64,6 +64,17 @@ export interface GeneratorStats {
 // ForcedWinSearcher – fast proof-tree search for forced wins
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Simple xorshift32 PRNG for Zobrist key generation
+// ---------------------------------------------------------------------------
+function xorshift32(state: number): number {
+  let s = state | 0;
+  s ^= s << 13;
+  s ^= s >>> 17;
+  s ^= s << 5;
+  return s;
+}
+
 export class ForcedWinSearcher {
   private readonly moveBuffers: Int16Array[];
   private readonly scoreBuffers: Int32Array[];
@@ -72,6 +83,31 @@ export class ForcedWinSearcher {
   private candidateEpoch = 0;
   private readonly area: number;
   nodesSearched = 0;
+
+  // Pre-allocated output from countBothThreats (avoids per-node allocation)
+  private atkThreatCount = 0;
+  private defThreatCount = 0;
+
+  // ---- Zobrist hashing ----
+  private readonly zobristBlack: Int32Array;  // keys for BLACK stones
+  private readonly zobristWhite: Int32Array;  // keys for WHITE stones
+  private readonly ATTACKER_KEY: number;      // XOR when attacker is WHITE
+  private currentHash = 0;
+  private activeAttackerIsWhite = false;       // track current search attacker
+  private readonly hashStack: Int32Array;     // save/restore on play/undo
+  private hashStackTop = 0;
+
+  // ---- Transposition table ----
+  private static readonly TT_BITS = 17;
+  private static readonly TT_SIZE = 1 << ForcedWinSearcher.TT_BITS;
+  private static readonly TT_MASK = ForcedWinSearcher.TT_SIZE - 1;
+  private readonly ttHash: Int32Array;
+  private readonly ttRemaining: Int8Array;
+  private readonly ttResult: Uint8Array;    // 1 = win proven, 2 = no win proven
+
+  // ---- Killer moves ----
+  // Store 2 killer moves per depth to improve move ordering
+  private readonly killers: Int16Array; // [depth * 2] and [depth * 2 + 1]
 
   constructor(area: number, maxDepth: number) {
     this.area = area;
@@ -83,6 +119,159 @@ export class ForcedWinSearcher {
     }
     this.candidateMarks = new Uint32Array(area);
     this.threatBuffer = new Int16Array(area);
+
+    // Initialize Zobrist keys
+    let seed = 0x12345678;
+    this.zobristBlack = new Int32Array(area);
+    this.zobristWhite = new Int32Array(area);
+    for (let i = 0; i < area; i += 1) {
+      seed = xorshift32(seed);
+      this.zobristBlack[i] = seed;
+      seed = xorshift32(seed);
+      this.zobristWhite[i] = seed;
+    }
+    seed = xorshift32(seed);
+    this.ATTACKER_KEY = seed;
+
+    // Hash stack for save/restore
+    this.hashStack = new Int32Array(area + maxDepth + 16);
+
+    // TT arrays
+    this.ttHash = new Int32Array(ForcedWinSearcher.TT_SIZE);
+    this.ttRemaining = new Int8Array(ForcedWinSearcher.TT_SIZE);
+    this.ttResult = new Uint8Array(ForcedWinSearcher.TT_SIZE);
+
+    // Killer moves (2 per depth level)
+    this.killers = new Int16Array((maxDepth + 2) * 2);
+    this.killers.fill(-1);
+  }
+
+  /** Compute full Zobrist hash from board state. */
+  private computeHash(pos: GogoPosition, attacker: Player): number {
+    const board = pos.board;
+    let h = 0;
+    for (let i = 0; i < this.area; i += 1) {
+      const cell = board[i];
+      if (cell === BLACK) {
+        h ^= this.zobristBlack[i];
+      } else if (cell === WHITE) {
+        h ^= this.zobristWhite[i];
+      }
+    }
+    if (attacker === WHITE) {
+      h ^= this.ATTACKER_KEY;
+    }
+    return h;
+  }
+
+  /** Recompute hash from scratch using saved attacker flag. */
+  private recomputeHash(pos: GogoPosition): number {
+    const board = pos.board;
+    let h = 0;
+    for (let i = 0; i < this.area; i += 1) {
+      const cell = board[i];
+      if (cell === BLACK) {
+        h ^= this.zobristBlack[i];
+      } else if (cell === WHITE) {
+        h ^= this.zobristWhite[i];
+      }
+    }
+    if (this.activeAttackerIsWhite) {
+      h ^= this.ATTACKER_KEY;
+    }
+    return h;
+  }
+
+  /** Play a move and update hash incrementally. */
+  private playHash(pos: GogoPosition, move: number): boolean {
+    this.hashStack[this.hashStackTop++] = this.currentHash;
+    const player = pos.toMove;
+    if (!pos.play(move)) {
+      this.hashStackTop -= 1;
+      return false;
+    }
+    if (pos.lastCapturedCount > 0) {
+      // Captures happened: recompute hash from scratch
+      this.currentHash = this.recomputeHash(pos);
+    } else {
+      // No captures: incremental update — XOR in the new stone
+      if (player === BLACK) {
+        this.currentHash ^= this.zobristBlack[move];
+      } else {
+        this.currentHash ^= this.zobristWhite[move];
+      }
+    }
+    return true;
+  }
+
+  /** Undo a move and restore hash. */
+  private undoHash(pos: GogoPosition): void {
+    pos.undo();
+    this.currentHash = this.hashStack[--this.hashStackTop];
+  }
+
+  /**
+   * Fast pre-filter: does any move by `player` create ≥2 win threats?
+   * A necessary condition for a depth-3 forced win (double-threat pattern).
+   * Much cheaper than a full search.
+   */
+  hasAnyDoubleThreat(pos: GogoPosition, player: Player): boolean {
+    const board = pos.board;
+    const windows = pos.meta.windows;
+    const wc = pos.meta.windowCount;
+    const area = this.area;
+    const pShift = player - 1;
+    const oShift = 2 - player;
+
+    for (let move = 0; move < area; move += 1) {
+      if (board[move] !== EMPTY || move === pos.koPoint) {
+        continue;
+      }
+      if (!pos.play(move)) {
+        continue;
+      }
+      if (pos.winner !== EMPTY) {
+        pos.undo();
+        continue; // immediate win, not a double-threat
+      }
+      // Count win threats for player after this move
+      const b = pos.board; // might differ due to captures
+      let threats = 0;
+      for (let wi = 0; wi < wc; wi += 1) {
+        const base = wi * 5;
+        const c0 = b[windows[base]];
+        const c1 = b[windows[base + 1]];
+        const c2 = b[windows[base + 2]];
+        const c3 = b[windows[base + 3]];
+        const c4 = b[windows[base + 4]];
+        const ours =
+          ((c0 >> pShift) & 1) +
+          ((c1 >> pShift) & 1) +
+          ((c2 >> pShift) & 1) +
+          ((c3 >> pShift) & 1) +
+          ((c4 >> pShift) & 1);
+        if (ours !== 4) {
+          continue;
+        }
+        const opp =
+          ((c0 >> oShift) & 1) +
+          ((c1 >> oShift) & 1) +
+          ((c2 >> oShift) & 1) +
+          ((c3 >> oShift) & 1) +
+          ((c4 >> oShift) & 1);
+        if (opp === 0) {
+          threats += 1;
+          if (threats >= 2) {
+            break;
+          }
+        }
+      }
+      pos.undo();
+      if (threats >= 2) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
@@ -90,6 +279,9 @@ export class ForcedWinSearcher {
    */
   hasForcedWin(pos: GogoPosition, attacker: Player, maxPly: number): boolean {
     this.nodesSearched = 0;
+    this.hashStackTop = 0;
+    this.activeAttackerIsWhite = attacker === WHITE;
+    this.currentHash = this.computeHash(pos, attacker);
     return this.search(pos, attacker, maxPly, 0);
   }
 
@@ -100,13 +292,17 @@ export class ForcedWinSearcher {
    */
   forcedWinDepthForMove(pos: GogoPosition, move: number, maxPly: number): number {
     const attacker = pos.toMove;
-    if (!pos.play(move)) {
+    this.hashStackTop = 0;
+    this.activeAttackerIsWhite = attacker === WHITE;
+    this.currentHash = this.computeHash(pos, attacker);
+
+    if (!this.playHash(pos, move)) {
       return -1;
     }
 
     // Ply 1: immediate win
     if (pos.winner === attacker) {
-      pos.undo();
+      this.undoHash(pos);
       return 1;
     }
 
@@ -114,12 +310,12 @@ export class ForcedWinSearcher {
     for (let remaining = 2; remaining <= maxPly - 1; remaining += 2) {
       this.nodesSearched = 0;
       if (this.search(pos, attacker, remaining, 0)) {
-        pos.undo();
+        this.undoHash(pos);
         return remaining + 1;
       }
     }
 
-    pos.undo();
+    this.undoHash(pos);
     return -1;
   }
 
@@ -130,20 +326,24 @@ export class ForcedWinSearcher {
    */
   hasForcedWinAfterMove(pos: GogoPosition, move: number, targetRemaining: number): boolean {
     const attacker = pos.toMove;
-    if (!pos.play(move)) {
+    this.hashStackTop = 0;
+    this.activeAttackerIsWhite = attacker === WHITE;
+    this.currentHash = this.computeHash(pos, attacker);
+
+    if (!this.playHash(pos, move)) {
       return false;
     }
     if (pos.winner === attacker) {
-      pos.undo();
+      this.undoHash(pos);
       return targetRemaining >= 0;
     }
     if (targetRemaining <= 0) {
-      pos.undo();
+      this.undoHash(pos);
       return false;
     }
     this.nodesSearched = 0;
     const result = this.search(pos, attacker, targetRemaining, 0);
-    pos.undo();
+    this.undoHash(pos);
     return result;
   }
 
@@ -165,18 +365,22 @@ export class ForcedWinSearcher {
     const targetRemaining = maxPly - 1;
     let solutionMove = -1;
 
+    this.hashStackTop = 0;
+    this.activeAttackerIsWhite = attacker === WHITE;
+    this.currentHash = this.computeHash(pos, attacker);
+
     for (let i = 0; i < moveCount; i += 1) {
       const move = moves[i];
-      if (!pos.play(move)) {
+      if (!this.playHash(pos, move)) {
         continue;
       }
       if (pos.winner === attacker) {
-        pos.undo();
+        this.undoHash(pos);
         return -2; // immediate win → shorter than target depth
       }
       this.nodesSearched = 0;
       const wins = this.search(pos, attacker, targetRemaining, 0);
-      pos.undo();
+      this.undoHash(pos);
       if (wins) {
         if (solutionMove !== -1) {
           return -2; // multiple winning moves
@@ -196,6 +400,10 @@ export class ForcedWinSearcher {
     const attacker = pos.toMove;
     const line: number[] = [];
 
+    this.hashStackTop = 0;
+    this.activeAttackerIsWhite = attacker === WHITE;
+    this.currentHash = this.computeHash(pos, attacker);
+
     for (let ply = 0; ply < maxPly; ply += 1) {
       if (pos.winner !== EMPTY) {
         break;
@@ -208,30 +416,30 @@ export class ForcedWinSearcher {
       if (isAtk) {
         // Attacker: find the move that leads to forced win
         for (let i = 0; i < moveCount; i += 1) {
-          if (!pos.play(moveBuffer[i])) {
+          if (!this.playHash(pos, moveBuffer[i])) {
             continue;
           }
           if (pos.winner !== EMPTY) {
             bestMove = moveBuffer[i];
-            pos.undo();
+            this.undoHash(pos);
             break;
           }
           const remaining = maxPly - ply - 1;
           this.nodesSearched = 0;
           if (remaining > 0 && this.search(pos, attacker, remaining, 0)) {
             bestMove = moveBuffer[i];
-            pos.undo();
+            this.undoHash(pos);
             break;
           }
-          pos.undo();
+          this.undoHash(pos);
         }
       } else {
         // Defender: pick the first legal move (any move, attacker wins regardless)
         // Prefer the move that maximizes remaining plies (most resistant defense)
         for (let i = 0; i < moveCount; i += 1) {
-          if (pos.play(moveBuffer[i])) {
+          if (this.playHash(pos, moveBuffer[i])) {
             bestMove = moveBuffer[i];
-            pos.undo();
+            this.undoHash(pos);
             break;
           }
         }
@@ -241,12 +449,12 @@ export class ForcedWinSearcher {
         break;
       }
       line.push(bestMove);
-      pos.play(bestMove);
+      this.playHash(pos, bestMove);
     }
 
     // Undo all played moves to restore original position
     for (let i = line.length - 1; i >= 0; i -= 1) {
-      pos.undo();
+      this.undoHash(pos);
     }
     return line;
   }
@@ -271,14 +479,43 @@ export class ForcedWinSearcher {
       return false;
     }
 
+    // ---- TT probe ----
+    const h = this.currentHash;
+    const idx = (h >>> 0) & ForcedWinSearcher.TT_MASK;
+    const ttEntry = this.ttHash[idx];
+    if (ttEntry === h) {
+      const storedRemaining = this.ttRemaining[idx];
+      const storedResult = this.ttResult[idx];
+      // Win proven at ≤ stored depth → also wins here
+      if (storedResult === 1 && storedRemaining <= remaining) {
+        return true;
+      }
+      // No win proven at ≥ stored depth → also no win here
+      if (storedResult === 2 && storedRemaining >= remaining) {
+        return false;
+      }
+    }
+
     const isAttacker = pos.toMove === attacker;
     const defender = otherPlayer(attacker);
 
     // Threat-based pruning — single pass over all windows
-    const [attackerThreats, defenderThreats] = this.countBothThreats(pos, attacker, defender);
+    this.countBothThreats(pos, attacker, defender);
+    const attackerThreats = this.atkThreatCount;
+    const defenderThreats = this.defThreatCount;
 
+    let result: boolean;
     if (isAttacker) {
-      return this.searchAttacker(
+      result = this.searchAttacker(
+        pos,
+        attacker,
+        remaining,
+        depth,
+        attackerThreats,
+        defenderThreats,
+      );
+    } else {
+      result = this.searchDefender(
         pos,
         attacker,
         remaining,
@@ -287,14 +524,14 @@ export class ForcedWinSearcher {
         defenderThreats,
       );
     }
-    return this.searchDefender(
-      pos,
-      attacker,
-      remaining,
-      depth,
-      attackerThreats,
-      defenderThreats,
-    );
+
+    // ---- TT store ----
+    // Always replace: simple replacement scheme
+    this.ttHash[idx] = h;
+    this.ttRemaining[idx] = remaining;
+    this.ttResult[idx] = result ? 1 : 2;
+
+    return result;
   }
 
   private searchAttacker(
@@ -307,18 +544,19 @@ export class ForcedWinSearcher {
   ): boolean {
     // If attacker has a win-threat, try it first (completes 5-in-a-row)
     if (attackerThreats > 0) {
-      const { moves: tMoves, count: tCount } = this.getWinThreatMoves(pos, attacker);
+      const tMoves = this.getWinThreatMoves(pos, attacker);
+      const tCount = this.threatCount;
       for (let i = 0; i < tCount; i += 1) {
-        if (!pos.play(tMoves[i])) {
+        if (!this.playHash(pos, tMoves[i])) {
           continue;
         }
         if (pos.winner === attacker) {
-          pos.undo();
+          this.undoHash(pos);
           return true;
         }
         // Even if it didn't win (captures changed things), try continuing
         const result = this.search(pos, attacker, remaining - 1, depth + 1);
-        pos.undo();
+        this.undoHash(pos);
         if (result) {
           return true;
         }
@@ -334,13 +572,13 @@ export class ForcedWinSearcher {
 
     // If defender has exactly 1 threat, attacker MUST block it (or win first)
     if (defenderThreats === 1 && attackerThreats === 0) {
-      const { moves: dMoves } = this.getWinThreatMoves(pos, otherPlayer(attacker));
+      const dMoves = this.getWinThreatMoves(pos, otherPlayer(attacker));
       const block = dMoves[0];
-      if (!pos.play(block)) {
+      if (!this.playHash(pos, block)) {
         return false;
       }
       const result = this.search(pos, attacker, remaining - 1, depth + 1);
-      pos.undo();
+      this.undoHash(pos);
       return result;
     }
 
@@ -353,11 +591,11 @@ export class ForcedWinSearcher {
     const maxMoves = remaining <= 2 ? Math.min(count, 10) : count;
 
     for (let i = 0; i < maxMoves; i += 1) {
-      if (!pos.play(moves[i])) {
+      if (!this.playHash(pos, moves[i])) {
         continue;
       }
       const result = this.search(pos, attacker, remaining - 1, depth + 1);
-      pos.undo();
+      this.undoHash(pos);
       if (result) {
         return true;
       }
@@ -376,69 +614,108 @@ export class ForcedWinSearcher {
     const defender = otherPlayer(attacker);
 
     // If attacker has ≥2 win threats and defender has 0, attacker wins
-    if (attackerThreats >= 2 && defenderThreats === 0) {
+    // (defender blocks one threat, attacker takes the other — needs ≥2 plies)
+    if (attackerThreats >= 2 && defenderThreats === 0 && remaining >= 2) {
       return true;
     }
 
     // If attacker has exactly 1 threat, defender must block it
     if (attackerThreats === 1 && defenderThreats === 0) {
-      const { moves: tMoves } = this.getWinThreatMoves(pos, attacker);
+      const tMoves = this.getWinThreatMoves(pos, attacker);
       const block = tMoves[0];
-      if (!pos.play(block)) {
+      if (!this.playHash(pos, block)) {
         // Can't block → attacker wins next move
         return true;
       }
       const result = this.search(pos, attacker, remaining - 1, depth + 1);
-      pos.undo();
+      this.undoHash(pos);
       return result;
     }
 
     // If defender has a win-threat, try it (escape by winning)
     if (defenderThreats > 0) {
-      const { moves: dMoves, count: dCount } = this.getWinThreatMoves(pos, defender);
+      const dMoves = this.getWinThreatMoves(pos, defender);
+      const dCount = this.threatCount;
       for (let i = 0; i < dCount; i += 1) {
-        if (!pos.play(dMoves[i])) {
+        if (!this.playHash(pos, dMoves[i])) {
           continue;
         }
         if (pos.winner === defender) {
-          pos.undo();
+          this.undoHash(pos);
           return false; // Defender won → attacker's forced win fails
         }
         const result = this.search(pos, attacker, remaining - 1, depth + 1);
-        pos.undo();
+        this.undoHash(pos);
         if (!result) {
           return false;
         }
       }
       // If attacker also has threats, defender might need to block those too
-      if (attackerThreats >= 2) {
+      if (attackerThreats >= 2 && remaining >= 2) {
         return true; // Double threat, defender already tried escaping
       }
       if (attackerThreats === 1) {
-        const { moves: aMoves } = this.getWinThreatMoves(pos, attacker);
+        const aMoves = this.getWinThreatMoves(pos, attacker);
         const block = aMoves[0];
-        if (!pos.play(block)) {
+        if (!this.playHash(pos, block)) {
           return true;
         }
         const result = this.search(pos, attacker, remaining - 1, depth + 1);
-        pos.undo();
+        this.undoHash(pos);
         return result;
       }
     }
 
     // General case: all defender moves must lead to attacker win
-    const count = this.generateMoves(pos, depth);
-    const moves = this.moveBuffers[depth];
+    // Try killer moves first — if they refute, we skip expensive generateMoves
+    const ki = depth * 2;
+    const k1 = this.killers[ki];
+    const k2 = this.killers[ki + 1];
+    const board = pos.board;
+
     let anyLegal = false;
 
-    for (let i = 0; i < count; i += 1) {
-      if (!pos.play(moves[i])) {
+    for (let k = 0; k < 2; k += 1) {
+      const killer = k === 0 ? k1 : k2;
+      if (killer < 0 || board[killer] !== EMPTY || killer === pos.koPoint) {
+        continue;
+      }
+      if (!this.playHash(pos, killer)) {
         continue;
       }
       anyLegal = true;
       const result = this.search(pos, attacker, remaining - 1, depth + 1);
-      pos.undo();
+      this.undoHash(pos);
       if (!result) {
+        // Update killer slot (promote to slot 0)
+        if (k !== 0) {
+          this.killers[ki + 1] = k1;
+          this.killers[ki] = killer;
+        }
+        return false;
+      }
+    }
+
+    const count = this.generateMoves(pos, depth);
+    const moves = this.moveBuffers[depth];
+
+    for (let i = 0; i < count; i += 1) {
+      const m = moves[i];
+      if (m === k1 || m === k2) {
+        continue; // Already tried as killer
+      }
+      if (!this.playHash(pos, m)) {
+        continue;
+      }
+      anyLegal = true;
+      const result = this.search(pos, attacker, remaining - 1, depth + 1);
+      this.undoHash(pos);
+      if (!result) {
+        // Record as killer
+        if (m !== k1) {
+          this.killers[ki + 1] = this.killers[ki];
+          this.killers[ki] = m;
+        }
         return false;
       }
     }
@@ -447,75 +724,110 @@ export class ForcedWinSearcher {
 
   // ---- threat detection -----------------------------------------------
 
-  /** Count threats for both attacker and defender in a single window scan. */
+  /** Count threats for both attacker and defender in a single window scan.
+   *  Results stored in this.atkThreatCount and this.defThreatCount.
+   */
   private countBothThreats(
     pos: GogoPosition,
     attacker: Player,
     defender: Player,
-  ): [number, number] {
-    const meta = pos.meta;
+  ): void {
     const board = pos.board;
-    const windows = meta.windows;
+    const windows = pos.meta.windows;
+    const wc = pos.meta.windowCount;
     let atkThreats = 0;
     let defThreats = 0;
+    // Branchless: BLACK=1 (bit 0), WHITE=2 (bit 1)
+    const aShift = attacker - 1;  // 0 for BLACK, 1 for WHITE
+    const dShift = 2 - attacker;  // 1 for BLACK, 0 for WHITE
 
-    for (let wi = 0; wi < meta.windowCount; wi += 1) {
+    for (let wi = 0; wi < wc; wi += 1) {
       const base = wi * 5;
-      let atk = 0;
-      let def = 0;
-      let empties = 0;
-      for (let step = 0; step < 5; step += 1) {
-        const cell = board[windows[base + step]];
-        if (cell === attacker) {
-          atk += 1;
-        } else if (cell === defender) {
-          def += 1;
-        } else {
-          empties += 1;
-        }
+      const c0 = board[windows[base]];
+      const c1 = board[windows[base + 1]];
+      const c2 = board[windows[base + 2]];
+      const c3 = board[windows[base + 3]];
+      const c4 = board[windows[base + 4]];
+      const atk =
+        ((c0 >> aShift) & 1) +
+        ((c1 >> aShift) & 1) +
+        ((c2 >> aShift) & 1) +
+        ((c3 >> aShift) & 1) +
+        ((c4 >> aShift) & 1);
+      const def =
+        ((c0 >> dShift) & 1) +
+        ((c1 >> dShift) & 1) +
+        ((c2 >> dShift) & 1) +
+        ((c3 >> dShift) & 1) +
+        ((c4 >> dShift) & 1);
+      // 4 attacker + 0 defender ⇒ 1 empty (since atk+def+emp=5)
+      if (atk === 4 && def === 0) {
+        atkThreats += 1;
       }
-      if (empties === 1) {
-        if (atk === 4) {
-          atkThreats += 1;
-        }
-        if (def === 4) {
-          defThreats += 1;
-        }
+      if (def === 4 && atk === 0) {
+        defThreats += 1;
       }
     }
-    return [atkThreats, defThreats];
+    this.atkThreatCount = atkThreats;
+    this.defThreatCount = defThreats;
   }
 
-  private getWinThreatMoves(pos: GogoPosition, player: Player): { moves: Int16Array; count: number } {
-    const meta = pos.meta;
+  private threatCount = 0;
+
+  private getWinThreatMoves(pos: GogoPosition, player: Player): Int16Array {
     const board = pos.board;
-    const windows = meta.windows;
+    const windows = pos.meta.windows;
+    const wc = pos.meta.windowCount;
     const buf = this.threatBuffer;
     let count = 0;
-    // Use high bits of candidateMarks with a separate epoch to avoid seen-set allocation
     const epoch = ++this.candidateEpoch;
+    // Branchless: BLACK=1 (bit 0), WHITE=2 (bit 1)
+    const pShift = player - 1;
 
-    for (let wi = 0; wi < meta.windowCount; wi += 1) {
+    for (let wi = 0; wi < wc; wi += 1) {
       const base = wi * 5;
-      let ours = 0;
-      let empties = 0;
-      let emptyPos = -1;
-      for (let step = 0; step < 5; step += 1) {
-        const cell = board[windows[base + step]];
-        if (cell === player) {
-          ours += 1;
-        } else if (cell === EMPTY) {
-          empties += 1;
-          emptyPos = windows[base + step];
-        }
+      const w0 = windows[base];
+      const w1 = windows[base + 1];
+      const w2 = windows[base + 2];
+      const w3 = windows[base + 3];
+      const w4 = windows[base + 4];
+      const c0 = board[w0];
+      const c1 = board[w1];
+      const c2 = board[w2];
+      const c3 = board[w3];
+      const c4 = board[w4];
+      const ours =
+        ((c0 >> pShift) & 1) +
+        ((c1 >> pShift) & 1) +
+        ((c2 >> pShift) & 1) +
+        ((c3 >> pShift) & 1) +
+        ((c4 >> pShift) & 1);
+      if (ours !== 4) {
+        continue;
       }
-      if (ours === 4 && empties === 1 && this.candidateMarks[emptyPos] !== epoch) {
+      // Exactly one must be EMPTY (not opponent) — find it
+      // emp = 5 - ours - opp; we need emp=1, opp=0
+      const oShift = 2 - player;
+      const opp =
+        ((c0 >> oShift) & 1) +
+        ((c1 >> oShift) & 1) +
+        ((c2 >> oShift) & 1) +
+        ((c3 >> oShift) & 1) +
+        ((c4 >> oShift) & 1);
+      if (opp !== 0) {
+        continue;
+      }
+      // Find the empty cell
+      const emptyPos =
+        c0 === EMPTY ? w0 : c1 === EMPTY ? w1 : c2 === EMPTY ? w2 : c3 === EMPTY ? w3 : w4;
+      if (this.candidateMarks[emptyPos] !== epoch) {
         this.candidateMarks[emptyPos] = epoch;
         buf[count] = emptyPos;
         count += 1;
       }
     }
-    return { moves: buf, count };
+    this.threatCount = count;
+    return buf;
   }
 
   // ---- move generation ------------------------------------------------
@@ -586,23 +898,36 @@ export class ForcedWinSearcher {
   ): number {
     const meta = pos.meta;
     const board = pos.board;
+    const wins = meta.windows;
     let attack = 0;
     let defense = 0;
+    // Branchless: BLACK=1 (bit 0), WHITE=2 (bit 1)
+    const pShift = player - 1;
+    const oShift = 2 - player;
 
     for (
       let cursor = meta.windowsByPointOffsets[move];
       cursor < meta.windowsByPointOffsets[move + 1];
       cursor += 1
     ) {
-      const windowIndex = meta.windowsByPoint[cursor];
-      const base = windowIndex * 5;
-      let mine = 0;
-      let theirs = 0;
-      for (let step = 0; step < 5; step += 1) {
-        const cell = board[meta.windows[base + step]];
-        mine += cell === player ? 1 : 0;
-        theirs += cell === opponent ? 1 : 0;
-      }
+      const base = meta.windowsByPoint[cursor] * 5;
+      const c0 = board[wins[base]];
+      const c1 = board[wins[base + 1]];
+      const c2 = board[wins[base + 2]];
+      const c3 = board[wins[base + 3]];
+      const c4 = board[wins[base + 4]];
+      const mine =
+        ((c0 >> pShift) & 1) +
+        ((c1 >> pShift) & 1) +
+        ((c2 >> pShift) & 1) +
+        ((c3 >> pShift) & 1) +
+        ((c4 >> pShift) & 1);
+      const theirs =
+        ((c0 >> oShift) & 1) +
+        ((c1 >> oShift) & 1) +
+        ((c2 >> oShift) & 1) +
+        ((c3 >> oShift) & 1) +
+        ((c4 >> oShift) & 1);
       if (theirs === 0) {
         attack += ATTACK_WEIGHTS[Math.min(mine + 1, 5)];
       }
