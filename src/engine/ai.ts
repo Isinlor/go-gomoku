@@ -31,6 +31,13 @@ const CAPTURE_BONUS = 5_000;
 const ESCAPE_BONUS = 3_500;
 const NO_SCORE = Number.NEGATIVE_INFINITY;
 
+// Transposition table constants
+const TT_SIZE = 1 << 18; // 262144 entries
+const TT_MASK = TT_SIZE - 1;
+const TT_EXACT = 0;
+const TT_LOWER = 1; // score is a lower bound (failed high / beta cutoff)
+const TT_UPPER = 2; // score is an upper bound (failed low / all-node)
+
 function otherPlayer(player: Player): Player {
   return player === BLACK ? WHITE : BLACK;
 }
@@ -54,6 +61,13 @@ export class GogoAI {
   private timedOut = false;
   private killerMoves = new Int16Array(0);
   private readonly timeoutSignal = new Error('SEARCH_TIMEOUT');
+
+  // Transposition table — parallel arrays for cache-line efficiency
+  private readonly ttKey = new Int32Array(TT_SIZE);
+  private readonly ttScore = new Int32Array(TT_SIZE);
+  private readonly ttDepth = new Int8Array(TT_SIZE);
+  private readonly ttFlag = new Uint8Array(TT_SIZE);
+  private readonly ttMove = new Int16Array(TT_SIZE).fill(-1);
 
   constructor(options: GogoAIOptions = {}) {
     this.maxDepth = Math.max(1, options.maxDepth ?? 6);
@@ -242,11 +256,42 @@ export class GogoAI {
       return this.quiescence(position, alpha, beta, ply, this.quiescenceDepth);
     }
 
+    const alphaOrig = alpha;
+    const hash = position.hash;
+    const ttIndex = (hash & TT_MASK) >>> 0;
+    let ttMove = -1;
+
+    // Transposition table probe
+    if (this.ttKey[ttIndex] === hash) {
+      ttMove = this.ttMove[ttIndex];
+      const storedDepth = this.ttDepth[ttIndex];
+      if (storedDepth >= depth) {
+        const storedScore = this.ttScore[ttIndex];
+        const storedFlag = this.ttFlag[ttIndex];
+        if (storedFlag === TT_EXACT) {
+          return storedScore;
+        }
+        if (storedFlag === TT_LOWER && storedScore >= beta) {
+          return storedScore;
+        }
+        if (storedFlag === TT_UPPER && storedScore <= alpha) {
+          return storedScore;
+        }
+      }
+    }
+
     // Null move pruning: if we give the opponent a free move and they still
     // can't beat beta, the position is likely good enough to prune.
     if (depth >= 3 && canNullMove) {
       const savedToMove = position.toMove;
       const savedKo = position.koPoint;
+      const savedHash = position.hash;
+      // Update hash: toggle side-to-move and remove ko
+      let h = savedHash ^ position.meta.zobristBlackToMove;
+      if (savedKo !== -1) {
+        h ^= position.meta.zobristKo[savedKo + 1];
+      }
+      position.hash = h;
       position.toMove = otherPlayer(savedToMove);
       position.koPoint = -1;
       let nullScore: number;
@@ -255,6 +300,7 @@ export class GogoAI {
       } finally {
         position.toMove = savedToMove;
         position.koPoint = savedKo;
+        position.hash = savedHash;
       }
       if (nullScore >= beta) {
         return beta;
@@ -263,10 +309,11 @@ export class GogoAI {
 
     const moves = this.moveBuffers[ply];
     const scores = this.scoreBuffers[ply];
-    let count = this.generateOrderedMoves(position, moves, scores, -1, false, ply);
+    let count = this.generateOrderedMoves(position, moves, scores, ttMove, false, ply);
     let usedFullBoard = false;
     let legalCount = 0;
     let bestScore = -WIN_SCORE;
+    let bestMove = -1;
 
     for (;;) {
       for (let i = 0; i < count; i += 1) {
@@ -293,6 +340,7 @@ export class GogoAI {
         }
         if (score > bestScore) {
           bestScore = score;
+          bestMove = move;
         }
         if (score > alpha) {
           alpha = score;
@@ -303,18 +351,35 @@ export class GogoAI {
               this.killerMoves[ply * 2 + 1] = this.killerMoves[ply * 2];
               this.killerMoves[ply * 2] = move;
             }
-            return score;
+            break;
           }
         }
       }
       if (legalCount !== 0 || usedFullBoard) {
         break;
       }
-      count = this.generateFullBoardMoves(position, moves, scores, -1, false, ply);
+      count = this.generateFullBoardMoves(position, moves, scores, ttMove, false, ply);
       usedFullBoard = true;
     }
 
-    return legalCount === 0 ? 0 : bestScore;
+    if (legalCount === 0) {
+      return 0;
+    }
+
+    // Transposition table store
+    const ttFlag =
+      bestScore <= alphaOrig ? TT_UPPER :
+      bestScore >= beta ? TT_LOWER :
+      TT_EXACT;
+    if (depth >= this.ttDepth[ttIndex] || this.ttKey[ttIndex] !== hash) {
+      this.ttKey[ttIndex] = hash;
+      this.ttScore[ttIndex] = bestScore;
+      this.ttDepth[ttIndex] = depth;
+      this.ttFlag[ttIndex] = ttFlag;
+      this.ttMove[ttIndex] = bestMove;
+    }
+
+    return bestScore;
   }
 
   private quiescence(position: GogoPosition, alpha: number, beta: number, ply: number, remainingDepth: number): number {

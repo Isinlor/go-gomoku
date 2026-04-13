@@ -1,6 +1,6 @@
 import { test, expect } from 'vitest';
 
-import { BLACK, EMPTY, GogoPosition, WHITE, playerName, encodeMove, decodeMove, decodeGame } from '../../src/engine';
+import { BLACK, EMPTY, GogoPosition, WHITE, playerName, encodeMove, decodeMove, decodeGame, xorshift32 } from '../../src/engine';
 
 function position(rows: string[], toMove = BLACK, options = {}) {
   return GogoPosition.fromAscii(rows, toMove, options);
@@ -381,4 +381,119 @@ test('decodeGame throws on invalid board size token, unrecognised move, and ille
   expect(() => decodeGame('B10 e5')).toThrow(/Invalid board size token/);
   expect(() => decodeGame('B9 z1')).toThrow(/Invalid move/);
   expect(() => decodeGame('B9 e5 e5')).toThrow(/Illegal move/);
+});
+
+
+test('xorshift32 produces non-zero output from a non-zero seed and advances state', () => {
+  const state = { v: 1 };
+  const a = xorshift32(state);
+  const b = xorshift32(state);
+  expect(a).not.toBe(0);
+  expect(b).not.toBe(a);
+});
+
+test('Zobrist hash is consistent through play/undo cycles', () => {
+  const pos = new GogoPosition(9);
+  const initialHash = pos.hash;
+
+  // play then undo restores hash exactly
+  pos.playXY(4, 4);
+  expect(pos.hash).not.toBe(initialHash);
+  pos.undo();
+  expect(pos.hash).toBe(initialHash);
+
+  // two different first moves produce different hashes
+  pos.playXY(4, 4);
+  const hashA = pos.hash;
+  pos.undo();
+  pos.playXY(3, 3);
+  const hashB = pos.hash;
+  pos.undo();
+  expect(hashA).not.toBe(hashB);
+
+  // same board reached via different move orders produces the same hash
+  const pos2 = new GogoPosition(9);
+  pos.playXY(4, 4); pos.playXY(0, 0); pos.playXY(3, 3);
+  pos2.playXY(3, 3); pos2.playXY(0, 0); pos2.playXY(4, 4);
+  expect(pos.hash).toBe(pos2.hash);
+});
+
+test('Zobrist hash matches fromAscii hash for the same stone layout', () => {
+  const pos = new GogoPosition(9);
+  pos.playXY(4, 4); // BLACK
+  pos.playXY(0, 0); // WHITE — toMove is BLACK again
+
+  const ascii = position([
+    'O........',
+    '.........',
+    '.........',
+    '.........',
+    '....X....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  expect(pos.hash).toBe(ascii.hash);
+});
+
+test('Zobrist hash accounts for ko: position with active ko has a different hash', () => {
+  // Build a real ko situation.
+  //
+  // We surround point (1,2) with BLACK stones on 3 sides and leave (1,3) open,
+  // then surround point (1,3) with WHITE stones on 3 sides so that when BLACK
+  // captures W@(1,2), the capturing stone B@(1,3) has exactly one liberty.
+  //
+  //  col: 0  1  2
+  //  row1: .  B  .
+  //  row2: B  W  B   ← W@(1,2) surrounded on N/W/E by B; liberty at (1,3)
+  //  row3: W  B  W   ← B@(1,3) surrounded on W/E/S by W; liberty at (1,2)
+  //  row4: .  W  .
+  //
+  // Sequence (B=BLACK, W=WHITE, turns alternate):
+  //  1. B@(1,1)  2. W@(0,3)  3. B@(0,2)  4. W@(2,3)
+  //  5. B@(2,2)  6. W@(1,4)  7. B@(5,5) (noise)  8. W@(1,2)
+  //  9. B@(1,3)  ← captures W@(1,2), B has 1 liberty at (1,2) → KO!
+  const ko = new GogoPosition(9);
+  ko.playXY(1, 1); // B — north of W
+  ko.playXY(0, 3); // W — west of B's capture point
+  ko.playXY(0, 2); // B — west of W
+  ko.playXY(2, 3); // W — east of B's capture point
+  ko.playXY(2, 2); // B — east of W
+  ko.playXY(1, 4); // W — south of B's capture point
+  ko.playXY(5, 5); // B noise — need W to play next
+  ko.playXY(1, 2); // W plays surrounded-on-3-sides (1 liberty at (1,3))
+  ko.playXY(1, 3); // B captures W@(1,2) → B has 1 liberty at (1,2) → KO!
+
+  expect(ko.koPoint).toBe(ko.index(1, 2));
+  const hashWithKo = ko.hash;
+
+  // Undo the capturing move: ko goes away
+  ko.undo();
+  expect(ko.koPoint).toBe(-1);
+  const hashWithoutKo = ko.hash;
+
+  // Same stones, same toMove, but different ko restriction → different hash
+  expect(hashWithKo).not.toBe(hashWithoutKo);
+
+  // Re-applying the move restores the ko hash
+  ko.playXY(1, 3);
+  expect(ko.hash).toBe(hashWithKo);
+});
+
+test('history capacity growth also grows historyHash array', () => {
+  // Use a tiny history capacity so it must grow during play
+  const pos = new GogoPosition(9, { historyCapacity: 2 });
+  const initial = pos.hash;
+  let played = 0;
+  for (let i = 0; i < 9 && played < 4; i += 1) {
+    for (let j = 0; j < 9 && played < 4; j += 1) {
+      if (pos.playXY(i, j)) { played += 1; }
+    }
+  }
+  // Undo all moves — hash must be restored to initial
+  for (let k = 0; k < played; k += 1) {
+    pos.undo();
+  }
+  expect(pos.hash).toBe(initial);
 });

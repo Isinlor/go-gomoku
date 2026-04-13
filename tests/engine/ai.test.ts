@@ -484,3 +484,172 @@ test('killer moves are stored on beta cutoffs and boost scores in scoreMove', ()
     expect(withKiller).toBeGreaterThan(withoutKiller);
   }
 });
+
+test('transposition table: EXACT hit returns cached score, UPPER hit returns when storedScore <= alpha', () => {
+  const ai = new GogoAI({ maxDepth: 4, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+
+  const pos = rawPosition([
+    '.........',
+    '.........',
+    '.........',
+    '....X....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  anyAI.ensureBuffers(pos.area);
+  anyAI.deadline = 1e15;
+  anyAI.killerMoves.fill(-1);
+
+  const hash = pos.hash;
+  const TT_MASK = (1 << 18) - 1;
+  const ttIndex = (hash & TT_MASK) >>> 0;
+
+  // --- EXACT: storedDepth >= depth → return stored score directly ---
+  anyAI.ttKey[ttIndex] = hash;
+  anyAI.ttScore[ttIndex] = 99;
+  anyAI.ttDepth[ttIndex] = 5; // 5 >= search depth 2 → hit
+  anyAI.ttFlag[ttIndex] = 0; // TT_EXACT
+  anyAI.ttMove[ttIndex] = -1;
+  const exactResult = anyAI.search(pos, 2, -1_000_000, 1_000_000, 1);
+  expect(exactResult).toBe(99);
+
+  // --- UPPER: storedScore <= alpha → return stored score ---
+  anyAI.ttKey[ttIndex] = hash;
+  anyAI.ttScore[ttIndex] = 77;
+  anyAI.ttDepth[ttIndex] = 5; // 5 >= search depth 2 → hit
+  anyAI.ttFlag[ttIndex] = 2; // TT_UPPER
+  anyAI.ttMove[ttIndex] = -1;
+  // alpha=77 satisfies storedScore(77) <= alpha(77)
+  const upperResult = anyAI.search(pos, 2, 77, 1_000_000, 1);
+  expect(upperResult).toBe(77);
+});
+
+test('null move pruning correctly updates and restores hash when ko is active', () => {
+  const ai = new GogoAI({ maxDepth: 4, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+
+  const pos = rawPosition([
+    '.........',
+    '.........',
+    '.........',
+    '..XXX....',
+    '.........',
+    '..OO.....',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  anyAI.ensureBuffers(pos.area);
+  anyAI.deadline = 1e15;
+  anyAI.killerMoves.fill(-1);
+
+  const originalHash = pos.hash;
+  const originalKo = pos.koPoint;
+
+  // Set a ko restriction to exercise line 292 (h ^= zobristKo[savedKo + 1])
+  pos.koPoint = pos.index(0, 0);
+
+  // Run search at depth >= 3 so null move pruning fires with ko active
+  anyAI.search(pos, 3, -1_000_000, 100, 1, true);
+
+  // position state must be fully restored after search
+  expect(pos.hash).toBe(originalHash);
+  expect(pos.koPoint).toBe(pos.index(0, 0));
+
+  // restore koPoint for cleanliness
+  pos.koPoint = originalKo;
+});
+
+test('transposition table: UPPER branch falls through when storedScore > alpha, and TT store is skipped when existing entry is deeper', () => {
+  const ai = new GogoAI({ maxDepth: 4, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+
+  const pos = rawPosition([
+    '.........',
+    '.........',
+    '.........',
+    '....X....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  anyAI.ensureBuffers(pos.area);
+  anyAI.deadline = 1e15;
+  anyAI.killerMoves.fill(-1);
+
+  const hash = pos.hash;
+  const TT_MASK = (1 << 18) - 1;
+  const ttIndex = (hash & TT_MASK) >>> 0;
+
+  // --- UPPER false branch: storedScore > alpha → falls through, full search runs ---
+  // Store UPPER with score=50, search with alpha=-100 (50 > -100 → condition false)
+  anyAI.ttKey[ttIndex] = hash;
+  anyAI.ttScore[ttIndex] = 50;
+  anyAI.ttDepth[ttIndex] = 5;
+  anyAI.ttFlag[ttIndex] = 2; // TT_UPPER
+  anyAI.ttMove[ttIndex] = -1;
+  // alpha=-100: storedScore(50) <= alpha(-100) is false → no early return, full search runs
+  const fallThroughResult = anyAI.search(pos, 2, -100, 1_000_000, 1);
+  // Should return a real search score, not the stale 50
+  expect(typeof fallThroughResult).toBe('number');
+
+  // --- TT_LOWER branch: storedScore >= beta → return ---
+  anyAI.ttKey[ttIndex] = hash;
+  anyAI.ttScore[ttIndex] = 500;
+  anyAI.ttDepth[ttIndex] = 5;
+  anyAI.ttFlag[ttIndex] = 1; // TT_LOWER
+  anyAI.ttMove[ttIndex] = -1;
+  anyAI.killerMoves.fill(-1);
+  // beta=100: storedScore(500) >= beta(100) → return 500
+  const lowerResult = anyAI.search(pos, 2, -1_000_000, 100, 1);
+  expect(lowerResult).toBe(500);
+
+  // --- TT store skip: same position stored at higher depth → skip overwrite ---
+  // First clear TT entry for this position
+  anyAI.ttKey[ttIndex] = 0;
+  // Do a deep search to populate TT with depth=4
+  anyAI.killerMoves.fill(-1);
+  anyAI.search(pos, 4, -1_000_000, 1_000_000, 1);
+  const storedDepthAfterDeep = anyAI.ttDepth[ttIndex];
+  expect(storedDepthAfterDeep).toBeGreaterThan(0);
+
+  // Now search at a shallower depth — the TT store should be skipped
+  // (depth < storedDepth AND same key)
+  const prevScore = anyAI.ttScore[ttIndex];
+  anyAI.killerMoves.fill(-1);
+  anyAI.search(pos, 1, -1_000_000, 1_000_000, 1);
+  // The stored depth should NOT decrease (skip branch taken)
+  expect(anyAI.ttDepth[ttIndex]).toBe(storedDepthAfterDeep);
+  expect(anyAI.ttScore[ttIndex]).toBe(prevScore);
+});
+
+test('null move: false branch of nullScore >= beta is covered with wide beta window', () => {
+  const ai = new GogoAI({ maxDepth: 4, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+
+  const pos = rawPosition([
+    '.........',
+    '.........',
+    '.........',
+    '..XXX....',
+    '.........',
+    '..OO.....',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  anyAI.ensureBuffers(pos.area);
+  anyAI.deadline = 1e15;
+  anyAI.killerMoves.fill(-1);
+
+  // With a very wide beta (1_000_000), the null-move score won't reach beta,
+  // so the false branch of "if (nullScore >= beta)" executes and search continues.
+  const score = anyAI.search(pos, 3, -1_000_000, 1_000_000, 1, true);
+  expect(score).toBeGreaterThan(-1_000_000_000);
+});

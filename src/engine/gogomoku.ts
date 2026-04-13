@@ -24,6 +24,22 @@ export interface BoardMeta {
   readonly windowsByPointOffsets: Uint16Array;
   readonly windowsByPoint: Int16Array;
   readonly centerBias: Int16Array;
+  /** Zobrist keys: [point * 2 + (player - 1)] for BLACK(0) and WHITE(1) */
+  readonly zobristStones: Int32Array;
+  /** Zobrist keys for ko point: index 0 = no ko (unused), index point+1 = ko at point */
+  readonly zobristKo: Int32Array;
+  /** Zobrist key XORed in whenever it is BLACK's turn to move */
+  readonly zobristBlackToMove: number;
+}
+
+/** Park-Miller xorshift32 PRNG — deterministic, fast, good distribution */
+export function xorshift32(state: { v: number }): number {
+  let x = state.v;
+  x ^= x << 13;
+  x ^= x >> 17;
+  x ^= x << 5;
+  state.v = x;
+  return x;
 }
 
 const SUPPORTED_SIZES = new Set<number>([9, 11, 13]);
@@ -130,7 +146,23 @@ function createBoardMeta(size: SupportedSize): BoardMeta {
     windowsByPointOffsets,
     windowsByPoint,
     centerBias,
+    ...createZobristKeys(area),
   };
+}
+
+function createZobristKeys(area: number): Pick<BoardMeta, 'zobristStones' | 'zobristKo' | 'zobristBlackToMove'> {
+  const rng = { v: 0xdeadbeef };
+  const zobristStones = new Int32Array(area * 2);
+  for (let i = 0; i < area * 2; i += 1) {
+    zobristStones[i] = xorshift32(rng);
+  }
+  // index 0 is unused (represents "no ko"), indices 1..area represent ko at point-1
+  const zobristKo = new Int32Array(area + 1);
+  for (let i = 1; i <= area; i += 1) {
+    zobristKo[i] = xorshift32(rng);
+  }
+  const zobristBlackToMove = xorshift32(rng);
+  return { zobristStones, zobristKo, zobristBlackToMove };
 }
 
 function getBoardMeta(size: SupportedSize): BoardMeta {
@@ -186,6 +218,8 @@ export class GogoPosition {
   stoneCount = 0;
   lastMove = -1;
   lastCapturedCount = 0;
+  /** Incrementally-maintained Zobrist hash of the current position */
+  hash: number;
 
   private historyMoves: Int16Array;
   private historyPlayers: Uint8Array;
@@ -193,6 +227,7 @@ export class GogoPosition {
   private historyWinner: Uint8Array;
   private historyCaptureStart: Int32Array;
   private historyCaptureCount: Int16Array;
+  private historyHash: Int32Array;
   private capturePositions: Int16Array;
   private captureTop = 0;
 
@@ -224,6 +259,7 @@ export class GogoPosition {
     this.historyWinner = new Uint8Array(historyCapacity);
     this.historyCaptureStart = new Int32Array(historyCapacity);
     this.historyCaptureCount = new Int16Array(historyCapacity);
+    this.historyHash = new Int32Array(historyCapacity);
     this.capturePositions = new Int16Array(captureCapacity);
 
     this.groupVisitMarks = new Uint32Array(this.area);
@@ -231,6 +267,9 @@ export class GogoPosition {
     this.adjacentGroupMarks = new Uint32Array(this.area);
     this.groupStack = new Int16Array(this.area);
     this.groupBuffer = new Int16Array(this.area);
+
+    // Initial hash: empty board with BLACK to move
+    this.hash = this.meta.zobristBlackToMove;
   }
 
   static fromAscii(rows: string[], toMove: Player = BLACK, options: PositionOptions = {}): GogoPosition {
@@ -267,6 +306,18 @@ export class GogoPosition {
     }
 
     position.winner = position.detectExistingWinner();
+
+    // Compute hash from scratch for the set-up position
+    const meta = position.meta;
+    let h = toMove === BLACK ? meta.zobristBlackToMove : 0;
+    for (let point = 0; point < position.area; point += 1) {
+      const cell = position.board[point];
+      if (cell !== EMPTY) {
+        h ^= meta.zobristStones[point * 2 + (cell - 1)];
+      }
+    }
+    position.hash = h;
+
     return position;
   }
 
@@ -381,6 +432,31 @@ export class GogoPosition {
       nextKo = this.capturePositions[captureStart];
     }
 
+    // --- Zobrist hash update ---
+    const meta = this.meta;
+    const zobristStones = meta.zobristStones;
+    const zobristKo = meta.zobristKo;
+    this.historyHash[this.ply] = this.hash;
+    let h = this.hash;
+    // XOR out old ko
+    if (this.koPoint !== -1) {
+      h ^= zobristKo[this.koPoint + 1];
+    }
+    // XOR in placed stone
+    h ^= zobristStones[index * 2 + (player - 1)];
+    // XOR out captured opponent stones
+    for (let i = captureStart; i < this.captureTop; i += 1) {
+      h ^= zobristStones[this.capturePositions[i] * 2 + (opponent - 1)];
+    }
+    // XOR in new ko
+    if (nextKo !== -1) {
+      h ^= zobristKo[nextKo + 1];
+    }
+    // Toggle side to move
+    h ^= meta.zobristBlackToMove;
+    this.hash = h;
+    // ---------------------------
+
     this.historyMoves[this.ply] = index;
     this.historyPlayers[this.ply] = player;
     this.historyKo[this.ply] = this.koPoint;
@@ -421,6 +497,7 @@ export class GogoPosition {
     this.winner = this.historyWinner[this.ply] as Cell;
     this.lastMove = this.ply === 0 ? -1 : this.historyMoves[this.ply - 1];
     this.lastCapturedCount = this.ply === 0 ? 0 : this.historyCaptureCount[this.ply - 1];
+    this.hash = this.historyHash[this.ply];
     return true;
   }
 
@@ -504,6 +581,7 @@ export class GogoPosition {
     this.historyWinner = growUint8Array(this.historyWinner, minimumLength);
     this.historyCaptureStart = growInt32Array(this.historyCaptureStart, minimumLength);
     this.historyCaptureCount = growInt16Array(this.historyCaptureCount, minimumLength);
+    this.historyHash = growInt32Array(this.historyHash, minimumLength);
   }
 
   private ensureCaptureCapacity(minimumLength: number): void {
