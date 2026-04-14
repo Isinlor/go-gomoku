@@ -2099,7 +2099,8 @@ test('proofDefend: play() failure is handled', () => {
   const anyAI = ai as any;
   // Use a position with NO attacker threat (findThreatResponses returns -1)
   // so that the first generateOrderedMoves call is proofDefend's own full-gen call.
-  // The mock injects an illegal (occupied) move so that play() returns false → line 1079 covered.
+  // The mock injects an illegal (occupied) move so that play() returns false in
+  // the full generation loop.
   const pos = rawPosition([
     'XX.......',
     'OO.......',
@@ -2422,20 +2423,18 @@ test('proofDefend: full generation finds defender five (winner check)', () => {
   expect(anyAI.proofDefend(pos, 2, 1)).toBe(false);
 });
 
-test('findThreatResponses: detects capture moves for atari groups', () => {
+test('findThreatResponses: capture move for group with single liberty', () => {
   const ai = new GogoAI({ maxDepth: 10 });
   const anyAI = ai as any;
   // WHITE to move (defender), attacker = BLACK.
   // Row 0: XXXX. → four-in-a-row threat, blocking cell = index 4.
   // Row 1: OOOXOOOO. → single BLACK stone at index 13 (col4), surrounded by WHITE
-  //   on left(12), right(14), bottom(22). Its only liberty = 4 (already marked).
+  //   on left(12), right(14), bottom(22). Its only liberty = 4 (already marked as blocking).
   // Row 2: ....O.... → col4=22=WHITE (blocks 13 below); col3=21=EMPTY (liberty of group {30}).
   // Row 3: ..OXO.... → BLACK at 30 (col3), WHITE at 29(left) and 31(right).
   // Row 4: ...O..... → WHITE at 39 (col3), blocks 30 below.
-  // Group {30} has 1 liberty at 21 (distinct from blocking cell 4) → covers true branch
-  // (lines 1195-1197: candidateMarks[21] is unmarked).
-  // Group {13} has 1 liberty at 4 (already marked as blocking) → covers false branch
-  // (candidateMarks[4] === candidateEpoch → condition false, body skipped).
+  // Group {30} has 1 liberty at 21 (distinct from blocking cell 4) → newly marked liberty added.
+  // Group {13} has 1 liberty at 4 (already marked as blocking) → duplicate liberty skipped.
   const pos = rawPosition([
     'XXXX.....',
     'OOOXOOOO.',
@@ -2466,13 +2465,14 @@ test('findThreatResponses: detects capture moves for atari groups', () => {
   expect(moveSet.has(21)).toBe(true);
 });
 
-test('proofAttack: hash move tried but does not win (line 932 false branch + line 950 skip)', () => {
+test('proofAttack: hash move creates non-winning position; killer move skip in tactical loop', () => {
   // BLACK has XXXX. on row 0. ttBest=5 (an empty cell that does not complete a five).
   // After play(5) the position is not a win; proofDefend(depth=0)=false → wins=false
-  // → false branch of `if (wins)`.
+  // → hash move fails.
   // Move 5 is also a tactical move (creates a near-four in window [1..5]).
   // By setting it as a killer move at ply=1, its tactical score is boosted so it appears
-  // first in the ordered list → m=5=ttBest → the `continue` at line 950 is taken.
+  // first in the ordered list → m=5=ttBest → the skip is taken.
+  // Then move 4 (which completes XXXXX) is found and the function returns true.
   const pos = rawPosition([
     'XXXX.....',
     '.........',
@@ -2506,24 +2506,23 @@ test('proofAttack: hash move tried but does not win (line 932 false branch + lin
   // winning move at cell 4, ensuring m=5 appears first and triggers the skip.
   anyAI.killerMoves[1 * 2] = 5;
 
-  // proofAttack at depth=1:
-  //   hash move 5 tried → play(5) OK → proofDefend(depth=0)=false → wins=false (line 932 false)
-  //   generateOrderedMoves includes 5 (killer+near-four) → m=5=ttBest → continue (line 950)
-  //   move 4 found → play(4) → XXXXX → returns true
+  // hash move 5 tried → play(5) OK → proofDefend(depth=0)=false → wins=false
+  // generateOrderedMoves includes 5 (killer+near-four) → m=5=ttBest → skip
+  // move 4 found → play(4) → XXXXX → returns true
   expect(anyAI.proofAttack(pos, 1, 1)).toBe(true);
 });
 
-test('proofDefend: hash move does not refute + double threat exercises lines 1021/1044/1080', () => {
+test('proofDefend: hash move does not refute double threat; ttBest skipped in threat and full loops', () => {
   // BLACK has two open fours: row 0 (blocking=4) and row 8 (blocking=76).
   // WHITE to move. ttBest=4 seeded in TT.
   //
   // proofDefend(depth=2):
   //   Hash block: play(4) → proofAttack(1) finds 76 → attackerWins=true
-  //   → !attackerWins=false (line 1021 false branch) → continues searching
+  //   → !attackerWins=false (hash move doesn't refute) → continues searching
   //   findThreatResponses: returns [4, 76]
-  //   Threat loop: m=4=ttBest → line 1046 `continue` (line 1044 branch) ✓
+  //   Threat loop: m=4=ttBest → skip (already tried above)
   //                m=76 → attackerWins=true → falls through
-  //   Full gen: m=4=ttBest → line 1080 `continue` (line 1077 branch) ✓
+  //   Full gen: m=4=ttBest → skip (already tried above)
   //   All defenses fail → returns true
   const pos = rawPosition([
     'XXXX.....',
@@ -2558,14 +2557,14 @@ test('proofDefend: hash move does not refute + double threat exercises lines 102
   expect(anyAI.proofDefend(pos, 2, 1)).toBe(true);
 });
 
-test('findThreatResponses: defender winning cell already marked (line 1169 false branch)', () => {
+test('findThreatResponses: defender winning cell in overlapping horizontal and vertical threats', () => {
   // Both windows share the SAME empty cell (0 = row0,col0) and start at the same
   // board point (y=0,x=0), so horizontal (dir=0) is processed before vertical (dir=1):
   //
   //   Horizontal [0,1,2,3,4]: atkCount=4, defCount=0, emptyCell=0
   //     → marks cell 0 (attacker blocking cell)
   //   Vertical   [0,9,18,27,36]: defCount=4, atkCount=0, emptyCell=0
-  //     → candidateMarks[0] === epoch (already marked!) → FALSE BRANCH (line 1169) ✓
+  //     → candidateMarks[0] === epoch (already marked!) → skip adding duplicate
   //
   // WHITE to move (defender).  attacker=BLACK.
   const pos = rawPosition([
