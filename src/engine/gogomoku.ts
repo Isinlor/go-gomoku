@@ -26,6 +26,8 @@ export interface BoardMeta {
   readonly centerBias: Int16Array;
   readonly zobristStones: Int32Array;
   readonly zobristBlackToMove: number;
+  /** Zobrist keys for ko point: index 0..area-1 for each square, index area for "no ko". */
+  readonly zobristKo: Int32Array;
 }
 
 const SUPPORTED_SIZES = new Set<number>([9, 11, 13]);
@@ -135,6 +137,13 @@ function createBoardMeta(size: SupportedSize): BoardMeta {
   rngState = xorshift32(rngState);
   const zobristBlackToMove = rngState;
 
+  // Generate zobrist keys for ko: area slots for each square + 1 for "no ko" (-1 maps to index area)
+  const zobristKo = new Int32Array(area + 1);
+  for (let i = 0; i < area + 1; i += 1) {
+    rngState = xorshift32(rngState);
+    zobristKo[i] = rngState;
+  }
+
   return {
     size,
     area,
@@ -150,6 +159,7 @@ function createBoardMeta(size: SupportedSize): BoardMeta {
     centerBias,
     zobristStones,
     zobristBlackToMove,
+    zobristKo,
   };
 }
 
@@ -249,7 +259,7 @@ export class GogoPosition {
     this.historyHash = new Int32Array(historyCapacity);
     this.capturePositions = new Int16Array(captureCapacity);
 
-    this.hash = this.meta.zobristBlackToMove;
+    this.hash = this.meta.zobristBlackToMove ^ this.meta.zobristKo[this.area];
 
     this.groupVisitMarks = new Uint32Array(this.area);
     this.libertyMarks = new Uint32Array(this.area);
@@ -297,6 +307,8 @@ export class GogoPosition {
     if (toMove === BLACK) {
       computedHash ^= position.meta.zobristBlackToMove;
     }
+    // Include ko state in hash (koPoint is -1 → index area)
+    computedHash ^= position.meta.zobristKo[position.area]; // no-ko key
     for (let idx = 0; idx < position.area; idx += 1) {
       const cell = position.board[idx];
       if (cell !== EMPTY) {
@@ -432,6 +444,10 @@ export class GogoPosition {
     this.ply += 1;
 
     this.hash ^= this.meta.zobristBlackToMove;
+    // Update ko in hash: XOR out old ko, XOR in new ko
+    const oldKoIdx = this.koPoint === -1 ? this.area : this.koPoint;
+    const newKoIdx = nextKo === -1 ? this.area : nextKo;
+    this.hash ^= this.meta.zobristKo[oldKoIdx] ^ this.meta.zobristKo[newKoIdx];
     this.koPoint = nextKo;
     this.toMove = opponent;
     this.winner = madeFive ? player : EMPTY;
