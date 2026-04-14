@@ -6,8 +6,14 @@ export interface SearchResult {
   depth: number;
   nodes: number;
   timedOut: boolean;
+  /** True only when an exact (proof) search has confirmed a forced win. */
   forcedWin: boolean;
+  /** True only when an exact (proof) search has confirmed a forced loss. */
   forcedLoss: boolean;
+  /** True when the heuristic search (with NMP/LMR) suggests a forced win. */
+  heuristicWin: boolean;
+  /** True when the heuristic search (with NMP/LMR) suggests a forced loss. */
+  heuristicLoss: boolean;
 }
 
 export interface GogoAIOptions {
@@ -64,6 +70,7 @@ export class GogoAI {
   private timedOut = false;
   private killerMoves = new Int16Array(0);
   private readonly timeoutSignal = new Error('SEARCH_TIMEOUT');
+  private proofMode = false;
 
   // Transposition table
   private ttHash = new Int32Array(TT_SIZE);
@@ -86,6 +93,7 @@ export class GogoAI {
     this.deadline = this.now() + Math.max(0, timeLimitMs);
     this.nodesVisited = 0;
     this.timedOut = false;
+    this.proofMode = false;
 
     if (position.winner !== EMPTY) {
       return {
@@ -96,6 +104,8 @@ export class GogoAI {
         timedOut: false,
         forcedWin: false,
         forcedLoss: true,
+        heuristicWin: false,
+        heuristicLoss: true,
       };
     }
 
@@ -109,6 +119,8 @@ export class GogoAI {
         timedOut: fallbackMove !== -1,
         forcedWin: false,
         forcedLoss: false,
+        heuristicWin: false,
+        heuristicLoss: false,
       };
     }
 
@@ -116,8 +128,9 @@ export class GogoAI {
     let bestScore = 0;
     let completedDepth = 0;
     let hintMove = fallbackMove;
-    const startPly = position.ply;
 
+    // === Phase 1: Heuristic Discovery ===
+    // Use NMP, LMR, and candidate capping for fast search.
     for (let depth = 1; depth <= this.maxDepth; depth += 1) {
       try {
         const result = this.searchRoot(position, depth, hintMove);
@@ -139,14 +152,84 @@ export class GogoAI {
       }
     }
 
+    const heuristicWin = this.isForcedWinScore(bestScore, completedDepth);
+    const heuristicLoss = this.isForcedLossScore(bestScore, completedDepth);
+    let provenWin = false;
+    let provenLoss = false;
+
+    // === Phase 2: Proof ===
+    // When the heuristic search found a forced outcome, verify with exact search
+    // (no NMP, no LMR, no candidate cap) to certify the result.
+    if ((heuristicWin || heuristicLoss) && this.now() < this.deadline) {
+      this.proofMode = true;
+      this.ttFlag.fill(0);
+      this.history.fill(0);
+      this.killerMoves.fill(-1);
+
+      let proofFailed = false;
+      for (let proofDepth = 1; proofDepth <= completedDepth; proofDepth += 1) {
+        try {
+          const proofResult = this.searchRoot(position, proofDepth, bestMove);
+          if (proofDepth === completedDepth) {
+            if (heuristicWin && this.isForcedWinScore(proofResult.score, proofDepth)) {
+              provenWin = true;
+            } else if (heuristicLoss && this.isForcedLossScore(proofResult.score, proofDepth)) {
+              provenLoss = true;
+            } else {
+              proofFailed = true;
+            }
+          }
+        } catch (error) {
+          if (error !== this.timeoutSignal) {
+            throw error;
+          }
+          this.timedOut = true;
+          break;
+        }
+      }
+      this.proofMode = false;
+
+      // === Phase 3: Resume heuristic if proof collapsed ===
+      // The heuristic claimed a forced outcome but exact search disagrees.
+      // Continue heuristic discovery at deeper depths with remaining time.
+      if (proofFailed && this.now() < this.deadline) {
+        this.timedOut = false;
+        this.ttFlag.fill(0);
+        this.history.fill(0);
+        this.killerMoves.fill(-1);
+        for (let depth = completedDepth + 1; depth <= this.maxDepth; depth += 1) {
+          try {
+            const result = this.searchRoot(position, depth, hintMove);
+            if (result.move !== -1) {
+              bestMove = result.move;
+              bestScore = result.score;
+              hintMove = result.move;
+              completedDepth = depth;
+              if (this.isForcedWinScore(result.score, depth) || this.isForcedLossScore(result.score, depth)) {
+                break;
+              }
+            }
+          } catch (error) {
+            if (error !== this.timeoutSignal) {
+              throw error;
+            }
+            this.timedOut = true;
+            break;
+          }
+        }
+      }
+    }
+
     return {
       move: bestMove,
       score: bestScore,
       depth: completedDepth,
       nodes: this.nodesVisited,
       timedOut: this.timedOut,
-      forcedWin: this.isForcedWinScore(bestScore, completedDepth),
-      forcedLoss: this.isForcedLossScore(bestScore, completedDepth),
+      forcedWin: provenWin,
+      forcedLoss: provenLoss,
+      heuristicWin,
+      heuristicLoss,
     };
   }
 
@@ -245,9 +328,9 @@ export class GogoAI {
     }
 
     if (legalCount === 0) {
-      return { move: -1, score: 0, depth, nodes: this.nodesVisited, timedOut: false, forcedWin: false, forcedLoss: false };
+      return { move: -1, score: 0, depth, nodes: this.nodesVisited, timedOut: false, forcedWin: false, forcedLoss: false, heuristicWin: false, heuristicLoss: false };
     }
-    return { move: bestMove, score: bestScore, depth, nodes: this.nodesVisited, timedOut: false, forcedWin: false, forcedLoss: false };
+    return { move: bestMove, score: bestScore, depth, nodes: this.nodesVisited, timedOut: false, forcedWin: false, forcedLoss: false, heuristicWin: false, heuristicLoss: false };
   }
 
   private search(position: GogoPosition, depth: number, alpha: number, beta: number, ply: number, canNullMove = true): number {
@@ -278,7 +361,8 @@ export class GogoAI {
 
     // Null move pruning: if we give the opponent a free move and they still
     // can't beat beta, the position is likely good enough to prune.
-    if (depth >= 3 && canNullMove) {
+    // Skipped in proof mode because NMP is unsound (can miss forced wins).
+    if (depth >= 3 && canNullMove && !this.proofMode) {
       const R = depth >= 6 ? 3 : 2;
       const savedToMove = position.toMove;
       const savedKo = position.koPoint;
@@ -303,7 +387,7 @@ export class GogoAI {
     const moves = this.moveBuffers[ply];
     const scores = this.scoreBuffers[ply];
     let count = this.generateOrderedMoves(position, moves, scores, hintMove, false, ply);
-    if (count > MAX_CANDIDATES) count = MAX_CANDIDATES;
+    if (!this.proofMode && count > MAX_CANDIDATES) count = MAX_CANDIDATES;
     let usedFullBoard = false;
     let legalCount = 0;
     let bestScore = -WIN_SCORE;
@@ -322,9 +406,10 @@ export class GogoAI {
             // PVS: full window for the first (best-ordered) move
             score = -this.search(position, depth - 1, -beta, -alpha, ply + 1);
           } else {
-            // LMR: reduce search depth for later moves
+            // LMR: reduce search depth for later moves.
+            // Skipped in proof mode because LMR is unsound.
             let searchDepth = depth - 1;
-            if (depth >= 3 && legalCount > 3) {
+            if (!this.proofMode && depth >= 3 && legalCount > 3) {
               searchDepth = Math.max(1, searchDepth - 1);
             }
             // PVS: zero-window scout search (possibly reduced)
@@ -362,7 +447,7 @@ export class GogoAI {
         break;
       }
       count = this.generateFullBoardMoves(position, moves, scores, hintMove, false, ply);
-      if (count > MAX_CANDIDATES) count = MAX_CANDIDATES;
+      if (!this.proofMode && count > MAX_CANDIDATES) count = MAX_CANDIDATES;
       usedFullBoard = true;
     }
 
