@@ -4,10 +4,50 @@ import {
   GogoAI,
   decodeGame,
   decodeMove,
+  encodeMove,
   PUZZLES,
   getPuzzleById,
   type Puzzle,
 } from '../../src/engine';
+
+interface TopMoveScore {
+  move: string;
+  score: number;
+}
+
+const WIN_SCORE = 1_000_000_000;
+const expectedTop3Scores: Record<string, readonly TopMoveScore[]> = {
+  'black-3-3': [
+    { move: 'e5', score: 999999997 },
+    { move: 'e7', score: 532 },
+    { move: 'e2', score: 197 },
+  ],
+  'black-5-3': [
+    { move: 'e5', score: 999999995 },
+    { move: 'c7', score: 389 },
+    { move: 'h2', score: -509 },
+  ],
+  'black-7-5': [
+    { move: 'e5', score: 999999993 },
+    { move: 'a1', score: -999999994 },
+    { move: 'b1', score: -999999994 },
+  ],
+  'white-3-3': [
+    { move: 'e5', score: 999999997 },
+    { move: 'e7', score: 471 },
+    { move: 'e2', score: 136 },
+  ],
+  'white-5-3': [
+    { move: 'e5', score: 999999995 },
+    { move: 'c7', score: 239 },
+    { move: 'h2', score: -659 },
+  ],
+  'white-7-5': [
+    { move: 'e5', score: 999999993 },
+    { move: 'a1', score: -999999994 },
+    { move: 'b1', score: -999999994 },
+  ],
+};
 
 /**
  * Verify the AI finds the unique winning move for a puzzle.
@@ -24,6 +64,51 @@ function assertAISolves(puzzle: Puzzle, ai: GogoAI, timeMs: number): void {
   expect(result.move).toBe(expectedIndex);
 }
 
+function getTopScoredMoves(puzzle: Puzzle, ai: GogoAI, topN = 3): TopMoveScore[] {
+  const position = decodeGame(puzzle.encoded);
+  const anyAI = ai as any;
+
+  anyAI.ensureBuffers(position.area);
+  anyAI.history.fill(0);
+  anyAI.killerMoves.fill(-1);
+  anyAI.deadline = Number.POSITIVE_INFINITY;
+  anyAI.nodesVisited = 0;
+  anyAI.timedOut = false;
+
+  const moves: Int16Array = anyAI.moveBuffers[0];
+  const scores: Int32Array = anyAI.scoreBuffers[0];
+  let count = anyAI.generateOrderedMoves(position, moves, scores, -1, false, 0);
+  let usedFullBoard = false;
+  const scoredMoves: Array<{ index: number; score: number }> = [];
+
+  for (;;) {
+    for (let i = 0; i < count; i += 1) {
+      const move = moves[i];
+      if (!position.play(move)) {
+        continue;
+      }
+      let score = 0;
+      try {
+        score = -anyAI.search(position, puzzle.depth - 1, -WIN_SCORE, WIN_SCORE, 1, true);
+      } finally {
+        position.undo();
+      }
+      scoredMoves.push({ index: move, score });
+    }
+    if (scoredMoves.length !== 0 || usedFullBoard) {
+      break;
+    }
+    count = anyAI.generateFullBoardMoves(position, moves, scores, -1, false, 0);
+    usedFullBoard = true;
+  }
+
+  scoredMoves.sort((a, b) => b.score - a.score || a.index - b.index);
+  return scoredMoves.slice(0, topN).map((entry) => ({
+    move: encodeMove(entry.index, position.meta),
+    score: entry.score,
+  }));
+}
+
 // Classic AI tests — scale time by puzzle difficulty
 const classicTimeMs: Record<number, number> = { 3: 500, 5: 2_000, 7: 8_000 };
 
@@ -38,6 +123,13 @@ test.each(
 )('Classic AI solves puzzle %s', { timeout: 30_000 }, (_id, puzzle) => {
   const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4 });
   assertAISolves(puzzle, ai, classicTimeMs[puzzle.depth] ?? 5_000);
+});
+
+test.each(
+  originalPuzzles.map((p) => [p.id, p] as const),
+)('Classic AI top 3 scored moves stay stable for puzzle %s', { timeout: 90_000 }, (id, puzzle) => {
+  const ai = new GogoAI({ maxDepth: puzzle.depth, quiescenceDepth: 4 });
+  expect(getTopScoredMoves(puzzle, ai)).toEqual(expectedTop3Scores[id]);
 });
 
 // Smoke test: Classic AI solves ALL generated puzzles.
