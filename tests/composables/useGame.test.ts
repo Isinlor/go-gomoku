@@ -1409,4 +1409,24 @@ describe('useGame', () => {
     evaluateSpy.mockRestore();
     wrapper.unmount();
   });
+
+  test('evaluateBoard handles empty AI score lists', () => {
+    const worker = createMockWorker();
+    const { gameState, wrapper } = mountWithGame({
+      createWorker: () => worker,
+      getLocationHash: () => '',
+      setLocationHash: () => {},
+    });
+
+    const evaluateSpy = vi.spyOn(engineModule.GogoAI.prototype, 'evaluateBoard').mockReturnValue({
+      scores: [],
+      depth: 0,
+      nodes: 0,
+      timedOut: false,
+    });
+    gameState.evaluateBoard();
+    expect(gameState.boardEvaluation.value.every((entry) => entry === null)).toBe(true);
+    evaluateSpy.mockRestore();
+    wrapper.unmount();
+  });
 });

@@ -180,11 +180,8 @@ export class GogoAI {
         const depthScores = this.evaluateBoardDepth(position, rootMoves, depth);
         bestScores = depthScores;
         completedDepth = depth;
-        rootMoves.sort((left, right) => {
-          const leftScore = depthScores.find((entry) => entry.move === left)?.score ?? -WIN_SCORE;
-          const rightScore = depthScores.find((entry) => entry.move === right)?.score ?? -WIN_SCORE;
-          return rightScore - leftScore;
-        });
+        const scoreByMove = new Map(depthScores.map((entry) => [entry.move, entry.score]));
+        rootMoves.sort((left, right) => scoreByMove.get(right)! - scoreByMove.get(left)!);
       } catch (error) {
         if (error !== this.timeoutSignal) {
           throw error;
