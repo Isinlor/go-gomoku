@@ -6,9 +6,13 @@ export interface SearchResult {
   depth: number;
   nodes: number;
   timedOut: boolean;
+  /** True only when an exact (proof) search has confirmed a forced win. */
   forcedWin: boolean;
+  /** True only when an exact (proof) search has confirmed a forced loss. */
   forcedLoss: boolean;
+  /** True when the heuristic search (with NMP/LMR) suggests a forced win. */
   heuristicWin: boolean;
+  /** True when the heuristic search (with NMP/LMR) suggests a forced loss. */
   heuristicLoss: boolean;
 }
 
@@ -38,6 +42,7 @@ const ESCAPE_BONUS = 3_500;
 const NO_SCORE = Number.NEGATIVE_INFINITY;
 const MAX_CANDIDATES = 12;
 
+// Transposition table constants
 const TT_SIZE_BITS = 18;
 const TT_SIZE = 1 << TT_SIZE_BITS;
 const TT_MASK = TT_SIZE - 1;
@@ -68,6 +73,7 @@ export class GogoAI {
   private readonly timeoutSignal = new Error('SEARCH_TIMEOUT');
   private proofMode = false;
 
+  // Transposition table
   private ttHash = new Int32Array(TT_SIZE);
   private ttScore = new Int32Array(TT_SIZE);
   private ttDepth = new Int8Array(TT_SIZE);
@@ -125,6 +131,8 @@ export class GogoAI {
     }
 
     state.hintMove = fallbackMove;
+    // === Phase 1: Heuristic Discovery ===
+    // Use NMP, LMR, and candidate capping for fast search.
     this.searchDepths(position, 1, state);
 
     const heuristicWin = this.isForcedWinScore(state.bestScore, state.completedDepth);
@@ -132,10 +140,15 @@ export class GogoAI {
     let provenWin = false;
     let provenLoss = false;
 
+    // === Phase 2: Proof ===
+    // When the heuristic search found a forced outcome, verify with exact search.
+    // For wins: use AND/OR threat-space prover (fast for tactical wins).
+    // For losses: use full exact root negamax (proofSearchRoot).
     if ((heuristicWin || heuristicLoss) && this.now() < this.deadline) {
       let proofFailed = false;
 
       if (heuristicWin) {
+        // AND/OR threat-space prover for forced wins
         const remainingMs = this.deadline - this.now();
         if (this.verifyWinningMove(position, state.bestMove, remainingMs)) {
           provenWin = true;
@@ -143,6 +156,7 @@ export class GogoAI {
           proofFailed = true;
         }
       } else {
+        // Full exact root search for forced losses
         this.proofMode = true;
         this.resetSearchHeuristics(true);
 
@@ -167,6 +181,9 @@ export class GogoAI {
         this.proofMode = false;
       }
 
+      // === Phase 3: Resume heuristic if proof collapsed ===
+      // The heuristic claimed a forced outcome but exact search disagrees.
+      // Continue heuristic discovery at deeper depths with remaining time.
       if (proofFailed && this.now() < this.deadline) {
         this.timedOut = false;
         this.resetSearchHeuristics(true);
@@ -174,6 +191,7 @@ export class GogoAI {
       }
     }
 
+    // Recompute heuristic flags in case resume changed bestScore/completedDepth
     const finalHeuristicWin = this.isForcedWinScore(state.bestScore, state.completedDepth);
     const finalHeuristicLoss = this.isForcedLossScore(state.bestScore, state.completedDepth);
 
@@ -271,6 +289,10 @@ export class GogoAI {
     return -1;
   }
 
+  /**
+   * Full exact root search for forced-loss proof (proof mode).
+   * Returns the best score achievable from the root.
+   */
   private proofSearchRoot(position: GogoPosition, depth: number, hintMove: number): number {
     const result = this.searchRoot(position, depth, hintMove);
     return result.move === -1 ? 0 : result.score;
@@ -338,12 +360,15 @@ export class GogoAI {
 
     const origAlpha = alpha;
 
+    // Transposition table probe
     const hash = position.hash;
     const ttIndex = hash & TT_MASK;
     let ttBest = -1;
+    // Always extract bestMove hint for ordering (even when flags are cleared)
     if (this.ttHash[ttIndex] === hash) {
       ttBest = this.ttBestMove[ttIndex];
     }
+    // Score cutoffs require a valid flag entry at sufficient depth
     if (this.ttHash[ttIndex] === hash && this.ttFlag[ttIndex] !== TT_NONE && this.ttDepth[ttIndex] >= depth) {
       const ttFlag = this.ttFlag[ttIndex];
       const ttScore = this.ttAdjustRetrieve(this.ttScore[ttIndex], ply);
@@ -352,6 +377,9 @@ export class GogoAI {
       if (ttFlag === TT_UPPERBOUND && ttScore <= alpha) return ttScore;
     }
 
+    // Null move pruning: if we give the opponent a free move and they still
+    // can't beat beta, the position is likely good enough to prune.
+    // Skipped in proof mode because NMP is unsound (can miss forced wins).
     if (depth >= 3 && canNullMove && !this.proofMode) {
       const R = depth >= 6 ? 3 : 2;
       const savedToMove = position.toMove;
@@ -359,6 +387,7 @@ export class GogoAI {
       const savedHash = position.hash;
       position.toMove = otherPlayer(savedToMove);
       position.koPoint = -1;
+      // Update hash: toggle side-to-move + change ko from savedKo to -1
       const oldKoIdx = savedKo === -1 ? position.area : savedKo;
       const noKoIdx = position.area;
       position.hash ^= position.meta.zobristBlackToMove ^ position.meta.zobristKo[oldKoIdx] ^ position.meta.zobristKo[noKoIdx];
@@ -399,17 +428,23 @@ export class GogoAI {
         let score = 0;
         try {
           if (legalCount === 1) {
+            // PVS: full window for the first (best-ordered) move
             score = -this.search(position, depth - 1, -beta, -alpha, ply + 1);
           } else {
+            // LMR: reduce search depth for later moves.
+            // Skipped in proof mode because LMR is unsound.
             let searchDepth = depth - 1;
             if (!this.proofMode && depth >= 3 && legalCount > 3) {
               searchDepth = Math.max(1, searchDepth - 1);
             }
+            // PVS: zero-window scout search (possibly reduced)
             score = -this.search(position, searchDepth, -alpha - 1, -alpha, ply + 1);
+            // If LMR was applied and scout found improvement, re-search at full depth
             if (searchDepth < depth - 1 && score > alpha) {
               score = -this.search(position, depth - 1, -alpha - 1, -alpha, ply + 1);
             }
             if (score > alpha && score < beta) {
+              // Re-search with full window if scout indicates a better move
               score = -this.search(position, depth - 1, -beta, -alpha, ply + 1);
             }
           }
@@ -424,6 +459,7 @@ export class GogoAI {
           alpha = score;
           if (alpha >= beta) {
             this.history[(position.toMove - 1) * this.bufferArea + move] += depth * depth * HISTORY_SCALE;
+            // Update killer moves for this ply
             if (this.killerMoves[ply * 2] !== move) {
               this.killerMoves[ply * 2 + 1] = this.killerMoves[ply * 2];
               this.killerMoves[ply * 2] = move;
@@ -447,6 +483,11 @@ export class GogoAI {
       return 0;
     }
 
+    // Transposition table store
+    // Capped nodes (MAX_CANDIDATES applied) may have missed legal defenses.
+    // Only TT_LOWERBOUND (fail-high on a real move) is safe from capped nodes.
+    // TT_EXACT and TT_UPPERBOUND may be wrong because unsearched moves could
+    // have produced a higher score.
     const storeFlag = bestScore <= origAlpha ? TT_UPPERBOUND
                     : alpha >= beta ? TT_LOWERBOUND
                     : TT_EXACT;
@@ -457,6 +498,7 @@ export class GogoAI {
       this.ttFlag[ttIndex] = storeFlag;
       this.ttBestMove[ttIndex] = bestMove;
     } else {
+      // Still store best move for ordering even if we don't store the score
       this.ttHash[ttIndex] = hash;
       this.ttBestMove[ttIndex] = bestMove;
       this.ttFlag[ttIndex] = TT_NONE;
@@ -530,6 +572,7 @@ export class GogoAI {
       const c2 = board[windows[base + 2]];
       const c3 = board[windows[base + 3]];
       const c4 = board[windows[base + 4]];
+      // Branchless counting: EMPTY=0, BLACK=1 (bit 0), WHITE=2 (bit 1)
       const black = (c0 & 1) + (c1 & 1) + (c2 & 1) + (c3 & 1) + (c4 & 1);
       const white = (c0 >> 1) + (c1 >> 1) + (c2 >> 1) + (c3 >> 1) + (c4 >> 1);
       if (black === 0 && white !== 0) {
@@ -653,6 +696,7 @@ export class GogoAI {
       const c2 = board[windows[base + 2]];
       const c3 = board[windows[base + 3]];
       const c4 = board[windows[base + 4]];
+      // Branchless counting: playerShift/opponentShift map BLACK(1)→bit0, WHITE(2)→bit1
       const mine = ((c0 >> playerShift) & 1) + ((c1 >> playerShift) & 1) + ((c2 >> playerShift) & 1) + ((c3 >> playerShift) & 1) + ((c4 >> playerShift) & 1);
       const theirs = ((c0 >> opponentShift) & 1) + ((c1 >> opponentShift) & 1) + ((c2 >> opponentShift) & 1) + ((c3 >> opponentShift) & 1) + ((c4 >> opponentShift) & 1);
       if (theirs === 0) {
@@ -772,7 +816,12 @@ export class GogoAI {
     return score;
   }
 
+  // === AND/OR Threat-Space Prover ===
+  // Dedicated prover for forced-win verification using attacker/defender recursion.
+  // Attacker generates only forcing threats; defender generates all legal refutations.
+  // This is much faster than full negamax for proving tactical wins.
   private proofTTHash = new Int32Array(TT_SIZE);
+  // 1 = proven win, -1 = proven loss, 0 = unknown
   private proofTTResult = new Int8Array(TT_SIZE);
   private proofTTDepth = new Int8Array(TT_SIZE);
   private proofTTBestMove = new Int16Array(TT_SIZE);
@@ -792,15 +841,26 @@ export class GogoAI {
     if (bestMove !== -1) this.proofTTBestMove[ttIdx] = bestMove;
   }
 
+  /**
+   * Verify that playing `move` leads to a forced win for the current side.
+   * Uses AND/OR threat-space search with a dedicated proof TT.
+   * Returns true if the win is provable within the time and depth limits.
+   */
   verifyWinningMove(position: GogoPosition, move: number, timeLimitMs: number): boolean {
     this.ensureBuffers(position.area);
     this.deadline = this.now() + Math.max(0, timeLimitMs);
     this.nodesVisited = 0;
     this.timedOut = false;
+    // Reset proof TT and search heuristics so the main iterative-deepening
+    // heuristic phase does not leak move-ordering state (history/killers) into
+    // proof search, which can amplify TT collision patterns and make proofs incomplete.
     this.resetProofSearch();
 
     if (!position.play(move)) return false;
     try {
+      // Iterative deepening: start shallow and deepen. Earlier iterations
+      // populate the proof TT, which acts as a powerful pruning mechanism
+      // for deeper iterations.
       for (let maxDepth = 1; maxDepth <= this.maxPly; maxDepth += 2) {
         try {
           const result = this.proofDefend(position, maxDepth, 1);
@@ -819,12 +879,19 @@ export class GogoAI {
     }
   }
 
+  /**
+   * Attacker (OR node): try to find at least one forcing move that wins.
+   * Generates only tactical/forcing moves. If any wins, return true.
+   */
   private proofAttack(position: GogoPosition, depthLeft: number, ply: number): boolean {
     this.checkTime(false);
 
+    // If there's a winner, it must be the opponent (the one who just played)
+    // since we're the attacker looking to move. This means we lost.
     if (position.winner !== EMPTY) return false;
     if (depthLeft <= 0) return false;
 
+    // Proof TT probe
     const hash = position.hash;
     const ttIdx = hash & TT_MASK;
     let ttBest = -1;
@@ -836,6 +903,8 @@ export class GogoAI {
       ttBest = this.proofTTBestMove[ttIdx];
     }
 
+    // Hash move first: try the TT best move before generating all tactical moves.
+    // This skips move generation entirely when the previous iteration's winning move still works.
     if (ttBest !== -1 && position.board[ttBest] === EMPTY && ttBest !== position.koPoint) {
       if (position.play(ttBest)) {
         try {
@@ -855,6 +924,7 @@ export class GogoAI {
 
     for (let i = 0; i < count; i += 1) {
       const m = moves[i];
+      // already tried above
       if (m === ttBest) continue;
       if (position.play(m)) {
         try {
@@ -872,12 +942,18 @@ export class GogoAI {
     return false;
   }
 
+  /**
+   * Defender (AND node): ALL legal moves must fail to refute the attacker's win.
+   * Generates ALL legal moves. If any defense survives, return false (not proven).
+   */
   private proofDefend(position: GogoPosition, depthLeft: number, ply: number): boolean {
     this.checkTime(false);
 
+    // Opponent (attacker) just made five - attacker wins
     if (position.winner !== EMPTY) return true;
     if (depthLeft <= 0) return false;
 
+    // Proof TT probe
     const hash = position.hash;
     const ttIdx = hash & TT_MASK;
     let ttBest = -1;
@@ -893,6 +969,8 @@ export class GogoAI {
     const triedEpoch = this.triedMoveEpoch;
     this.triedMoveEpoch += 1;
 
+    // Hash move first: try the TT best move (refutation from previous iteration)
+    // before generating all moves. Skips expensive move generation when refutation holds.
     if (ttBest !== -1 && position.board[ttBest] === EMPTY && ttBest !== position.koPoint) {
       this.triedMoveMarks[ttBest] = triedEpoch;
       if (position.play(ttBest)) {
@@ -908,6 +986,12 @@ export class GogoAI {
       }
     }
 
+    // Must-respond threat restriction: when the attacker has an immediate
+    // winning threat (open four), the defender MUST address it — either by
+    // blocking, capturing attacker stones, or winning immediately.
+    // Any other move allows the attacker to complete the four next turn.
+    // Try restricted moves first for speed; fall through to full generation
+    // for soundness (handles exotic cases like ko blocking the threat point).
     const threatResponses = this.findThreatResponses(position, ply);
 
     if (threatResponses > 0) {
@@ -930,6 +1014,8 @@ export class GogoAI {
       }
     }
 
+    // Full generation: generate ALL legal moves.
+    // Skip moves already tried in the TT-first and restricted-response stages.
     const moves = this.moveBuffers[ply];
     const scores = this.scoreBuffers[ply];
     let count = this.generateOrderedMoves(position, moves, scores, -1, false, ply);
@@ -959,11 +1045,26 @@ export class GogoAI {
       usedFullBoard = true;
     }
 
+    // No legal moves → neutral (not proven). Matches search()'s neutral semantics.
     if (anyLegalCount === 0) return false;
+    // All defenses exhausted - attacker's win is proven
     this.storeProofTT(ttIdx, hash, depthLeft, 1);
     return true;
   }
 
+  /**
+   * Find restricted defender responses when the attacker has an immediate
+   * winning threat (open four). Returns the number of response moves written
+   * to moveBuffers[ply], or -1 if no immediate threat exists.
+   *
+   * Response moves include:
+   * 1. Blocking cells — empty cells in attacker's four-windows
+   * 2. Capture cells — last-liberty cells of attacker groups
+   * 3. Own-winning cells — empty cells in defender's four-windows
+   *
+   * This is sound because any other defender move allows the attacker to
+   * complete the four on the next turn.
+   */
   private findThreatResponses(position: GogoPosition, ply: number): number {
     const attacker: Player = position.toMove === BLACK ? WHITE : BLACK;
     const defender = position.toMove;
@@ -977,6 +1078,7 @@ export class GogoAI {
     let count = 0;
     let hasThreat = false;
 
+    // Scan all windows for attacker's open fours and defender's open fours
     for (let wi = 0; wi < meta.windowCount; wi += 1) {
       const base = wi * 5;
       let atkCount = 0;
@@ -989,11 +1091,13 @@ export class GogoAI {
         else emptyCell = windows[base + j];
       }
 
+      // Attacker has 4 in this window with 1 empty = immediate threat
       if (atkCount === 4 && defCount === 0 && emptyCell !== -1 && emptyCell !== position.koPoint) {
         hasThreat = true;
         count = this.insertOrPromoteMove(moves, scores, count, emptyCell, 2_000_000);
       }
 
+      // Defender has 4 in a window = can win immediately
       if (defCount === 4 && atkCount === 0 && emptyCell !== -1 && emptyCell !== position.koPoint) {
         count = this.insertOrPromoteMove(moves, scores, count, emptyCell, 3_000_000);
       }
@@ -1001,6 +1105,8 @@ export class GogoAI {
 
     if (!hasThreat) return -1;
 
+    // Find capture moves: cells that are the last liberty of an attacker group.
+    // Playing there captures the group, potentially breaking the four.
     this.scorerGroupEpoch += 1;
     for (let point = 0; point < position.area; point += 1) {
       if (board[point] !== attacker || this.scorerGroupMarks[point] === this.scorerGroupEpoch) continue;
@@ -1009,6 +1115,7 @@ export class GogoAI {
         this.scorerGroupMarks[position.groupBuffer[gi]] = this.scorerGroupEpoch;
       }
       if (liberties === 1) {
+        // Find the single liberty cell among the group's neighbors
         for (let gi = 0; gi < position.scanGroupSize; gi += 1) {
           const stone = position.groupBuffer[gi];
           const neighborBase = stone * 4;
