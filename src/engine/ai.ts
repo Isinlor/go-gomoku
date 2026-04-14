@@ -2,8 +2,6 @@ import {
   findThreatResponses as findThreatResponsesImpl,
   proofAttack as proofAttackImpl,
   proofDefend as proofDefendImpl,
-  resetProofSearch as resetProofSearchImpl,
-  storeProofTT as storeProofTTImpl,
   type ProofSearchHost,
   verifyWinningMove as verifyWinningMoveImpl,
 } from './ai-proof';
@@ -88,6 +86,7 @@ export class GogoAI {
   private timedOut = false;
   private killerMoves = new Int16Array(0);
   private readonly timeoutSignal = new Error('SEARCH_TIMEOUT');
+  private readonly proofSearchHost = this as unknown as ProofSearchHost;
   private proofMode = false;
 
   // Transposition table
@@ -853,21 +852,13 @@ export class GogoAI {
   private proofTTDepth = new Int8Array(TT_SIZE);
   private proofTTBestMove = new Int16Array(TT_SIZE);
 
-  private resetProofSearch(): void {
-    resetProofSearchImpl(this as unknown as ProofSearchHost);
-  }
-
-  private storeProofTT(ttIdx: number, hash: number, depthLeft: number, result: 1 | -1, bestMove?: number): void {
-    storeProofTTImpl(this as unknown as ProofSearchHost, ttIdx, hash, depthLeft, result, bestMove);
-  }
-
   /**
    * Verify that playing `move` leads to a forced win for the current side.
    * Uses AND/OR threat-space search with a dedicated proof TT.
    * Returns true if the win is provable within the time and depth limits.
    */
   verifyWinningMove(position: GogoPosition, move: number, timeLimitMs: number): boolean {
-    return verifyWinningMoveImpl(this as unknown as ProofSearchHost, position, move, timeLimitMs, TT_MASK);
+    return verifyWinningMoveImpl(this.proofSearchHost, position, move, timeLimitMs, TT_MASK);
   }
 
   /**
@@ -875,7 +866,7 @@ export class GogoAI {
    * Generates only tactical/forcing moves. If any wins, return true.
    */
   private proofAttack(position: GogoPosition, depthLeft: number, ply: number): boolean {
-    return proofAttackImpl(this as unknown as ProofSearchHost, position, depthLeft, ply, TT_MASK);
+    return proofAttackImpl(this.proofSearchHost, position, depthLeft, ply, TT_MASK);
   }
 
   /**
@@ -883,7 +874,7 @@ export class GogoAI {
    * Generates ALL legal moves. If any defense survives, return false (not proven).
    */
   private proofDefend(position: GogoPosition, depthLeft: number, ply: number): boolean {
-    return proofDefendImpl(this as unknown as ProofSearchHost, position, depthLeft, ply, TT_MASK);
+    return proofDefendImpl(this.proofSearchHost, position, depthLeft, ply, TT_MASK);
   }
 
   /**
@@ -900,6 +891,6 @@ export class GogoAI {
    * complete the four on the next turn.
    */
   private findThreatResponses(position: GogoPosition, ply: number): number {
-    return findThreatResponsesImpl(this as unknown as ProofSearchHost, position, ply);
+    return findThreatResponsesImpl(this.proofSearchHost, position, ply);
   }
 }

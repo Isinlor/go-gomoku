@@ -45,6 +45,9 @@ export interface ProofSearchHost {
     move: number,
     score: number,
   ): number;
+  proofAttack(position: GogoPosition, depthLeft: number, ply: number): boolean;
+  proofDefend(position: GogoPosition, depthLeft: number, ply: number): boolean;
+  findThreatResponses(position: GogoPosition, ply: number): number;
 }
 
 interface ProofTTProbe {
@@ -80,7 +83,7 @@ function tryAttackMove(
     return false;
   }
   try {
-    if (position.winner !== EMPTY || proofDefend(host, position, depthLeft - 1, ply + 1, ttMask)) {
+    if (position.winner !== EMPTY || host.proofDefend(position, depthLeft - 1, ply + 1)) {
       storeProofTT(host, ttIdx, hash, depthLeft, 1, move);
       return true;
     }
@@ -104,7 +107,7 @@ function tryDefenseMove(
     return -1;
   }
   try {
-    if (!(position.winner === EMPTY && proofAttack(host, position, depthLeft - 1, ply + 1, ttMask))) {
+    if (!(position.winner === EMPTY && host.proofAttack(position, depthLeft - 1, ply + 1))) {
       storeProofTT(host, ttIdx, hash, depthLeft, -1, move);
       return 1;
     }
@@ -155,7 +158,7 @@ export function verifyWinningMove(
   try {
     for (let maxDepth = 1; maxDepth <= host.maxPly; maxDepth += 2) {
       try {
-        if (proofDefend(host, position, maxDepth, 1, ttMask)) {
+        if (host.proofDefend(position, maxDepth, 1)) {
           return true;
         }
       } catch (error) {
@@ -189,8 +192,12 @@ export function proofAttack(
   if (result === 1) return true;
   if (result === -1) return false;
 
-  if (ttBest !== -1 && position.board[ttBest] === EMPTY && ttBest !== position.koPoint
-    && tryAttackMove(host, position, ttBest, depthLeft, ply, ttIdx, hash, ttMask)) {
+  if (
+    ttBest !== -1
+    && position.board[ttBest] === EMPTY
+    && ttBest !== position.koPoint
+    && tryAttackMove(host, position, ttBest, depthLeft, ply, ttIdx, hash, ttMask)
+  ) {
     return true;
   }
 
@@ -240,7 +247,8 @@ export function proofDefend(
   }
 
   const moves = host.moveBuffers[ply];
-  const tryMoves = (count: number): boolean => {
+  const tryMoves = (count: number): { legalCount: number; refuted: boolean } => {
+    let legalCount = 0;
     for (let i = 0; i < count; i += 1) {
       const move = moves[i];
       if (host.triedMoveMarks[move] === triedEpoch) {
@@ -252,15 +260,16 @@ export function proofDefend(
         continue;
       }
       anyLegalCount += 1;
+      legalCount += 1;
       if (result === 1) {
-        return true;
+        return { legalCount, refuted: true };
       }
     }
-    return false;
+    return { legalCount, refuted: false };
   };
 
-  const threatResponses = findThreatResponses(host, position, ply);
-  if (threatResponses > 0 && tryMoves(threatResponses)) {
+  const threatResponses = host.findThreatResponses(position, ply);
+  if (threatResponses > 0 && tryMoves(threatResponses).refuted) {
     return false;
   }
 
@@ -268,11 +277,11 @@ export function proofDefend(
   let count = host.generateOrderedMoves(position, moves, scores, -1, false, ply);
   let usedFullBoard = false;
   for (;;) {
-    const triedBefore = anyLegalCount;
-    if (tryMoves(count)) {
+    const stage = tryMoves(count);
+    if (stage.refuted) {
       return false;
     }
-    if (anyLegalCount !== triedBefore || usedFullBoard) {
+    if (stage.legalCount !== 0 || usedFullBoard) {
       break;
     }
     count = host.generateFullBoardMoves(position, moves, scores, -1, false, ply);
