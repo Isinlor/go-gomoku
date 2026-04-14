@@ -297,6 +297,47 @@ test('generatePuzzles finds beginner puzzles', { timeout: 60_000 }, () => {
 });
 
 // ---------------------------------------------------------------------------
+// Regression: reject puzzles where captures neutralize threats
+// ---------------------------------------------------------------------------
+
+test('rejects puzzle where defender can capture to break double threat', () => {
+  // Position: B9 e5 e6 f6 d5 d6 b3 d4 — White to move.
+  // Without the capture check, the searcher sees a "forced win" via c4
+  // (creating double threat at a2 and f7 on the b3-c4-d5-e6 diagonal).
+  // However, Black can play c5 (capturing d5) or e7 (capturing e6),
+  // which neutralizes both threats in one move.
+  const pos = decodeGame('B9 e5 e6 f6 d5 d6 b3 d4');
+  expect(pos.toMove).toBe(WHITE);
+
+  const searcher = new ForcedWinSearcher(81, 10);
+
+  // c4 should NOT be a forced win for White (captures break the threats)
+  const c4 = decodeMove('c4', 9);
+  expect(searcher.forcedWinDepthForMove(pos, c4, 3)).toBe(-1);
+
+  // White should not have a forced win in 3 plies from this position
+  expect(searcher.hasForcedWin(pos, WHITE, 3)).toBe(false);
+
+  // The position should be rejected as a puzzle
+  expect(validatePuzzlePosition(pos, BEGINNER, searcher)).toBeNull();
+
+  // Verify that the captures actually work
+  pos.play(c4); // White plays c4
+  const c5 = decodeMove('c5', 9);
+  pos.play(c5); // Black captures d5
+  expect(pos.lastCapturedCount).toBe(1);
+  const d5 = decodeMove('d5', 9);
+  expect(pos.board[d5]).toBe(EMPTY); // d5 was captured
+  pos.undo();
+
+  const e7 = decodeMove('e7', 9);
+  pos.play(e7); // Black captures e6
+  expect(pos.lastCapturedCount).toBe(1);
+  const e6 = decodeMove('e6', 9);
+  expect(pos.board[e6]).toBe(EMPTY); // e6 was captured
+});
+
+// ---------------------------------------------------------------------------
 // Difficulty constants
 // ---------------------------------------------------------------------------
 
