@@ -419,6 +419,18 @@ export class GogoAI {
       if (ttFlag === TT_UPPERBOUND && ttScore <= alpha) return ttScore;
     }
 
+    // Reverse futility pruning (RFP): at shallow depths, if the static eval
+    // is already well above beta, the position is so good that a full search
+    // is unlikely to change the outcome. Skip searching entirely.
+    // Skipped in proof mode because RFP is unsound.
+    if (!this.proofMode && depth <= 3 && !this.isForcedWinScore(beta, ply) && !this.isForcedLossScore(alpha, ply)) {
+      const rfpMargin = depth * 120;
+      const staticEval = this.evaluate(position);
+      if (staticEval - rfpMargin >= beta) {
+        return staticEval;
+      }
+    }
+
     // Null move pruning: if we give the opponent a free move and they still
     // can't beat beta, the position is likely good enough to prune.
     // Skipped in proof mode because NMP is unsound (can miss forced wins).
@@ -843,6 +855,7 @@ export class GogoAI {
   private proofTTHash = new Int32Array(TT_SIZE);
   private proofTTResult = new Int8Array(TT_SIZE);   // 1 = proven win, -1 = proven loss, 0 = unknown
   private proofTTDepth = new Int8Array(TT_SIZE);
+  private proofTTBestMove = new Int16Array(TT_SIZE);
 
   /**
    * Verify that playing `move` leads to a forced win for the current side.
@@ -854,9 +867,15 @@ export class GogoAI {
     this.deadline = this.now() + Math.max(0, timeLimitMs);
     this.nodesVisited = 0;
     this.timedOut = false;
+    // Reset proof TT and search heuristics to prevent Phase 1 state
+    // (history/killers) from polluting proof move ordering, which can cause
+    // TT collision patterns that make the proof incomplete.
+    this.history.fill(0);
+    this.killerMoves.fill(-1);
     this.proofTTHash.fill(0);
     this.proofTTResult.fill(0);
     this.proofTTDepth.fill(0);
+    this.proofTTBestMove.fill(-1);
 
     if (!position.play(move)) return false;
     try {
@@ -899,9 +918,37 @@ export class GogoAI {
     // Proof TT probe
     const hash = position.hash;
     const ttIdx = hash & TT_MASK;
-    if (this.proofTTHash[ttIdx] === hash && this.proofTTDepth[ttIdx] >= depthLeft) {
-      if (this.proofTTResult[ttIdx] === 1) return true;
-      if (this.proofTTResult[ttIdx] === -1) return false;
+    let ttBest = -1;
+    if (this.proofTTHash[ttIdx] === hash) {
+      if (this.proofTTDepth[ttIdx] >= depthLeft) {
+        if (this.proofTTResult[ttIdx] === 1) return true;
+        if (this.proofTTResult[ttIdx] === -1) return false;
+      }
+      ttBest = this.proofTTBestMove[ttIdx];
+    }
+
+    // Hash move first: try the TT best move before generating all tactical moves.
+    // This skips move generation entirely when the previous iteration's winning move still works.
+    if (ttBest !== -1 && position.board[ttBest] === EMPTY && ttBest !== position.koPoint) {
+      if (position.play(ttBest)) {
+        let wins: boolean;
+        try {
+          if (position.winner !== EMPTY) {
+            wins = true;
+          } else {
+            wins = this.proofDefend(position, depthLeft - 1, ply + 1);
+          }
+        } finally {
+          position.undo();
+        }
+        if (wins) {
+          this.proofTTHash[ttIdx] = hash;
+          this.proofTTResult[ttIdx] = 1;
+          this.proofTTDepth[ttIdx] = depthLeft;
+          this.proofTTBestMove[ttIdx] = ttBest;
+          return true;
+        }
+      }
     }
 
     // Generate only tactical (forcing) moves for the attacker
@@ -911,6 +958,7 @@ export class GogoAI {
 
     for (let i = 0; i < count; i += 1) {
       const m = moves[i];
+      if (m === ttBest) continue; // already tried above
       if (!position.play(m)) continue;
       let wins: boolean;
       try {
@@ -928,6 +976,7 @@ export class GogoAI {
         this.proofTTHash[ttIdx] = hash;
         this.proofTTResult[ttIdx] = 1;
         this.proofTTDepth[ttIdx] = depthLeft;
+        this.proofTTBestMove[ttIdx] = m;
         return true;
       }
     }
@@ -955,47 +1004,152 @@ export class GogoAI {
     // Proof TT probe
     const hash = position.hash;
     const ttIdx = hash & TT_MASK;
-    if (this.proofTTHash[ttIdx] === hash && this.proofTTDepth[ttIdx] >= depthLeft) {
-      if (this.proofTTResult[ttIdx] === 1) return true;
-      if (this.proofTTResult[ttIdx] === -1) return false;
+    let ttBest = -1;
+    if (this.proofTTHash[ttIdx] === hash) {
+      if (this.proofTTDepth[ttIdx] >= depthLeft) {
+        if (this.proofTTResult[ttIdx] === 1) return true;
+        if (this.proofTTResult[ttIdx] === -1) return false;
+      }
+      ttBest = this.proofTTBestMove[ttIdx];
     }
 
-    // Generate ALL legal moves for the defender — no cap.
-    // The defender must be sound: capping could miss a refutation.
-    const moves = this.moveBuffers[ply];
-    const scores = this.scoreBuffers[ply];
-    let count = this.generateOrderedMoves(position, moves, scores, -1, false, ply);
-    let usedFullBoard = false;
     let legalCount = 0;
 
-    for (;;) {
-      for (let i = 0; i < count; i += 1) {
-        const m = moves[i];
-        if (!position.play(m)) continue;
+    // Hash move first: try the TT best move (refutation from previous iteration)
+    // before generating all moves. Skips expensive move generation when refutation holds.
+    if (ttBest !== -1 && position.board[ttBest] === EMPTY && ttBest !== position.koPoint) {
+      if (position.play(ttBest)) {
         legalCount += 1;
         let attackerWins: boolean;
         try {
           if (position.winner !== EMPTY) {
-            // Defender made five - defense succeeded, attacker can't win
             attackerWins = false;
           } else {
-            // Attacker's turn: needs at least one forcing win
             attackerWins = this.proofAttack(position, depthLeft - 1, ply + 1);
           }
         } finally {
           position.undo();
         }
         if (!attackerWins) {
-          // Defender found a refutation - win not proven
           this.proofTTHash[ttIdx] = hash;
           this.proofTTResult[ttIdx] = -1;
           this.proofTTDepth[ttIdx] = depthLeft;
+          this.proofTTBestMove[ttIdx] = ttBest;
           return false;
         }
       }
-      if (legalCount !== 0 || usedFullBoard) break;
-      count = this.generateFullBoardMoves(position, moves, scores, -1, false, ply);
-      usedFullBoard = true;
+    }
+
+    // Must-respond threat restriction: when the attacker has an immediate
+    // winning threat (open four), the defender MUST address it — either by
+    // blocking, capturing attacker stones, or winning immediately.
+    // Any other move allows the attacker to complete the four next turn.
+    // This is sound because non-response moves lead to immediate loss.
+    // Fallback to full generation ensures no defense is missed.
+    const threatResponses = this.findThreatResponses(position, ply);
+
+    if (threatResponses >= 0) {
+      // Try restricted response moves
+      const moves = this.moveBuffers[ply];
+      for (let i = 0; i < threatResponses; i += 1) {
+        const m = moves[i];
+        if (m === ttBest) continue; // already tried above
+        if (!position.play(m)) continue;
+        legalCount += 1;
+        let attackerWins: boolean;
+        try {
+          if (position.winner !== EMPTY) {
+            attackerWins = false;
+          } else {
+            attackerWins = this.proofAttack(position, depthLeft - 1, ply + 1);
+          }
+        } finally {
+          position.undo();
+        }
+        if (!attackerWins) {
+          this.proofTTHash[ttIdx] = hash;
+          this.proofTTResult[ttIdx] = -1;
+          this.proofTTDepth[ttIdx] = depthLeft;
+          this.proofTTBestMove[ttIdx] = m;
+          return false;
+        }
+      }
+
+      // Soundness fallback: if all restricted responses failed, try remaining
+      // moves. This handles rare edge cases (e.g., a distant move creates a ko
+      // that blocks the threat point, making the four uncompletable).
+      const threatEpoch = this.candidateEpoch;
+      const allMoves = this.moveBuffers[ply];
+      const allScores = this.scoreBuffers[ply];
+      let allCount = this.generateOrderedMoves(position, allMoves, allScores, -1, false, ply);
+      let usedFullBoard = false;
+      for (;;) {
+        for (let i = 0; i < allCount; i += 1) {
+          const m = allMoves[i];
+          if (m === ttBest) continue; // already tried
+          if (this.candidateMarks[m] === threatEpoch) continue; // already tried in restricted set
+          if (!position.play(m)) continue;
+          legalCount += 1;
+          let attackerWins: boolean;
+          try {
+            if (position.winner !== EMPTY) {
+              attackerWins = false;
+            } else {
+              attackerWins = this.proofAttack(position, depthLeft - 1, ply + 1);
+            }
+          } finally {
+            position.undo();
+          }
+          if (!attackerWins) {
+            this.proofTTHash[ttIdx] = hash;
+            this.proofTTResult[ttIdx] = -1;
+            this.proofTTDepth[ttIdx] = depthLeft;
+            this.proofTTBestMove[ttIdx] = m;
+            return false;
+          }
+        }
+        if (legalCount !== 0 || usedFullBoard) break;
+        allCount = this.generateFullBoardMoves(position, allMoves, allScores, -1, false, ply);
+        usedFullBoard = true;
+      }
+    } else {
+      // No immediate threat — generate ALL legal moves (original path)
+      const moves = this.moveBuffers[ply];
+      const scores = this.scoreBuffers[ply];
+      let count = this.generateOrderedMoves(position, moves, scores, -1, false, ply);
+      let usedFullBoard = false;
+
+      for (;;) {
+        for (let i = 0; i < count; i += 1) {
+          const m = moves[i];
+          if (m === ttBest) continue; // already tried above
+          if (!position.play(m)) continue;
+          legalCount += 1;
+          let attackerWins: boolean;
+          try {
+            if (position.winner !== EMPTY) {
+              // Defender made five - defense succeeded, attacker can't win
+              attackerWins = false;
+            } else {
+              // Attacker's turn: needs at least one forcing win
+              attackerWins = this.proofAttack(position, depthLeft - 1, ply + 1);
+            }
+          } finally {
+            position.undo();
+          }
+          if (!attackerWins) {
+            // Defender found a refutation - win not proven
+            this.proofTTHash[ttIdx] = hash;
+            this.proofTTResult[ttIdx] = -1;
+            this.proofTTDepth[ttIdx] = depthLeft;
+            this.proofTTBestMove[ttIdx] = m;
+            return false;
+          }
+        }
+        if (legalCount !== 0 || usedFullBoard) break;
+        count = this.generateFullBoardMoves(position, moves, scores, -1, false, ply);
+        usedFullBoard = true;
+      }
     }
 
     // No legal moves → neutral (not proven). Matches search()'s neutral semantics.
@@ -1008,5 +1162,96 @@ export class GogoAI {
     this.proofTTResult[ttIdx] = 1;
     this.proofTTDepth[ttIdx] = depthLeft;
     return true;
+  }
+
+  /**
+   * Find restricted defender responses when the attacker has an immediate
+   * winning threat (open four). Returns the number of response moves written
+   * to moveBuffers[ply], or -1 if no immediate threat exists.
+   *
+   * Response moves include:
+   * 1. Blocking cells — empty cells in attacker's four-windows
+   * 2. Capture cells — last-liberty cells of attacker groups
+   * 3. Own-winning cells — empty cells in defender's four-windows
+   *
+   * This is sound because any other defender move allows the attacker to
+   * complete the four on the next turn.
+   */
+  private findThreatResponses(position: GogoPosition, ply: number): number {
+    const attacker: Player = position.toMove === BLACK ? WHITE : BLACK;
+    const defender = position.toMove;
+    const meta = position.meta;
+    const windows = meta.windows;
+    const board = position.board;
+
+    this.candidateEpoch += 1;
+    const moves = this.moveBuffers[ply];
+    const scores = this.scoreBuffers[ply];
+    let count = 0;
+    let hasThreat = false;
+
+    // Scan all windows for attacker's open fours and defender's open fours
+    for (let wi = 0; wi < meta.windowCount; wi += 1) {
+      const base = wi * 5;
+      let atkCount = 0;
+      let defCount = 0;
+      let emptyCell = -1;
+      for (let j = 0; j < 5; j += 1) {
+        const c = board[windows[base + j]];
+        if (c === attacker) atkCount += 1;
+        else if (c === defender) defCount += 1;
+        else emptyCell = windows[base + j];
+      }
+
+      // Attacker has 4 in this window with 1 empty = immediate threat
+      if (atkCount === 4 && defCount === 0 && emptyCell !== -1 && emptyCell !== position.koPoint) {
+        hasThreat = true;
+        if (this.candidateMarks[emptyCell] !== this.candidateEpoch) {
+          this.candidateMarks[emptyCell] = this.candidateEpoch;
+          this.insertMove(moves, scores, count, emptyCell, 2_000_000);
+          count += 1;
+        }
+      }
+
+      // Defender has 4 in a window = can win immediately
+      if (defCount === 4 && atkCount === 0 && emptyCell !== -1 && emptyCell !== position.koPoint) {
+        if (this.candidateMarks[emptyCell] !== this.candidateEpoch) {
+          this.candidateMarks[emptyCell] = this.candidateEpoch;
+          this.insertMove(moves, scores, count, emptyCell, 3_000_000);
+          count += 1;
+        }
+      }
+    }
+
+    if (!hasThreat) return -1;
+
+    // Find capture moves: cells that are the last liberty of an attacker group.
+    // Playing there captures the group, potentially breaking the four.
+    this.scorerGroupEpoch += 1;
+    for (let point = 0; point < position.area; point += 1) {
+      if (board[point] !== attacker || this.scorerGroupMarks[point] === this.scorerGroupEpoch) continue;
+      const liberties = position.scanGroup(point, attacker);
+      for (let gi = 0; gi < position.scanGroupSize; gi += 1) {
+        this.scorerGroupMarks[position.groupBuffer[gi]] = this.scorerGroupEpoch;
+      }
+      if (liberties === 1) {
+        // Find the single liberty cell among the group's neighbors
+        for (let gi = 0; gi < position.scanGroupSize; gi += 1) {
+          const stone = position.groupBuffer[gi];
+          const neighborBase = stone * 4;
+          for (let offset = 0; offset < 4; offset += 1) {
+            const n = meta.neighbors4[neighborBase + offset];
+            if (n !== -1 && board[n] === EMPTY && n !== position.koPoint &&
+                this.candidateMarks[n] !== this.candidateEpoch) {
+              this.candidateMarks[n] = this.candidateEpoch;
+              this.insertMove(moves, scores, count, n, 1_500_000);
+              count += 1;
+            }
+          }
+        }
+      }
+    }
+
+    return count;
   }
 }
