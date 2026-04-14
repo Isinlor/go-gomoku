@@ -98,3 +98,11 @@ test('all puzzles have valid wonEncoded and winningMoves', () => {
     expect(pos.encodeGame()).toBe(puzzle.wonEncoded);
   }
 });
+
+test('AI proves forced win for edge attack position B9 e9 e8 f9 g9', { timeout: 120_000 }, () => {
+  const position = decodeGame('B9 e9 e8 f9 g9');
+  const ai = new GogoAI({ maxDepth: 30, quiescenceDepth: 4 });
+  const result = ai.findBestMove(position, 60_000);
+  expect(result.forcedWin).toBe(true);
+  expect(result.heuristicWin).toBe(true);
+});

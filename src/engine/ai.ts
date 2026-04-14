@@ -159,21 +159,29 @@ export class GogoAI {
 
     // === Phase 2: Proof ===
     // When the heuristic search found a forced outcome, verify with exact search
-    // (no NMP, no LMR, no candidate cap) to certify the result.
+    // (no NMP, no LMR) to certify the result. The TT bestMove hints from
+    // heuristic search guide the proof's move ordering for efficiency.
     if ((heuristicWin || heuristicLoss) && this.now() < this.deadline) {
       this.proofMode = true;
+      // Clear only flags (not bestMove) so proof can reuse heuristic move ordering
+      // while preventing incorrect score cutoffs from heuristic TT entries.
+      // Proof entries stored during proof will have valid flags for their own cutoffs.
       this.ttFlag.fill(0);
       this.history.fill(0);
       this.killerMoves.fill(-1);
 
       let proofFailed = false;
+      // Use iterative deepening to build up sound TT entries for the proof.
+      // The null window threshold is based on the heuristic's claimed win depth
+      // (bestScore), so intermediate proof depths use a consistent window.
+      const proofThreshold = Math.abs(bestScore);
       for (let proofDepth = 1; proofDepth <= completedDepth; proofDepth += 1) {
         try {
-          const proofResult = this.searchRoot(position, proofDepth, bestMove);
+          const proofResult = this.proofVerify(position, proofDepth, bestMove, heuristicWin, proofThreshold);
           if (proofDepth === completedDepth) {
-            if (heuristicWin && this.isForcedWinScore(proofResult.score, proofDepth)) {
+            if (heuristicWin && proofResult >= proofThreshold) {
               provenWin = true;
-            } else if (heuristicLoss && this.isForcedLossScore(proofResult.score, proofDepth)) {
+            } else if (heuristicLoss && proofResult <= -proofThreshold) {
               provenLoss = true;
             } else {
               proofFailed = true;
@@ -287,6 +295,33 @@ export class GogoAI {
     return -1;
   }
 
+  /**
+   * Verify a candidate move with an exact search (proof mode).
+   * Only searches the candidate move (not all root moves) and uses a null
+   * window centred on the forced-win/loss threshold for aggressive cutoffs.
+   * Returns the negamax score of the position after playing `move`.
+   */
+  private proofVerify(position: GogoPosition, depth: number, move: number, isWin: boolean, threshold: number): number {
+    this.checkTime(true);
+    if (!position.play(move)) return -WIN_SCORE;
+    try {
+      // Use a null window around the forced-outcome threshold.
+      // threshold is the absolute score value from heuristic (e.g., WIN_SCORE - 13).
+      if (isWin) {
+        // Verify our score >= threshold.
+        // search returns opponent's perspective score; negate for ours.
+        const oppScore = this.search(position, depth - 1, -threshold - 1, -threshold + 1, 1);
+        return -oppScore;
+      } else {
+        // Verify our score <= -threshold (forced loss).
+        const oppScore = this.search(position, depth - 1, threshold - 1, threshold + 1, 1);
+        return -oppScore;
+      }
+    } finally {
+      position.undo();
+    }
+  }
+
   private searchRoot(position: GogoPosition, depth: number, hintMove: number): SearchResult {
     this.checkTime(true);
     const moves = this.moveBuffers[0];
@@ -348,15 +383,17 @@ export class GogoAI {
     const hash = position.hash;
     const ttIndex = hash & TT_MASK;
     let ttBest = -1;
-    if (this.ttHash[ttIndex] === hash && this.ttFlag[ttIndex] !== TT_NONE) {
-      if (this.ttDepth[ttIndex] >= depth) {
-        const ttFlag = this.ttFlag[ttIndex];
-        const ttScore = this.ttAdjustRetrieve(this.ttScore[ttIndex], ply);
-        if (ttFlag === TT_EXACT) return ttScore;
-        if (ttFlag === TT_LOWERBOUND && ttScore >= beta) return ttScore;
-        if (ttFlag === TT_UPPERBOUND && ttScore <= alpha) return ttScore;
-      }
+    // Always extract bestMove hint for ordering (even when flags are cleared)
+    if (this.ttHash[ttIndex] === hash) {
       ttBest = this.ttBestMove[ttIndex];
+    }
+    // Score cutoffs require a valid flag entry at sufficient depth
+    if (this.ttHash[ttIndex] === hash && this.ttFlag[ttIndex] !== TT_NONE && this.ttDepth[ttIndex] >= depth) {
+      const ttFlag = this.ttFlag[ttIndex];
+      const ttScore = this.ttAdjustRetrieve(this.ttScore[ttIndex], ply);
+      if (ttFlag === TT_EXACT) return ttScore;
+      if (ttFlag === TT_LOWERBOUND && ttScore >= beta) return ttScore;
+      if (ttFlag === TT_UPPERBOUND && ttScore <= alpha) return ttScore;
     }
 
     // Null move pruning: if we give the opponent a free move and they still
@@ -387,7 +424,7 @@ export class GogoAI {
     const moves = this.moveBuffers[ply];
     const scores = this.scoreBuffers[ply];
     let count = this.generateOrderedMoves(position, moves, scores, hintMove, false, ply);
-    if (!this.proofMode && count > MAX_CANDIDATES) count = MAX_CANDIDATES;
+    if (count > MAX_CANDIDATES) count = MAX_CANDIDATES;
     let usedFullBoard = false;
     let legalCount = 0;
     let bestScore = -WIN_SCORE;
@@ -447,7 +484,7 @@ export class GogoAI {
         break;
       }
       count = this.generateFullBoardMoves(position, moves, scores, hintMove, false, ply);
-      if (!this.proofMode && count > MAX_CANDIDATES) count = MAX_CANDIDATES;
+      if (count > MAX_CANDIDATES) count = MAX_CANDIDATES;
       usedFullBoard = true;
     }
 

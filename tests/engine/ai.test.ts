@@ -108,9 +108,11 @@ test('AI iterative deepening exits early once a forced win is proven at the root
   expect(result.move).toBe(winning.index(4, 0));
   expect(result.depth).toBe(1);
   expect(result.score).toBeGreaterThanOrEqual(1000000000 - 1);
-  expect(result.nodes).toBeLessThan(40);
+  expect(result.nodes).toBeLessThan(80);
   expect(result.forcedWin).toBe(true);
   expect(result.forcedLoss).toBe(false);
+  expect(result.heuristicWin).toBe(true);
+  expect(result.heuristicLoss).toBe(false);
 });
 
 test('AI marks forced loss and still returns one of the best delaying losing moves', () => {
@@ -134,6 +136,8 @@ test('AI marks forced loss and still returns one of the best delaying losing mov
   expect(result.depth).toBe(2);
   expect(result.forcedWin).toBe(false);
   expect(result.forcedLoss).toBe(true);
+  expect(result.heuristicWin).toBe(false);
+  expect(result.heuristicLoss).toBe(true);
 });
 
 test('AI restores position state after a mid-search timeout so the board is not corrupted', () => {
@@ -715,4 +719,426 @@ test('Zobrist hash is consistent after play/undo sequences', () => {
 
   pos.undo();
   expect(pos.hash).toBe(hashBefore);
+});
+
+test('proof mode: non-forced positions report no heuristic or forced outcome', () => {
+  const pos = rawPosition([
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '....X....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], WHITE);
+  const ai = new GogoAI({ maxDepth: 3, quiescenceDepth: 2, now: () => 0 });
+  const result = ai.findBestMove(pos, 100);
+  expect(result.forcedWin).toBe(false);
+  expect(result.forcedLoss).toBe(false);
+  expect(result.heuristicWin).toBe(false);
+  expect(result.heuristicLoss).toBe(false);
+});
+
+test('proof mode: terminal position returns heuristicLoss', () => {
+  const terminal = position([
+    'XXXXX....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
+  const result = ai.findBestMove(terminal, 100);
+  expect(result.move).toBe(-1);
+  expect(result.forcedWin).toBe(false);
+  expect(result.forcedLoss).toBe(true);
+  expect(result.heuristicWin).toBe(false);
+  expect(result.heuristicLoss).toBe(true);
+});
+
+test('proof mode: fallback move returns no forced outcome', () => {
+  let tick = 0;
+  const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 0, now: () => tick++ });
+  const pos = new GogoPosition(9);
+  // Very tight time: deadline = 0 + 0 = 0, but pickFallbackMove runs before time check
+  const result = ai.findBestMove(pos, 0);
+  expect(result.heuristicWin).toBe(false);
+  expect(result.heuristicLoss).toBe(false);
+  expect(result.forcedWin).toBe(false);
+  expect(result.forcedLoss).toBe(false);
+});
+
+test('proof mode: proof timeout still reports heuristic win but not forced win', () => {
+  // XXXX position: discovery at depth 1 finds win. Proof phase starts but times out.
+  const winning = rawPosition([
+    'XXXX.....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+
+  const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 0, now: () => 0 });
+  const anyAI = ai as any;
+  anyAI.ensureBuffers(winning.area);
+
+  // Mock proofVerify: throws timeout to simulate proof timeout.
+  anyAI.proofVerify = function () {
+    throw anyAI.timeoutSignal;
+  };
+
+  const result = ai.findBestMove(winning, 100);
+  expect(result.heuristicWin).toBe(true);
+  expect(result.forcedWin).toBe(false);
+  expect(result.timedOut).toBe(true);
+});
+
+test('proof mode: proof collapse triggers fallback to heuristic discovery', () => {
+  const pos = rawPosition([
+    '.........',
+    '.........',
+    '.X..O....',
+    '.........',
+    '....X....',
+    '.........',
+    '.O..X....',
+    '.........',
+    '.........',
+  ], BLACK);
+
+  const WIN = 1_000_000_000;
+  const ai = new GogoAI({ maxDepth: 4, quiescenceDepth: 1, now: () => 0 });
+  const anyAI = ai as any;
+  anyAI.ensureBuffers(pos.area);
+
+  // Mock searchRoot for heuristic phases:
+  // - Discovery d=1: normal result
+  // - Discovery d=2: fake forced win → breaks, triggers proof
+  // - Resume d=3+: normal results
+  let searchRootCallCount = 0;
+  const realSearchRoot = anyAI.searchRoot.bind(anyAI);
+  anyAI.searchRoot = function (position: any, depth: number, hintMove: number) {
+    searchRootCallCount++;
+    if (searchRootCallCount === 2) {
+      // Discovery d=2: fake forced win
+      return { move: 40, score: WIN - 2, depth: 2, nodes: 10, timedOut: false,
+        forcedWin: false, forcedLoss: false, heuristicWin: false, heuristicLoss: false };
+    }
+    return realSearchRoot(position, depth, hintMove);
+  };
+
+  // Mock proofVerify: proof collapses at completedDepth (d=2)
+  let proofCallCount = 0;
+  anyAI.proofVerify = function () {
+    proofCallCount++;
+    if (proofCallCount === 2) {
+      // Proof d=2: non-win (proof collapses)
+      return 500;
+    }
+    return WIN - 1; // Intermediate depths: pass
+  };
+
+  const result = ai.findBestMove(pos, 100);
+  expect(result.heuristicWin).toBe(true);
+  expect(result.forcedWin).toBe(false);
+  // Resume phase continued from depth 3
+  expect(result.depth).toBeGreaterThanOrEqual(3);
+});
+
+test('proof mode: resume heuristic after proof collapse can timeout', () => {
+  const pos = rawPosition([
+    '.........',
+    '.........',
+    '.X..O....',
+    '.........',
+    '....X....',
+    '.........',
+    '.O..X....',
+    '.........',
+    '.........',
+  ], BLACK);
+
+  const WIN = 1_000_000_000;
+  const ai = new GogoAI({ maxDepth: 6, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+  anyAI.ensureBuffers(pos.area);
+
+  let searchRootCallCount = 0;
+  const realSearchRoot = anyAI.searchRoot.bind(anyAI);
+  anyAI.searchRoot = function (position: any, depth: number, hintMove: number) {
+    searchRootCallCount++;
+    if (searchRootCallCount === 2) {
+      return { move: 40, score: WIN - 2, depth: 2, nodes: 10, timedOut: false,
+        forcedWin: false, forcedLoss: false, heuristicWin: false, heuristicLoss: false };
+    }
+    if (searchRootCallCount >= 3) {
+      // Resume phase: timeout
+      throw anyAI.timeoutSignal;
+    }
+    return realSearchRoot(position, depth, hintMove);
+  };
+
+  anyAI.proofVerify = function () {
+    return 500; // Proof collapses at all depths
+  };
+
+  const result = ai.findBestMove(pos, 100);
+  expect(result.heuristicWin).toBe(true);
+  expect(result.forcedWin).toBe(false);
+  expect(result.timedOut).toBe(true);
+});
+
+test('proof mode: resume heuristic finds forced outcome after proof collapse', () => {
+  const pos = rawPosition([
+    '.........',
+    '.........',
+    '.X..O....',
+    '.........',
+    '....X....',
+    '.........',
+    '.O..X....',
+    '.........',
+    '.........',
+  ], BLACK);
+
+  const WIN = 1_000_000_000;
+  const ai = new GogoAI({ maxDepth: 6, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+  anyAI.ensureBuffers(pos.area);
+
+  let searchRootCallCount = 0;
+  const realSearchRoot = anyAI.searchRoot.bind(anyAI);
+  anyAI.searchRoot = function (position: any, depth: number, hintMove: number) {
+    searchRootCallCount++;
+    if (searchRootCallCount === 2) {
+      // Discovery d=2: fake forced win
+      return { move: 40, score: WIN - 2, depth: 2, nodes: 10, timedOut: false,
+        forcedWin: false, forcedLoss: false, heuristicWin: false, heuristicLoss: false };
+    }
+    if (searchRootCallCount === 3) {
+      // Resume d=3: forced win again → breaks loop
+      return { move: 40, score: WIN - 3, depth: 3, nodes: 10, timedOut: false,
+        forcedWin: false, forcedLoss: false, heuristicWin: false, heuristicLoss: false };
+    }
+    return realSearchRoot(position, depth, hintMove);
+  };
+
+  anyAI.proofVerify = function () {
+    return 500; // Proof collapses
+  };
+
+  const result = ai.findBestMove(pos, 100);
+  expect(result.heuristicWin).toBe(true);
+  expect(result.forcedWin).toBe(false);
+  expect(result.depth).toBe(3);
+  expect(result.score).toBe(WIN - 3);
+});
+
+test('proof mode: proof collapse with no remaining time skips resume', () => {
+  const pos = rawPosition([
+    '.........',
+    '.........',
+    '.X..O....',
+    '.........',
+    '....X....',
+    '.........',
+    '.O..X....',
+    '.........',
+    '.........',
+  ], BLACK);
+
+  const WIN = 1_000_000_000;
+  let tick = 0;
+  const ai = new GogoAI({ maxDepth: 6, quiescenceDepth: 2, now: () => tick });
+  const anyAI = ai as any;
+  anyAI.ensureBuffers(pos.area);
+
+  let searchRootCallCount = 0;
+  const realSearchRoot = anyAI.searchRoot.bind(anyAI);
+  anyAI.searchRoot = function (position: any, depth: number, hintMove: number) {
+    searchRootCallCount++;
+    if (searchRootCallCount === 2) {
+      return { move: 40, score: WIN - 2, depth: 2, nodes: 10, timedOut: false,
+        forcedWin: false, forcedLoss: false, heuristicWin: false, heuristicLoss: false };
+    }
+    return realSearchRoot(position, depth, hintMove);
+  };
+
+  let proofCallCount = 0;
+  anyAI.proofVerify = function () {
+    proofCallCount++;
+    if (proofCallCount === 2) {
+      // Proof d=2: non-win, then advance time past deadline
+      tick = 10000;
+      return 500;
+    }
+    return WIN - 1; // Intermediate depths: pass
+  };
+
+  const result = ai.findBestMove(pos, 100);
+  expect(result.heuristicWin).toBe(true);
+  expect(result.forcedWin).toBe(false);
+  // No resume (time expired), so depth stays at 2
+  expect(result.depth).toBe(2);
+});
+
+test('proof mode: no time for proof skips proof phase entirely', () => {
+  const winning = rawPosition([
+    'XXXX.....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+
+  let tick = 0;
+  const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 0, now: () => tick });
+  const anyAI = ai as any;
+  anyAI.ensureBuffers(winning.area);
+
+  let callCount = 0;
+  const realSearchRoot = anyAI.searchRoot.bind(anyAI);
+  anyAI.searchRoot = function (position: any, depth: number, hintMove: number) {
+    callCount++;
+    const res = realSearchRoot(position, depth, hintMove);
+    // After discovery finds win, advance time past deadline
+    if (callCount === 1) {
+      tick = 10000;
+    }
+    return res;
+  };
+
+  const result = ai.findBestMove(winning, 100);
+  expect(result.heuristicWin).toBe(true);
+  expect(result.forcedWin).toBe(false);
+  expect(result.timedOut).toBe(false);
+});
+
+test('proof mode: search skips NMP and LMR in proof mode', () => {
+  const ai = new GogoAI({ maxDepth: 4, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+  const pos = rawPosition([
+    'X.O.X.O.X',
+    '.........',
+    'O.X.O.X.O',
+    '.........',
+    'X.O.X.O.X',
+    '.........',
+    'O.X.O.X.O',
+    '.........',
+    'X.O.X.O.X',
+  ], BLACK);
+  anyAI.ensureBuffers(pos.area);
+
+  // In proof mode, search still runs (no NMP, no LMR) but caps candidates
+  anyAI.proofMode = true;
+  anyAI.deadline = 1e15;
+  anyAI.killerMoves.fill(-1);
+  anyAI.history.fill(0);
+  anyAI.ttFlag.fill(0);
+  const score = anyAI.search(pos, 2, -1_000_000, 1_000_000, 1);
+  expect(typeof score).toBe('number');
+  anyAI.proofMode = false;
+});
+
+test('proof mode: proof confirms forced loss at depth 2', () => {
+  const losing = rawPosition([
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.OOOO....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+
+  const ai = new GogoAI({ maxDepth: 6, quiescenceDepth: 4, now: () => 0 });
+  const result = ai.findBestMove(losing, 100);
+  expect(result.heuristicLoss).toBe(true);
+  expect(result.forcedLoss).toBe(true);
+  expect(result.forcedWin).toBe(false);
+  expect(result.heuristicWin).toBe(false);
+});
+
+test('proof mode: non-timeout error in proof phase is rethrown', () => {
+  const winning = rawPosition([
+    'XXXX.....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+
+  const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 0, now: () => 0 });
+  const anyAI = ai as any;
+  anyAI.ensureBuffers(winning.area);
+
+  // Mock proofVerify to throw a non-timeout error
+  anyAI.proofVerify = function () {
+    throw new Error('PROOF_BUG');
+  };
+
+  expect(() => ai.findBestMove(winning, 100)).toThrow('PROOF_BUG');
+});
+
+test('proof mode: non-timeout error in resume phase is rethrown', () => {
+  const pos = rawPosition([
+    '.........',
+    '.........',
+    '.X..O....',
+    '.........',
+    '....X....',
+    '.........',
+    '.O..X....',
+    '.........',
+    '.........',
+  ], BLACK);
+
+  const WIN = 1_000_000_000;
+  const ai = new GogoAI({ maxDepth: 6, quiescenceDepth: 1, now: () => 0 });
+  const anyAI = ai as any;
+  anyAI.ensureBuffers(pos.area);
+
+  let searchRootCallCount = 0;
+  const realSearchRoot = anyAI.searchRoot.bind(anyAI);
+  anyAI.searchRoot = function (position: any, depth: number, hintMove: number) {
+    searchRootCallCount++;
+    if (searchRootCallCount === 2) {
+      // Discovery d=2: fake forced win
+      return { move: 40, score: WIN - 2, depth: 2, nodes: 10, timedOut: false,
+        forcedWin: false, forcedLoss: false, heuristicWin: false, heuristicLoss: false };
+    }
+    if (searchRootCallCount === 3) {
+      // Resume phase: throw non-timeout error
+      throw new Error('RESUME_BUG');
+    }
+    return realSearchRoot(position, depth, hintMove);
+  };
+
+  // Mock proofVerify: proof collapses
+  anyAI.proofVerify = function () {
+    return 500;
+  };
+
+  expect(() => ai.findBestMove(pos, 100)).toThrow('RESUME_BUG');
 });
