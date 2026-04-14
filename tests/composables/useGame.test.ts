@@ -1320,8 +1320,7 @@ describe('useGame', () => {
     expect(probabilities.length).toBeGreaterThan(0);
     expect(probabilities.every((prob) => prob > 0)).toBe(true);
     const probabilitySum = probabilities.reduce((sum, value) => sum + value, 0);
-    expect(probabilitySum).toBeGreaterThan(0.99);
-    expect(probabilitySum).toBeLessThan(1.01);
+    expect(probabilitySum).toBeCloseTo(1, 10);
     expect(gameState.statusExtra.value).toContain('Board eval depth');
     wrapper.unmount();
   });

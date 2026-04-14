@@ -559,7 +559,7 @@ test('collectRootLegalMoves and evaluateBoardDepth skip illegal plays and fallba
     return 1;
   };
   const fake = {
-    play(move: number) { return move === 1; },
+    play(moveIndex: number) { return moveIndex === 1; },
     undo() { return true; },
   };
   expect(anyAI.collectRootLegalMoves(fake)).toEqual([1]);

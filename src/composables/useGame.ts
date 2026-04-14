@@ -20,6 +20,8 @@ export interface UseGameOptions {
   setLocationHash?: (hash: string) => void;
 }
 
+const MIN_SOFTMAX_EXPONENT = -700;
+
 export function useGame(options: UseGameOptions = {}) {
   const getLocationHash = options.getLocationHash ?? (() => window.location.hash);
   const getLocationHref = options.getLocationHref ?? (() => window.location.href);
@@ -292,7 +294,7 @@ export function useGame(options: UseGameOptions = {}) {
     const logits = new Array(scores.length);
     let sum = 0;
     for (let i = 0; i < scores.length; i += 1) {
-      const value = Math.exp(Math.max(-700, scores[i] - maxScore));
+      const value = Math.exp(Math.max(MIN_SOFTMAX_EXPONENT, scores[i] - maxScore));
       logits[i] = value;
       sum += value;
     }
@@ -316,12 +318,11 @@ export function useGame(options: UseGameOptions = {}) {
     }
     const config = makeAIConfig();
     const timeLimit = g.toMove === BLACK ? blackTimeLimit.value : whiteTimeLimit.value;
-    const evaluationPosition = decodeGame(g.encodeGame());
     const result = new GogoAI({
       maxDepth: config.maxDepth,
       quiescenceDepth: config.quiescenceDepth,
       maxPly: config.maxPly,
-    }).evaluateBoard(evaluationPosition, Math.max(1, timeLimit));
+    }).evaluateBoard(g, Math.max(1, timeLimit));
 
     const probabilities = toSoftmaxProbabilities(result.scores.map((entry) => entry.score));
     const overlay = new Array<{ score: number; probability: number } | null>(g.area).fill(null);
