@@ -608,8 +608,11 @@ test('LMR reduces later moves at depth >= 3 and re-searches on improvement', () 
   const score = anyAI.search(pos, 5, -1_000_000, 1_000_000, 1);
   expect(typeof score).toBe('number');
 
-  // Run findBestMove which uses iterative deepening and exercises TT across depths
-  const result = ai.findBestMove(pos, 500);
+  // Run findBestMove with real timing (maxDepth 6, 500ms cap) to exercise iterative
+  // deepening + TT ordering; at depths 4-6 a later move beats alpha in the reduced
+  // LMR scout, triggering the full-depth re-search on line 334.
+  const ai2 = new GogoAI({ maxDepth: 6, quiescenceDepth: 2 });
+  const result = ai2.findBestMove(pos, 500);
   expect(result.move).not.toBe(-1);
   expect(result.depth).toBeGreaterThanOrEqual(1);
 });
