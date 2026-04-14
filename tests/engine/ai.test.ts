@@ -2273,3 +2273,185 @@ test('proofDefend: returns false (not proven) when no legal moves exist', () => 
   anyAI.generateOrderedMoves = realGen;
   anyAI.generateFullBoardMoves = realFullGen;
 });
+
+test('proofAttack: hash-move-first succeeds from seeded TT best move', () => {
+  const ai = new GogoAI({ maxDepth: 10 });
+  const anyAI = ai as any;
+  // BLACK has 4 in a row, move 4 completes five
+  const pos = rawPosition([
+    'XXXX.....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  anyAI.ensureBuffers(pos.area);
+  anyAI.deadline = 1e15;
+  anyAI.killerMoves.fill(-1);
+  anyAI.history.fill(0);
+  anyAI.proofTTHash.fill(0);
+  anyAI.proofTTResult.fill(0);
+  anyAI.proofTTDepth.fill(0);
+  anyAI.proofTTBestMove.fill(-1);
+
+  // Seed TT: hash matches, depth too shallow for cutoff, but bestMove is set
+  const hash = pos.hash;
+  const ttIdx = hash & 0x3FFFF;
+  anyAI.proofTTHash[ttIdx] = hash;
+  anyAI.proofTTResult[ttIdx] = 0; // no cutoff
+  anyAI.proofTTDepth[ttIdx] = 0;
+  anyAI.proofTTBestMove[ttIdx] = 4; // winning move
+
+  // proofAttack should try hash move first and succeed
+  expect(anyAI.proofAttack(pos, 1, 1)).toBe(true);
+  // TT should now store the proven result with best move
+  expect(anyAI.proofTTResult[ttIdx]).toBe(1);
+  expect(anyAI.proofTTBestMove[ttIdx]).toBe(4);
+});
+
+test('proofAttack: hash-move-first wins via proofDefend (non-immediate)', () => {
+  const ai = new GogoAI({ maxDepth: 10 });
+  const anyAI = ai as any;
+  // BLACK has 3 in a row with open ends. After playing move 3 (extend to 4),
+  // WHITE must respond, but BLACK has a double threat.
+  // Row 0: .XXX. → playing index 4 gives .XXXX → next move 0 or 5 wins
+  const pos = rawPosition([
+    '.XXX.....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  anyAI.ensureBuffers(pos.area);
+  anyAI.deadline = 1e15;
+  anyAI.killerMoves.fill(-1);
+  anyAI.history.fill(0);
+  anyAI.proofTTHash.fill(0);
+  anyAI.proofTTResult.fill(0);
+  anyAI.proofTTDepth.fill(0);
+  anyAI.proofTTBestMove.fill(-1);
+
+  // Seed TT with move 4 as best move (extends the line but doesn't immediately win)
+  const hash = pos.hash;
+  const ttIdx = hash & 0x3FFFF;
+  anyAI.proofTTHash[ttIdx] = hash;
+  anyAI.proofTTResult[ttIdx] = 0;
+  anyAI.proofTTDepth[ttIdx] = 0;
+  anyAI.proofTTBestMove[ttIdx] = 4;
+
+  // proofAttack at depth 3: hash move plays index 4 (no winner yet),
+  // then proofDefend is called, WHITE responds, BLACK wins next
+  expect(anyAI.proofAttack(pos, 3, 1)).toBe(true);
+});
+
+test('proofDefend: hash-move-first with defender making five', () => {
+  const ai = new GogoAI({ maxDepth: 10 });
+  const anyAI = ai as any;
+  // WHITE to move, WHITE has 4 in a row on row 1, move 13 completes five
+  const pos = rawPosition([
+    'XX.......',
+    'OOOO.....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], WHITE);
+  anyAI.ensureBuffers(pos.area);
+  anyAI.deadline = 1e15;
+  anyAI.killerMoves.fill(-1);
+  anyAI.history.fill(0);
+  anyAI.proofTTHash.fill(0);
+  anyAI.proofTTResult.fill(0);
+  anyAI.proofTTDepth.fill(0);
+  anyAI.proofTTBestMove.fill(-1);
+
+  // Seed TT with the five-completing move as best move
+  const hash = pos.hash;
+  const ttIdx = hash & 0x3FFFF;
+  anyAI.proofTTHash[ttIdx] = hash;
+  anyAI.proofTTResult[ttIdx] = 0;
+  anyAI.proofTTDepth[ttIdx] = 0;
+  anyAI.proofTTBestMove[ttIdx] = 13; // WHITE completes five at index 13
+
+  // proofDefend: defender plays winning move via hash-move-first → refutes
+  expect(anyAI.proofDefend(pos, 2, 1)).toBe(false);
+});
+
+test('proofDefend: full generation finds defender five (winner check)', () => {
+  const ai = new GogoAI({ maxDepth: 10 });
+  const anyAI = ai as any;
+  // WHITE to move, no BLACK four (no threat), WHITE has 4 in a row
+  const pos = rawPosition([
+    'XXX......',
+    'OOOO.....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], WHITE);
+  anyAI.ensureBuffers(pos.area);
+  anyAI.deadline = 1e15;
+  anyAI.killerMoves.fill(-1);
+  anyAI.history.fill(0);
+  anyAI.proofTTHash.fill(0);
+  anyAI.proofTTResult.fill(0);
+  anyAI.proofTTDepth.fill(0);
+  anyAI.proofTTBestMove.fill(-1);
+
+  // No TT best move → falls through to full generation
+  // Full generation includes move 13 (completing five for WHITE)
+  // position.winner !== EMPTY after play → attackerWins=false → refutes
+  expect(anyAI.proofDefend(pos, 2, 1)).toBe(false);
+});
+
+test('findThreatResponses: detects capture moves for atari groups', () => {
+  const ai = new GogoAI({ maxDepth: 10 });
+  const anyAI = ai as any;
+  // BLACK just played, creating a four (XXXX.) on row 0.
+  // WHITE to move (defender). BLACK also has a single stone on row 2
+  // surrounded by WHITE stones with exactly 1 liberty.
+  // Row 2: .OXO. → BLACK stone at (2,2) is surrounded, with liberty at (2,1) or (2,3)
+  const pos = rawPosition([
+    'XXXX.....',
+    '.........',
+    '.OXO.....',
+    '.O.......',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], WHITE);
+  anyAI.ensureBuffers(pos.area);
+  anyAI.deadline = 1e15;
+  anyAI.killerMoves.fill(-1);
+  anyAI.history.fill(0);
+  anyAI.scorerGroupEpoch = 0;
+  anyAI.scorerGroupMarks.fill(0);
+
+  const count = anyAI.findThreatResponses(pos, 1);
+  // Should find threat responses including blocking (index 4) and capture moves
+  expect(count).toBeGreaterThanOrEqual(1);
+
+  // Collect the moves
+  const moves = anyAI.moveBuffers[1];
+  const moveSet = new Set<number>();
+  for (let i = 0; i < count; i++) moveSet.add(moves[i]);
+
+  // Blocking cell (index 4) should be included
+  expect(moveSet.has(4)).toBe(true);
+});
