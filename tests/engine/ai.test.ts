@@ -12,6 +12,8 @@ function rawPosition(rows: string[], toMove = BLACK) {
   return game;
 }
 
+const GENERATE_ORDERED_MOVES_TACTICAL_ONLY_INDEX = 4;
+
 test('AI chooses the center on an empty board, handles immediate timeout, and handles terminal states', () => {
   const empty = new GogoPosition(9);
   const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2 });
@@ -2123,21 +2125,21 @@ test('proofDefend: play() failure is handled', () => {
   // proofDefend's own full-gen, so the injection fires exactly there.
   const realGen = anyAI.generateOrderedMoves.bind(anyAI);
   anyAI.generateOrderedMoves = function (...args: any[]) {
+    const tacticalOnly = args[GENERATE_ORDERED_MOVES_TACTICAL_ONLY_INDEX];
     const result = realGen(...args);
-    const tacticalOnly = args[4];
-    if (!tacticalOnly) {
-      // Inject an occupied position at the front (will fail play())
-      const moves = args[1] as Int16Array;
-      const scores = args[2] as Int32Array;
-      for (let i = result; i > 0; i--) {
-        moves[i] = moves[i - 1];
-        scores[i] = scores[i - 1];
-      }
-      moves[0] = 0; // occupied by X
-      scores[0] = 999999;
-      return result + 1;
+    if (tacticalOnly) {
+      return result;
     }
-    return result;
+    // Inject an occupied position at the front (will fail play())
+    const moves = args[1] as Int16Array;
+    const scores = args[2] as Int32Array;
+    for (let i = result; i > 0; i--) {
+      moves[i] = moves[i - 1];
+      scores[i] = scores[i - 1];
+    }
+    moves[0] = 0; // occupied by X
+    scores[0] = 999999;
+    return result + 1;
   };
 
   const result = anyAI.proofDefend(pos, 2, 1);
@@ -2790,7 +2792,7 @@ test('proofDefend: falls back to full-board generation even after an earlier leg
   let orderedCalls = 0;
   let fullCalls = 0;
   anyAI.generateOrderedMoves = (...args: any[]) => {
-    const tacticalOnly = args[4];
+    const tacticalOnly = args[GENERATE_ORDERED_MOVES_TACTICAL_ONLY_INDEX];
     if (tacticalOnly) {
       return realGen(...args);
     }

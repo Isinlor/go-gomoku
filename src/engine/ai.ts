@@ -695,6 +695,9 @@ export class GogoAI {
       }
     }
 
+    // Defensive fallback: a stale mark may remain even when the move is absent
+    // from the current buffer (for example in white-box tests that seed marks
+    // directly). Treat it as already known and leave the ordering unchanged.
     return count;
   }
 
@@ -882,9 +885,9 @@ export class GogoAI {
     this.deadline = this.now() + Math.max(0, timeLimitMs);
     this.nodesVisited = 0;
     this.timedOut = false;
-    // Reset proof TT and search heuristics to prevent Phase 1 state
-    // (history/killers) from polluting proof move ordering, which can cause
-    // TT collision patterns that make the proof incomplete.
+    // Reset proof TT and search heuristics so the main iterative-deepening
+    // heuristic phase does not leak move-ordering state (history/killers) into
+    // proof search, which can amplify TT collision patterns and make proofs incomplete.
     this.history.fill(0);
     this.killerMoves.fill(-1);
     this.proofTTHash.fill(0);
