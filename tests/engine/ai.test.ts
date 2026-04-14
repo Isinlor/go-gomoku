@@ -2097,16 +2097,19 @@ test('proofAttack: play() failure is handled (suicide move skipped)', () => {
 test('proofDefend: play() failure is handled', () => {
   const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4, now: () => 0 });
   const anyAI = ai as any;
+  // Use a position with NO attacker threat (findThreatResponses returns -1)
+  // so that the first generateOrderedMoves call is proofDefend's own full-gen call.
+  // The mock injects an illegal (occupied) move so that play() returns false → line 1079 covered.
   const pos = rawPosition([
-    'XXXX.....',
+    'XX.......',
+    'OO.......',
     '.........',
     '.........',
     '.........',
     '.........',
     '.........',
     '.........',
-    'OOO......',
-    'XXXX.....',
+    '.........',
   ], WHITE);
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
@@ -2114,16 +2117,17 @@ test('proofDefend: play() failure is handled', () => {
   anyAI.proofTTResult = new Int8Array(1 << 18);
   anyAI.proofTTDepth = new Int8Array(1 << 18);
 
-  // Mock to inject an illegal move
+  // Mock generateOrderedMoves to inject an illegal move when called for the full-gen
+  // (tacticalOnly === false). No attacker threat → no nested proofAttack calls before
+  // proofDefend's own full-gen, so the injection fires exactly there.
   const realGen = anyAI.generateOrderedMoves.bind(anyAI);
-  let callCount = 0;
   anyAI.generateOrderedMoves = function (...args: any[]) {
-    callCount++;
     const result = realGen(...args);
-    // Inject an occupied move at the front of defender's candidates
-    if (callCount === 1) {
-      const moves = args[0] as Int16Array;
-      const scores = args[1] as Int32Array;
+    const tacticalOnly = args[4];
+    if (!tacticalOnly) {
+      // Inject an occupied position at the front (will fail play())
+      const moves = args[1] as Int16Array;
+      const scores = args[2] as Int32Array;
       for (let i = result; i > 0; i--) {
         moves[i] = moves[i - 1];
         scores[i] = scores[i - 1];
@@ -2132,7 +2136,7 @@ test('proofDefend: play() failure is handled', () => {
       scores[0] = 999999;
       return result + 1;
     }
-    return realGen(...args);
+    return result;
   };
 
   const result = anyAI.proofDefend(pos, 2, 1);
@@ -2460,4 +2464,132 @@ test('findThreatResponses: detects capture moves for atari groups', () => {
   expect(moveSet.has(4)).toBe(true);
   // Atari capture liberty (index 21 = row2,col3) must be included
   expect(moveSet.has(21)).toBe(true);
+});
+
+test('proofAttack: hash move tried but does not win (line 932 false branch + line 950 skip)', () => {
+  // BLACK has XXXX. on row 0. ttBest=5 (an empty cell that does not complete a five).
+  // After play(5) the position is not a win; proofDefend(depth=0)=false → wins=false
+  // → false branch of `if (wins)`.
+  // Move 5 is also a tactical move (creates a near-four in window [1..5]).
+  // By setting it as a killer move at ply=1, its tactical score is boosted so it appears
+  // first in the ordered list → m=5=ttBest → the `continue` at line 950 is taken.
+  const pos = rawPosition([
+    'XXXX.....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+
+  const ai = new GogoAI({ maxDepth: 10 });
+  const anyAI = ai as any;
+  anyAI.ensureBuffers(pos.area);
+  anyAI.deadline = 1e15;
+  anyAI.proofTTHash.fill(0);
+  anyAI.proofTTResult.fill(0);
+  anyAI.proofTTDepth.fill(0);
+  anyAI.proofTTBestMove.fill(-1);
+
+  // Seed TT: hash matches, bestMove = 5 (a non-winning empty cell)
+  const hash = pos.hash;
+  const ttIdx = hash & 0x3FFFF;
+  anyAI.proofTTHash[ttIdx] = hash;
+  anyAI.proofTTResult[ttIdx] = 0; // no cutoff
+  anyAI.proofTTDepth[ttIdx] = 0;
+  anyAI.proofTTBestMove[ttIdx] = 5;
+
+  // Make ttBest=5 a killer at ply=1 so its tactical score is boosted above the
+  // winning move at cell 4, ensuring m=5 appears first and triggers the skip.
+  anyAI.killerMoves[1 * 2] = 5;
+
+  // proofAttack at depth=1:
+  //   hash move 5 tried → play(5) OK → proofDefend(depth=0)=false → wins=false (line 932 false)
+  //   generateOrderedMoves includes 5 (killer+near-four) → m=5=ttBest → continue (line 950)
+  //   move 4 found → play(4) → XXXXX → returns true
+  expect(anyAI.proofAttack(pos, 1, 1)).toBe(true);
+});
+
+test('proofDefend: hash move does not refute + double threat exercises lines 1021/1044/1080', () => {
+  // BLACK has two open fours: row 0 (blocking=4) and row 8 (blocking=76).
+  // WHITE to move. ttBest=4 seeded in TT.
+  //
+  // proofDefend(depth=2):
+  //   Hash block: play(4) → proofAttack(1) finds 76 → attackerWins=true
+  //   → !attackerWins=false (line 1021 false branch) → continues searching
+  //   findThreatResponses: returns [4, 76]
+  //   Threat loop: m=4=ttBest → line 1046 `continue` (line 1044 branch) ✓
+  //                m=76 → attackerWins=true → falls through
+  //   Full gen: m=4=ttBest → line 1080 `continue` (line 1077 branch) ✓
+  //   All defenses fail → returns true
+  const pos = rawPosition([
+    'XXXX.....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    'OOO......',
+    'XXXX.....',
+  ], WHITE);
+
+  const ai = new GogoAI({ maxDepth: 10 });
+  const anyAI = ai as any;
+  anyAI.ensureBuffers(pos.area);
+  anyAI.deadline = 1e15;
+  anyAI.proofTTHash.fill(0);
+  anyAI.proofTTResult.fill(0);
+  anyAI.proofTTDepth.fill(0);
+  anyAI.proofTTBestMove.fill(-1);
+
+  // Seed TT with ttBest=4 (blocking row 0's four)
+  const hash = pos.hash;
+  const ttIdx = hash & 0x3FFFF;
+  anyAI.proofTTHash[ttIdx] = hash;
+  anyAI.proofTTResult[ttIdx] = 0; // no cutoff
+  anyAI.proofTTDepth[ttIdx] = 0;
+  anyAI.proofTTBestMove[ttIdx] = 4;
+
+  // All WHITE defenses fail → attacker proven to win → true
+  expect(anyAI.proofDefend(pos, 2, 1)).toBe(true);
+});
+
+test('findThreatResponses: defender winning cell already marked (line 1169 false branch)', () => {
+  // Both windows share the SAME empty cell (0 = row0,col0) and start at the same
+  // board point (y=0,x=0), so horizontal (dir=0) is processed before vertical (dir=1):
+  //
+  //   Horizontal [0,1,2,3,4]: atkCount=4, defCount=0, emptyCell=0
+  //     → marks cell 0 (attacker blocking cell)
+  //   Vertical   [0,9,18,27,36]: defCount=4, atkCount=0, emptyCell=0
+  //     → candidateMarks[0] === epoch (already marked!) → FALSE BRANCH (line 1169) ✓
+  //
+  // WHITE to move (defender).  attacker=BLACK.
+  const pos = rawPosition([
+    '.XXXX....',  // (0,0)=EMPTY; (0,1..4)=BLACK
+    'O........',  // (1,0)=WHITE
+    'O........',  // (2,0)=WHITE
+    'O........',  // (3,0)=WHITE
+    'O........',  // (4,0)=WHITE
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], WHITE);
+
+  const ai = new GogoAI({ maxDepth: 10 });
+  const anyAI = ai as any;
+  anyAI.ensureBuffers(pos.area);
+  anyAI.deadline = 1e15;
+
+  const count = anyAI.findThreatResponses(pos, 1);
+  // Must detect the threat and include cell 0 (blocking cell)
+  expect(count).toBeGreaterThanOrEqual(1);
+  const moves = anyAI.moveBuffers[1];
+  const moveSet = new Set<number>();
+  for (let i = 0; i < count; i++) moveSet.add(moves[i]);
+  expect(moveSet.has(0)).toBe(true);
 });

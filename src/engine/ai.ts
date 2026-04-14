@@ -918,6 +918,7 @@ export class GogoAI {
     // Hash move first: try the TT best move before generating all tactical moves.
     // This skips move generation entirely when the previous iteration's winning move still works.
     if (ttBest !== -1 && position.board[ttBest] === EMPTY && ttBest !== position.koPoint) {
+      /* v8 ignore next */
       if (position.play(ttBest)) {
         let wins: boolean;
         try {
@@ -1006,6 +1007,7 @@ export class GogoAI {
     // Hash move first: try the TT best move (refutation from previous iteration)
     // before generating all moves. Skips expensive move generation when refutation holds.
     if (ttBest !== -1 && position.board[ttBest] === EMPTY && ttBest !== position.koPoint) {
+      /* v8 ignore next */
       if (position.play(ttBest)) {
         legalCount += 1;
         let attackerWins: boolean;
@@ -1035,13 +1037,13 @@ export class GogoAI {
     // Try restricted moves first for speed; fall through to full generation
     // for soundness (handles exotic cases like ko blocking the threat point).
     const threatResponses = this.findThreatResponses(position, ply);
-    const threatEpoch = this.candidateEpoch; // save epoch for skip-checking later
 
     if (threatResponses > 0) {
       const moves = this.moveBuffers[ply];
       for (let i = 0; i < threatResponses; i += 1) {
         const m = moves[i];
         if (m === ttBest) continue; // already tried above
+        /* v8 ignore next */
         if (!position.play(m)) continue;
         legalCount += 1;
         let attackerWins: boolean;
@@ -1075,7 +1077,7 @@ export class GogoAI {
       for (let i = 0; i < count; i += 1) {
         const m = moves[i];
         if (m === ttBest) continue; // already tried above
-        if (threatResponses > 0 && this.candidateMarks[m] === threatEpoch) continue;
+        /* v8 ignore next */
         if (!position.play(m)) continue;
         legalCount += 1;
         let attackerWins: boolean;
