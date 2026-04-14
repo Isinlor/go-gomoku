@@ -2421,16 +2421,23 @@ test('proofDefend: full generation finds defender five (winner check)', () => {
 test('findThreatResponses: detects capture moves for atari groups', () => {
   const ai = new GogoAI({ maxDepth: 10 });
   const anyAI = ai as any;
-  // BLACK just played, creating a four (XXXX.) on row 0.
-  // WHITE to move (defender). BLACK also has a single stone on row 2
-  // surrounded by WHITE stones with exactly 1 liberty.
-  // Row 2: .OXO. → BLACK stone at (2,2) is surrounded, with liberty at (2,1) or (2,3)
+  // WHITE to move (defender), attacker = BLACK.
+  // Row 0: XXXX. → four-in-a-row threat, blocking cell = index 4.
+  // Row 1: OOOXOOOO. → single BLACK stone at index 13 (col4), surrounded by WHITE
+  //   on left(12), right(14), bottom(22). Its only liberty = 4 (already marked).
+  // Row 2: ....O.... → col4=22=WHITE (blocks 13 below); col3=21=EMPTY (liberty of group {30}).
+  // Row 3: ..OXO.... → BLACK at 30 (col3), WHITE at 29(left) and 31(right).
+  // Row 4: ...O..... → WHITE at 39 (col3), blocks 30 below.
+  // Group {30} has 1 liberty at 21 (distinct from blocking cell 4) → covers true branch
+  // (lines 1195-1197: candidateMarks[21] is unmarked).
+  // Group {13} has 1 liberty at 4 (already marked as blocking) → covers false branch
+  // (candidateMarks[4] === candidateEpoch → condition false, body skipped).
   const pos = rawPosition([
     'XXXX.....',
-    '.........',
-    '.OXO.....',
-    '.O.......',
-    '.........',
+    'OOOXOOOO.',
+    '....O....',
+    '..OXO....',
+    '...O.....',
     '.........',
     '.........',
     '.........',
@@ -2440,18 +2447,17 @@ test('findThreatResponses: detects capture moves for atari groups', () => {
   anyAI.deadline = 1e15;
   anyAI.killerMoves.fill(-1);
   anyAI.history.fill(0);
-  anyAI.scorerGroupEpoch = 0;
-  anyAI.scorerGroupMarks.fill(0);
 
   const count = anyAI.findThreatResponses(pos, 1);
-  // Should find threat responses including blocking (index 4) and capture moves
-  expect(count).toBeGreaterThanOrEqual(1);
+  // Should find at least: blocking cell 4 and atari capture cell 21
+  expect(count).toBeGreaterThanOrEqual(2);
 
-  // Collect the moves
   const moves = anyAI.moveBuffers[1];
   const moveSet = new Set<number>();
   for (let i = 0; i < count; i++) moveSet.add(moves[i]);
 
-  // Blocking cell (index 4) should be included
+  // Blocking cell (index 4) must be included
   expect(moveSet.has(4)).toBe(true);
+  // Atari capture liberty (index 21 = row2,col3) must be included
+  expect(moveSet.has(21)).toBe(true);
 });
