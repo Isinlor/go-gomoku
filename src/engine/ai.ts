@@ -27,11 +27,9 @@ const WIN_SCORE = 1_000_000_000;
 const ATTACK_WEIGHTS = [0, 12, 72, 540, 100_000, 500_000] as const;
 const DEFENSE_WEIGHTS = [0, 16, 96, 720, 100_000, 500_000] as const;
 const EVAL_WEIGHTS = [0, 6, 32, 240, 500_000, WIN_SCORE >> 2] as const;
-const LOCAL_LIBERTY_WEIGHTS = [-200, -80, 20, 60, 80] as const;
 const TACTICAL_PATTERN_THRESHOLD = ATTACK_WEIGHTS[4];
 const CENTER_MULTIPLIER = 3;
 const HINT_BONUS = 10_000_000;
-const HISTORY_SCALE = 1;
 const KILLER_BONUS = 1_000_000;
 const CAPTURE_BONUS = 5_000;
 const ESCAPE_BONUS = 3_500;
@@ -46,10 +44,6 @@ const TT_NONE = 0;
 const TT_EXACT = 1;
 const TT_LOWERBOUND = 2;
 const TT_UPPERBOUND = 3;
-
-function otherPlayer(player: Player): Player {
-  return player === BLACK ? WHITE : BLACK;
-}
 
 export class GogoAI {
   readonly maxDepth: number;
@@ -313,40 +307,7 @@ export class GogoAI {
    * Returns the best score achievable from the root.
    */
   private proofSearchRoot(position: GogoPosition, depth: number, hintMove: number): number {
-    this.checkTime(true);
-    const moves = this.moveBuffers[0];
-    const scores = this.scoreBuffers[0];
-    let count = this.generateOrderedMoves(position, moves, scores, hintMove, false);
-    let usedFullBoard = false;
-    let alpha = -WIN_SCORE;
-    const beta = WIN_SCORE;
-    let legalCount = 0;
-
-    for (;;) {
-      for (let i = 0; i < count; i += 1) {
-        const move = moves[i];
-        if (!position.play(move)) {
-          continue;
-        }
-        legalCount += 1;
-        let score = 0;
-        try {
-          score = -this.search(position, depth - 1, -beta, -alpha, 1);
-        } finally {
-          position.undo();
-        }
-        if (score > alpha) {
-          alpha = score;
-        }
-      }
-      if (legalCount !== 0 || usedFullBoard) {
-        break;
-      }
-      count = this.generateFullBoardMoves(position, moves, scores, hintMove, false);
-      usedFullBoard = true;
-    }
-
-    return legalCount === 0 ? 0 : alpha;
+    return this.searchRoot(position, depth, hintMove).score;
   }
 
   private searchRoot(position: GogoPosition, depth: number, hintMove: number): SearchResult {
@@ -410,17 +371,14 @@ export class GogoAI {
     const hash = position.hash;
     const ttIndex = hash & TT_MASK;
     let ttBest = -1;
-    // Always extract bestMove hint for ordering (even when flags are cleared)
     if (this.ttHash[ttIndex] === hash) {
       ttBest = this.ttBestMove[ttIndex];
-    }
-    // Score cutoffs require a valid flag entry at sufficient depth
-    if (this.ttHash[ttIndex] === hash && this.ttFlag[ttIndex] !== TT_NONE && this.ttDepth[ttIndex] >= depth) {
-      const ttFlag = this.ttFlag[ttIndex];
-      const ttScore = this.ttAdjustRetrieve(this.ttScore[ttIndex], ply);
-      if (ttFlag === TT_EXACT) return ttScore;
-      if (ttFlag === TT_LOWERBOUND && ttScore >= beta) return ttScore;
-      if (ttFlag === TT_UPPERBOUND && ttScore <= alpha) return ttScore;
+      if (this.ttFlag[ttIndex] !== TT_NONE && this.ttDepth[ttIndex] >= depth) {
+        const ttScore = this.ttAdjustRetrieve(this.ttScore[ttIndex], ply);
+        if (this.ttFlag[ttIndex] === TT_EXACT) return ttScore;
+        if (this.ttFlag[ttIndex] === TT_LOWERBOUND && ttScore >= beta) return ttScore;
+        if (this.ttFlag[ttIndex] === TT_UPPERBOUND && ttScore <= alpha) return ttScore;
+      }
     }
 
     // Null move pruning: if we give the opponent a free move and they still
@@ -431,7 +389,7 @@ export class GogoAI {
       const savedToMove = position.toMove;
       const savedKo = position.koPoint;
       const savedHash = position.hash;
-      position.toMove = otherPlayer(savedToMove);
+      position.toMove = savedToMove === BLACK ? WHITE : BLACK;
       position.koPoint = -1;
       // Update hash: toggle side-to-move + change ko from savedKo to -1
       const oldKoIdx = savedKo === -1 ? position.area : savedKo;
@@ -504,7 +462,7 @@ export class GogoAI {
         if (score > alpha) {
           alpha = score;
           if (alpha >= beta) {
-            this.history[(position.toMove - 1) * this.bufferArea + move] += depth * depth * HISTORY_SCALE;
+            this.history[(position.toMove - 1) * this.bufferArea + move] += depth * depth;
             // Update killer moves for this ply
             if (this.killerMoves[ply * 2] !== move) {
               this.killerMoves[ply * 2 + 1] = this.killerMoves[ply * 2];
@@ -532,23 +490,15 @@ export class GogoAI {
     // Transposition table store
     // Capped nodes (MAX_CANDIDATES applied) may have missed legal defenses.
     // Only TT_LOWERBOUND (fail-high on a real move) is safe from capped nodes.
-    // TT_EXACT and TT_UPPERBOUND may be wrong because unsearched moves could
-    // have produced a higher score.
     const storeFlag = bestScore <= origAlpha ? TT_UPPERBOUND
                     : alpha >= beta ? TT_LOWERBOUND
                     : TT_EXACT;
-    if (!wasCapped || storeFlag === TT_LOWERBOUND) {
-      this.ttHash[ttIndex] = hash;
-      this.ttScore[ttIndex] = this.ttAdjustStore(bestScore, ply);
-      this.ttDepth[ttIndex] = depth;
-      this.ttFlag[ttIndex] = storeFlag;
-      this.ttBestMove[ttIndex] = bestMove;
-    } else {
-      // Still store best move for ordering even if we don't store the score
-      this.ttHash[ttIndex] = hash;
-      this.ttBestMove[ttIndex] = bestMove;
-      this.ttFlag[ttIndex] = TT_NONE;
-    }
+    const effectiveFlag = wasCapped && storeFlag !== TT_LOWERBOUND ? TT_NONE : storeFlag;
+    this.ttHash[ttIndex] = hash;
+    this.ttBestMove[ttIndex] = bestMove;
+    this.ttScore[ttIndex] = this.ttAdjustStore(bestScore, ply);
+    this.ttDepth[ttIndex] = depth;
+    this.ttFlag[ttIndex] = effectiveFlag;
 
     return bestScore;
   }
@@ -578,13 +528,11 @@ export class GogoAI {
     }
 
     let bestScore = standPat;
-    let legalCount = 0;
     for (let i = 0; i < count; i += 1) {
       const move = moves[i];
       if (!position.play(move)) {
         continue;
       }
-      legalCount += 1;
       let score = 0;
       try {
         score = -this.quiescence(position, -beta, -alpha, ply + 1, remainingDepth - 1);
@@ -602,7 +550,7 @@ export class GogoAI {
       }
     }
 
-    return legalCount === 0 ? standPat : bestScore;
+    return bestScore;
   }
 
   private evaluate(position: GogoPosition): number {
@@ -626,23 +574,6 @@ export class GogoAI {
       } else if (white === 0 && black !== 0) {
         score += EVAL_WEIGHTS[black];
       }
-    }
-
-    const neighbors = meta.neighbors4;
-    for (let point = 0; point < position.area; point += 1) {
-      const cell = board[point];
-      if (cell === EMPTY) {
-        continue;
-      }
-      let localLiberties = 0;
-      const neighborBase = point * 4;
-      for (let offset = 0; offset < 4; offset += 1) {
-        const neighbor = neighbors[neighborBase + offset];
-        localLiberties += neighbor !== -1 && board[neighbor] === EMPTY ? 1 : 0;
-      }
-      const libertyBucket = Math.min(localLiberties, LOCAL_LIBERTY_WEIGHTS.length - 1);
-      const stoneScore = meta.centerBias[point] * CENTER_MULTIPLIER + LOCAL_LIBERTY_WEIGHTS[libertyBucket];
-      score += cell === BLACK ? stoneScore : -stoneScore;
     }
 
     return position.toMove === BLACK ? score : -score;
@@ -726,7 +657,7 @@ export class GogoAI {
 
   private scoreMove(position: GogoPosition, move: number, hintMove: number, tacticalOnly: boolean, ply = 0): number {
     const player = position.toMove;
-    const opponent = otherPlayer(player);
+    const opponent = player === BLACK ? WHITE : BLACK;
     const playerShift = player - 1;
     const opponentShift = 2 - player;
     const meta = position.meta;
@@ -823,28 +754,7 @@ export class GogoAI {
     scores[index] = score;
   }
 
-  private insertOrPromoteMove(moves: Int16Array, scores: Int32Array, count: number, move: number, score: number): number {
-    if (this.candidateMarks[move] !== this.candidateEpoch) {
-      this.candidateMarks[move] = this.candidateEpoch;
-      this.insertMove(moves, scores, count, move, score);
-      return count + 1;
-    }
 
-    for (let index = 0; index < count; index += 1) {
-      if (moves[index] !== move) continue;
-      if (score <= scores[index]) return count;
-      while (index > 0 && score > scores[index - 1]) {
-        moves[index] = moves[index - 1];
-        scores[index] = scores[index - 1];
-        index -= 1;
-      }
-      moves[index] = move;
-      scores[index] = score;
-      return count;
-    }
-
-    return count;
-  }
 
   private checkTime(force: boolean): void {
     this.nodesVisited += 1;
@@ -1174,7 +1084,8 @@ export class GogoAI {
     let count = 0;
     let hasThreat = false;
 
-    // Scan all windows for attacker's open fours and defender's open fours
+    // Pass 1: defender winning cells (3M) – processed first to take priority over
+    // blocking cells. Cells are marked so Pass 2 can skip already-won cells.
     for (let wi = 0; wi < meta.windowCount; wi += 1) {
       const base = wi * 5;
       let atkCount = 0;
@@ -1186,16 +1097,33 @@ export class GogoAI {
         else if (c === defender) defCount += 1;
         else emptyCell = windows[base + j];
       }
+      if (defCount === 4 && atkCount === 0 && emptyCell !== -1 && emptyCell !== position.koPoint) {
+        this.candidateMarks[emptyCell] = this.candidateEpoch;
+        this.insertMove(moves, scores, count, emptyCell, 3_000_000);
+        count += 1;
+      }
+    }
 
-      // Attacker has 4 in this window with 1 empty = immediate threat
+    // Pass 2: attacker blocking cells (2M) – skip cells already marked as
+    // defender winning cells in Pass 1.
+    for (let wi = 0; wi < meta.windowCount; wi += 1) {
+      const base = wi * 5;
+      let atkCount = 0;
+      let defCount = 0;
+      let emptyCell = -1;
+      for (let j = 0; j < 5; j += 1) {
+        const c = board[windows[base + j]];
+        if (c === attacker) atkCount += 1;
+        else if (c === defender) defCount += 1;
+        else emptyCell = windows[base + j];
+      }
       if (atkCount === 4 && defCount === 0 && emptyCell !== -1 && emptyCell !== position.koPoint) {
         hasThreat = true;
-        count = this.insertOrPromoteMove(moves, scores, count, emptyCell, 2_000_000);
-      }
-
-      // Defender has 4 in a window = can win immediately
-      if (defCount === 4 && atkCount === 0 && emptyCell !== -1 && emptyCell !== position.koPoint) {
-        count = this.insertOrPromoteMove(moves, scores, count, emptyCell, 3_000_000);
+        if (this.candidateMarks[emptyCell] !== this.candidateEpoch) {
+          this.candidateMarks[emptyCell] = this.candidateEpoch;
+          this.insertMove(moves, scores, count, emptyCell, 2_000_000);
+          count += 1;
+        }
       }
     }
 
@@ -1218,7 +1146,11 @@ export class GogoAI {
           for (let offset = 0; offset < 4; offset += 1) {
             const n = meta.neighbors4[neighborBase + offset];
             if (n !== -1 && board[n] === EMPTY && n !== position.koPoint) {
-              count = this.insertOrPromoteMove(moves, scores, count, n, 1_500_000);
+              if (this.candidateMarks[n] !== this.candidateEpoch) {
+                this.candidateMarks[n] = this.candidateEpoch;
+                this.insertMove(moves, scores, count, n, 1_500_000);
+                count += 1;
+              }
             }
           }
         }

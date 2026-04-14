@@ -1242,164 +1242,66 @@ test('verifyWinningMove proves deeper forced win with iterative deepening', () =
   expect(ai.verifyWinningMove(pos2, 4, 1000)).toBe(true);
 });
 
-test('proofAttack: returns false when position has a winner (defender won)', () => {
-  // Create a position where white already won (five in a row)
-  const pos = position([
-    'OOOOO....',
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-  ], BLACK);
-  expect(pos.winner).toBe(WHITE);
+test('proofAttack/proofDefend: terminal winner and depth-0 cases', () => {
+  const makeAI = () => {
+    const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4, now: () => 0 });
+    const anyAI = ai as any;
+    anyAI.proofTTHash = new Int32Array(1 << 18);
+    anyAI.proofTTResult = new Int8Array(1 << 18);
+    anyAI.proofTTDepth = new Int8Array(1 << 18);
+    return anyAI;
+  };
 
-  const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4, now: () => 0 });
-  const anyAI = ai as any;
-  anyAI.ensureBuffers(pos.area);
-  anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new Int32Array(1 << 18);
-  anyAI.proofTTResult = new Int8Array(1 << 18);
-  anyAI.proofTTDepth = new Int8Array(1 << 18);
+  // proofAttack returns false when defender has already won
+  const defWon = position(['OOOOO....', '.........', '.........', '.........', '.........', '.........', '.........', '.........', '.........'], BLACK);
+  expect(defWon.winner).toBe(WHITE);
+  const ai1 = makeAI();
+  ai1.ensureBuffers(defWon.area);
+  ai1.deadline = 1e15;
+  expect(ai1.proofAttack(defWon, 10, 1)).toBe(false);
 
-  // proofAttack should return false because there's already a winner
-  expect(anyAI.proofAttack(pos, 10, 1)).toBe(false);
+  // proofDefend returns true when attacker has already won
+  const atkWon = position(['XXXXX....', '.........', '.........', '.........', '.........', '.........', '.........', '.........', '.........'], WHITE);
+  expect(atkWon.winner).toBe(BLACK);
+  const ai2 = makeAI();
+  ai2.ensureBuffers(atkWon.area);
+  ai2.deadline = 1e15;
+  expect(ai2.proofDefend(atkWon, 10, 1)).toBe(true);
+
+  // Both return false at depth 0
+  const mid = rawPosition(['.........', '.........', '.........', '.........', '....X....', '.........', '.........', '.........', '.........'], BLACK);
+  const ai3 = makeAI();
+  ai3.ensureBuffers(mid.area);
+  ai3.deadline = 1e15;
+  expect(ai3.proofAttack(mid, 0, 1)).toBe(false);
+  expect(ai3.proofDefend(mid, 0, 1)).toBe(false);
 });
 
-test('proofAttack: returns false at depth 0', () => {
-  const pos = rawPosition([
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-    '....X....',
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-  ], BLACK);
-  const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4, now: () => 0 });
-  const anyAI = ai as any;
-  anyAI.ensureBuffers(pos.area);
-  anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new Int32Array(1 << 18);
-  anyAI.proofTTResult = new Int8Array(1 << 18);
-  anyAI.proofTTDepth = new Int8Array(1 << 18);
+test('proofAttack/proofDefend: TT hit returns cached result', () => {
+  const makeAI = (pos: any) => {
+    const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4, now: () => 0 });
+    const anyAI = ai as any;
+    anyAI.ensureBuffers(pos.area);
+    anyAI.deadline = 1e15;
+    anyAI.proofTTHash = new Int32Array(1 << 18);
+    anyAI.proofTTResult = new Int8Array(1 << 18);
+    anyAI.proofTTDepth = new Int8Array(1 << 18);
+    return anyAI;
+  };
 
-  expect(anyAI.proofAttack(pos, 0, 1)).toBe(false);
-});
+  // proofAttack TT hit
+  const atkPos = rawPosition(['XXXX.....', 'OOO......', '.........', '.........', '.........', '.........', '.........', '.........', '.........'], BLACK);
+  const ai1 = makeAI(atkPos);
+  const r1 = ai1.proofAttack(atkPos, 3, 1);
+  expect(r1).toBe(true);
+  expect(ai1.proofAttack(atkPos, 3, 1)).toBe(true);
 
-test('proofAttack: TT hit returns cached result', () => {
-  const pos = rawPosition([
-    'XXXX.....',
-    'OOO......',
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-  ], BLACK);
-
-  const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4, now: () => 0 });
-  const anyAI = ai as any;
-  anyAI.ensureBuffers(pos.area);
-  anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new Int32Array(1 << 18);
-  anyAI.proofTTResult = new Int8Array(1 << 18);
-  anyAI.proofTTDepth = new Int8Array(1 << 18);
-
-  // First call populates TT
-  const result1 = anyAI.proofAttack(pos, 3, 1);
-  expect(result1).toBe(true); // XXXX -> can make five
-
-  // Second call should hit TT
-  const result2 = anyAI.proofAttack(pos, 3, 1);
-  expect(result2).toBe(true);
-});
-
-test('proofDefend: returns true when attacker already won', () => {
-  const pos = position([
-    'XXXXX....',
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-  ], WHITE);
-  expect(pos.winner).toBe(BLACK);
-
-  const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4, now: () => 0 });
-  const anyAI = ai as any;
-  anyAI.ensureBuffers(pos.area);
-  anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new Int32Array(1 << 18);
-  anyAI.proofTTResult = new Int8Array(1 << 18);
-  anyAI.proofTTDepth = new Int8Array(1 << 18);
-
-  // proofDefend returns true = attacker wins
-  expect(anyAI.proofDefend(pos, 10, 1)).toBe(true);
-});
-
-test('proofDefend: returns false at depth 0', () => {
-  const pos = rawPosition([
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-    '....X....',
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-  ], BLACK);
-
-  const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4, now: () => 0 });
-  const anyAI = ai as any;
-  anyAI.ensureBuffers(pos.area);
-  anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new Int32Array(1 << 18);
-  anyAI.proofTTResult = new Int8Array(1 << 18);
-  anyAI.proofTTDepth = new Int8Array(1 << 18);
-
-  expect(anyAI.proofDefend(pos, 0, 1)).toBe(false);
-});
-
-test('proofDefend: TT hit returns cached result', () => {
-  const pos = rawPosition([
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-    '....X....',
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-  ], BLACK);
-
-  const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4, now: () => 0 });
-  const anyAI = ai as any;
-  anyAI.ensureBuffers(pos.area);
-  anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new Int32Array(1 << 18);
-  anyAI.proofTTResult = new Int8Array(1 << 18);
-  anyAI.proofTTDepth = new Int8Array(1 << 18);
-
-  // First call - won't be proven (just one stone)
-  const result1 = anyAI.proofDefend(pos, 2, 1);
-  expect(typeof result1).toBe('boolean');
-
-  // Second call should hit TT
-  const result2 = anyAI.proofDefend(pos, 2, 1);
-  expect(result2).toBe(result1);
+  // proofDefend TT hit
+  const defPos = rawPosition(['.........', '.........', '.........', '.........', '....X....', '.........', '.........', '.........', '.........'], BLACK);
+  const ai2 = makeAI(defPos);
+  const r2 = ai2.proofDefend(defPos, 2, 1);
+  expect(typeof r2).toBe('boolean');
+  expect(ai2.proofDefend(defPos, 2, 1)).toBe(r2);
 });
 
 test('proofDefend: defender makes five and refutes attack', () => {
@@ -1665,67 +1567,31 @@ test('verifyWinningMove returns false when maxPly exhausted', () => {
   expect(ai.verifyWinningMove(pos, 3, 1000)).toBe(false);
 });
 
-test('proofAttack: TT hit returns -1 (proven not winning)', () => {
-  const pos = rawPosition([
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-    '....X....',
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-  ], BLACK);
+test('proofAttack: TT result variations (-1 proven not winning; 0 falls through to search)', () => {
+  const makeProofAI = (pos: any) => {
+    const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4, now: () => 0 });
+    const anyAI = ai as any;
+    anyAI.ensureBuffers(pos.area);
+    anyAI.deadline = 1e15;
+    anyAI.proofTTHash = new Int32Array(1 << 18);
+    anyAI.proofTTResult = new Int8Array(1 << 18);
+    anyAI.proofTTDepth = new Int8Array(1 << 18);
+    return anyAI;
+  };
 
-  const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4, now: () => 0 });
-  const anyAI = ai as any;
-  anyAI.ensureBuffers(pos.area);
-  anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new Int32Array(1 << 18);
-  anyAI.proofTTResult = new Int8Array(1 << 18);
-  anyAI.proofTTDepth = new Int8Array(1 << 18);
+  // result=-1 → proven not winning → returns false
+  const midPos = rawPosition(['.........', '.........', '.........', '.........', '....X....', '.........', '.........', '.........', '.........'], BLACK);
+  const ai1 = makeProofAI(midPos);
+  const h1 = midPos.hash; const idx1 = h1 & 0x3FFFF;
+  ai1.proofTTHash[idx1] = h1; ai1.proofTTResult[idx1] = -1; ai1.proofTTDepth[idx1] = 10;
+  expect(ai1.proofAttack(midPos, 5, 1)).toBe(false);
 
-  // Pre-populate TT with "not winning" result
-  const hash = pos.hash;
-  const ttIdx = hash & 0x3FFFF;
-  anyAI.proofTTHash[ttIdx] = hash;
-  anyAI.proofTTResult[ttIdx] = -1;
-  anyAI.proofTTDepth[ttIdx] = 10;
-
-  expect(anyAI.proofAttack(pos, 5, 1)).toBe(false);
-});
-
-test('proofAttack: TT hash match but result=0 falls through to search', () => {
-  const pos = rawPosition([
-    'XXXX.....',
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-  ], BLACK);
-
-  const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4, now: () => 0 });
-  const anyAI = ai as any;
-  anyAI.ensureBuffers(pos.area);
-  anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new Int32Array(1 << 18);
-  anyAI.proofTTResult = new Int8Array(1 << 18);
-  anyAI.proofTTDepth = new Int8Array(1 << 18);
-
-  // Seed TT with hash match but result=0 (unknown) - should fall through
-  const hash = pos.hash;
-  const ttIdx = hash & 0x3FFFF;
-  anyAI.proofTTHash[ttIdx] = hash;
-  anyAI.proofTTResult[ttIdx] = 0; // unknown
-  anyAI.proofTTDepth[ttIdx] = 10;
-
-  // Should still find the win by searching (ignoring TT unknown entry)
-  expect(anyAI.proofAttack(pos, 3, 1)).toBe(true);
+  // result=0 → unknown → falls through and actually searches
+  const winPos = rawPosition(['XXXX.....', '.........', '.........', '.........', '.........', '.........', '.........', '.........', '.........'], BLACK);
+  const ai2 = makeProofAI(winPos);
+  const h2 = winPos.hash; const idx2 = h2 & 0x3FFFF;
+  ai2.proofTTHash[idx2] = h2; ai2.proofTTResult[idx2] = 0; ai2.proofTTDepth[idx2] = 10;
+  expect(ai2.proofAttack(winPos, 3, 1)).toBe(true);
 });
 
 test('proofDefend: all defenses fail → attacker proven to win', () => {
@@ -1909,99 +1775,38 @@ test('proofAttack: illegal move is skipped', () => {
   expect(typeof result).toBe('boolean');
 });
 
-test('proofDefend: TT hit with proven winning result', () => {
-  const pos = rawPosition([
-    'XXXX.....',
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-  ], WHITE);
+test('proofDefend: TT result variations (proven win/loss and result=0 fallthrough)', () => {
+  const makeDefAI = (pos: any) => {
+    const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4, now: () => 0 });
+    const anyAI = ai as any;
+    anyAI.ensureBuffers(pos.area);
+    anyAI.deadline = 1e15;
+    anyAI.proofTTHash = new Int32Array(1 << 18);
+    anyAI.proofTTResult = new Int8Array(1 << 18);
+    anyAI.proofTTDepth = new Int8Array(1 << 18);
+    return anyAI;
+  };
 
-  const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4, now: () => 0 });
-  const anyAI = ai as any;
-  anyAI.ensureBuffers(pos.area);
-  anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new Int32Array(1 << 18);
-  anyAI.proofTTResult = new Int8Array(1 << 18);
-  anyAI.proofTTDepth = new Int8Array(1 << 18);
+  // result=1 → proven win for attacker → returns true
+  const winPos = rawPosition(['XXXX.....', '.........', '.........', '.........', '.........', '.........', '.........', '.........', '.........'], WHITE);
+  const ai1 = makeDefAI(winPos);
+  const h1 = winPos.hash; const idx1 = h1 & 0x3FFFF;
+  ai1.proofTTHash[idx1] = h1; ai1.proofTTResult[idx1] = 1; ai1.proofTTDepth[idx1] = 10;
+  expect(ai1.proofDefend(winPos, 5, 1)).toBe(true);
 
-  // Pre-populate TT with "attacker wins" result
-  const hash = pos.hash;
-  const ttIdx = hash & 0x3FFFF;
-  anyAI.proofTTHash[ttIdx] = hash;
-  anyAI.proofTTResult[ttIdx] = 1;
-  anyAI.proofTTDepth[ttIdx] = 10;
+  // result=-1 → proven not winning → returns false
+  const midPos = rawPosition(['.........', '.........', '.........', '.........', '....X....', '.........', '.........', '.........', '.........'], WHITE);
+  const ai2 = makeDefAI(midPos);
+  const h2 = midPos.hash; const idx2 = h2 & 0x3FFFF;
+  ai2.proofTTHash[idx2] = h2; ai2.proofTTResult[idx2] = -1; ai2.proofTTDepth[idx2] = 10;
+  expect(ai2.proofDefend(midPos, 5, 1)).toBe(false);
 
-  expect(anyAI.proofDefend(pos, 5, 1)).toBe(true);
-});
-
-test('proofDefend: TT hit with proven not-winning result', () => {
-  const pos = rawPosition([
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-    '....X....',
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-  ], WHITE);
-
-  const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4, now: () => 0 });
-  const anyAI = ai as any;
-  anyAI.ensureBuffers(pos.area);
-  anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new Int32Array(1 << 18);
-  anyAI.proofTTResult = new Int8Array(1 << 18);
-  anyAI.proofTTDepth = new Int8Array(1 << 18);
-
-  // Pre-populate TT with "not winning" result
-  const hash = pos.hash;
-  const ttIdx = hash & 0x3FFFF;
-  anyAI.proofTTHash[ttIdx] = hash;
-  anyAI.proofTTResult[ttIdx] = -1;
-  anyAI.proofTTDepth[ttIdx] = 10;
-
-  expect(anyAI.proofDefend(pos, 5, 1)).toBe(false);
-});
-
-test('proofDefend: TT hash match but result=0 falls through to search', () => {
-  const pos = rawPosition([
-    'XXXX.....',
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-    'OOO......',
-    'XXXX.....',
-  ], WHITE);
-
-  const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4, now: () => 0 });
-  const anyAI = ai as any;
-  anyAI.ensureBuffers(pos.area);
-  anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new Int32Array(1 << 18);
-  anyAI.proofTTResult = new Int8Array(1 << 18);
-  anyAI.proofTTDepth = new Int8Array(1 << 18);
-
-  // Seed TT with hash match but result=0 (unknown) - should fall through
-  const hash = pos.hash;
-  const ttIdx = hash & 0x3FFFF;
-  anyAI.proofTTHash[ttIdx] = hash;
-  anyAI.proofTTResult[ttIdx] = 0; // unknown
-  anyAI.proofTTDepth[ttIdx] = 10;
-
-  // Should still search and find the result
-  const result = anyAI.proofDefend(pos, 2, 1);
-  expect(result).toBe(true); // All defenses fail (double XXXX)
+  // result=0 → unknown → falls through and searches (double XXXX → attacker wins)
+  const doublePos = rawPosition(['XXXX.....', '.........', '.........', '.........', '.........', '.........', '.........', 'OOO......', 'XXXX.....'], WHITE);
+  const ai3 = makeDefAI(doublePos);
+  const h3 = doublePos.hash; const idx3 = h3 & 0x3FFFF;
+  ai3.proofTTHash[idx3] = h3; ai3.proofTTResult[idx3] = 0; ai3.proofTTDepth[idx3] = 10;
+  expect(ai3.proofDefend(doublePos, 2, 1)).toBe(true);
 });
 
 test('capped node: fullboard fallback with capping applied', () => {
@@ -2816,28 +2621,4 @@ test('proofDefend: falls back to full-board generation even after an earlier leg
   anyAI.generateOrderedMoves = realGen;
   anyAI.generateFullBoardMoves = realFullGen;
   anyAI.proofAttack = realProofAttack;
-});
-
-test('insertOrPromoteMove promotes higher scores and tolerates stale marks without a matching move', () => {
-  const ai = new GogoAI({ maxDepth: 10 });
-  const anyAI = ai as any;
-  anyAI.ensureBuffers(81);
-
-  const moves = anyAI.moveBuffers[0];
-  const scores = anyAI.scoreBuffers[0];
-  anyAI.candidateEpoch += 1;
-  let count = 0;
-
-  count = anyAI.insertOrPromoteMove(moves, scores, count, 10, 100);
-  count = anyAI.insertOrPromoteMove(moves, scores, count, 20, 200);
-  count = anyAI.insertOrPromoteMove(moves, scores, count, 10, 300);
-
-  expect(count).toBe(2);
-  expect(moves[0]).toBe(10);
-  expect(scores[0]).toBe(300);
-  expect(moves[1]).toBe(20);
-  expect(scores[1]).toBe(200);
-
-  anyAI.candidateMarks[30] = anyAI.candidateEpoch;
-  expect(anyAI.insertOrPromoteMove(moves, scores, count, 30, 50)).toBe(count);
 });
