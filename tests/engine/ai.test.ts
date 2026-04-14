@@ -210,7 +210,7 @@ test('searchDepths skips empty root results and keeps deepening', () => {
   const anyAI = ai as any;
   const state = { bestMove: 40, bestScore: 0, completedDepth: 0, hintMove: 40 };
   let calls = 0;
-  anyAI.searchRoot = (_position: any, depth: number) => {
+  anyAI.searchRoot = (_: any, depth: number) => {
     calls += 1;
     return calls === 1
       ? { move: -1, score: 0, depth, nodes: 0, timedOut: false, forcedWin: false, forcedLoss: false, heuristicWin: false, heuristicLoss: false }

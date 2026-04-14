@@ -268,8 +268,13 @@ export class GogoAI {
     }
   }
 
-  private isForcedWinScore(score: number, depth: number): boolean { return score >= WIN_SCORE - depth; }
-  private isForcedLossScore(score: number, depth: number): boolean { return score <= -WIN_SCORE + depth; }
+  private isForcedWinScore(score: number, depth: number): boolean {
+    return score >= WIN_SCORE - depth;
+  }
+
+  private isForcedLossScore(score: number, depth: number): boolean {
+    return score <= -WIN_SCORE + depth;
+  }
 
   private pickFallbackMove(position: GogoPosition): number {
     if (position.stoneCount === 0) {
@@ -309,10 +314,11 @@ export class GogoAI {
 
   private searchRoot(position: GogoPosition, depth: number, hintMove: number): SearchResult {
     this.checkTime(true);
+    const beta = WIN_SCORE;
     const moves = this.moveBuffers[0];
     const scores = this.scoreBuffers[0];
+
     let count = this.generateOrderedMoves(position, moves, scores, hintMove, false);
-    const beta = WIN_SCORE;
     let alpha = -WIN_SCORE;
     let bestMove = -1;
     let bestScore = -WIN_SCORE;
