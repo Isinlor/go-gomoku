@@ -604,15 +604,38 @@ test('LMR reduces later moves at depth >= 3 and re-searches on improvement', () 
   // Clear TT to ensure fresh search
   anyAI.ttFlag.fill(0);
 
-  // Search at depth 5 to trigger LMR (depth >= 3 in subtree, legalCount > 3)
+  // Search at depth 5 to trigger LMR depth reduction (line 328: depth >= 3, legalCount > 3)
   const score = anyAI.search(pos, 5, -1_000_000, 1_000_000, 1);
   expect(typeof score).toBe('number');
 
-  // Run findBestMove with real timing (maxDepth 6, 500ms cap) to exercise iterative
-  // deepening + TT ordering; at depths 4-6 a later move beats alpha in the reduced
-  // LMR scout, triggering the full-depth re-search on line 334.
-  const ai2 = new GogoAI({ maxDepth: 6, quiescenceDepth: 2 });
-  const result = ai2.findBestMove(pos, 500);
+  // Cover line 334 (LMR re-search when scout finds improvement) by mocking inner search
+  // calls. The negamax convention means inner calls return the score from the child's
+  // (opponent's) perspective; we negate to get the parent's score:
+  //   depth-2 inner calls → return -50 → parent score = 50 → alpha is set to 50
+  //   depth-1 LMR scout for the 4th+ move → return -51 → parent score = 51 > alpha=50
+  // The condition `searchDepth < depth-1 && score > alpha` on line 333 is now true,
+  // executing the full-depth re-search on line 334.
+  const ai2 = new GogoAI({ maxDepth: 4, quiescenceDepth: 2, now: () => 0 });
+  const any2 = ai2 as any;
+  any2.ensureBuffers(pos.area);
+  any2.deadline = 1e15;
+  any2.killerMoves.fill(-1);
+  any2.history.fill(0);
+  any2.ttFlag.fill(0);
+  const realSearch = any2.search.bind(any2);
+  any2.search = function (position: any, depth: number, alpha: number, beta: number, ply: number, canNullMove = true): number {
+    if (ply === 1) {
+      return realSearch(position, depth, alpha, beta, ply, canNullMove);
+    }
+    // -50 → parent score 50 (sets/maintains alpha); -51 → parent score 51 (>alpha, triggers line 334)
+    return depth === 1 ? -51 : -50;
+  };
+  const lmrResearchScore = any2.search(pos, 3, -1_000_000, 1_000_000, 1, false);
+  expect(typeof lmrResearchScore).toBe('number');
+
+  // Iterative deepening pipeline: fast frozen-clock run with small maxDepth
+  const ai3 = new GogoAI({ maxDepth: 3, quiescenceDepth: 1, now: () => 0 });
+  const result = ai3.findBestMove(pos, 1);
   expect(result.move).not.toBe(-1);
   expect(result.depth).toBeGreaterThanOrEqual(1);
 });
