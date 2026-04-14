@@ -375,13 +375,19 @@ export class ForcedWinSearcher {
   ): boolean {
     const defender = otherPlayer(attacker);
 
+    // When the defender can capture attacker stones, threat-based shortcuts
+    // are unsafe: a single capture can remove a stone that participates in
+    // multiple threat windows, neutralizing what looks like a double threat.
+    // In that case we fall through directly to the general case.
+    const capturesSafe = attackerThreats === 0 || !this.canCaptureOpponent(pos, attacker);
+
     // If attacker has ≥2 win threats and defender has 0, attacker wins
-    if (attackerThreats >= 2 && defenderThreats === 0) {
+    if (capturesSafe && attackerThreats >= 2 && defenderThreats === 0) {
       return true;
     }
 
     // If attacker has exactly 1 threat, defender must block it
-    if (attackerThreats === 1 && defenderThreats === 0) {
+    if (capturesSafe && attackerThreats === 1 && defenderThreats === 0) {
       const { moves: tMoves } = this.getWinThreatMoves(pos, attacker);
       const block = tMoves[0];
       if (!pos.play(block)) {
@@ -411,10 +417,10 @@ export class ForcedWinSearcher {
         }
       }
       // If attacker also has threats, defender might need to block those too
-      if (attackerThreats >= 2) {
+      if (capturesSafe && attackerThreats >= 2) {
         return true; // Double threat, defender already tried escaping
       }
-      if (attackerThreats === 1) {
+      if (capturesSafe && attackerThreats === 1) {
         const { moves: aMoves } = this.getWinThreatMoves(pos, attacker);
         const block = aMoves[0];
         if (!pos.play(block)) {
@@ -443,6 +449,32 @@ export class ForcedWinSearcher {
       }
     }
     return anyLegal;
+  }
+
+  // ---- capture detection ------------------------------------------------
+
+  /**
+   * Check whether the current side to move can capture any group of the
+   * given `target` colour (i.e. some target group has exactly 1 liberty).
+   * Used to disable threat-based shortcuts that assume threats can only be
+   * resolved by blocking, not by capturing the threatening stones.
+   */
+  private canCaptureOpponent(pos: GogoPosition, target: Player): boolean {
+    const board = pos.board;
+    const epoch = ++this.candidateEpoch;
+    for (let i = 0; i < this.area; i += 1) {
+      if (board[i] !== target || this.candidateMarks[i] === epoch) {
+        continue;
+      }
+      const liberties = pos.scanGroup(i, target);
+      for (let j = 0; j < pos.scanGroupSize; j += 1) {
+        this.candidateMarks[pos.groupBuffer[j]] = epoch;
+      }
+      if (liberties === 1) {
+        return true;
+      }
+    }
+    return false;
   }
 
   // ---- threat detection -----------------------------------------------
