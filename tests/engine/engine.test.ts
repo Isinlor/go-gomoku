@@ -261,7 +261,7 @@ test('legal move generation and group scanning reflect current state', () => {
   expect(mixedLegality.hasAnyLegalMove()).toBe(true);
   const mixedLegal = new Int16Array(mixedLegality.area);
   const mixedCount = mixedLegality.generateAllLegalMoves(mixedLegal);
-  // 81 cells - 4 whites from ASCII - 1 white manually added at (8,8) - 2 suicides at (0,0) and (1,1) = 74 legal
+  // 81 cells - 4 whites from ASCII - 1 white manually added at (8, 8) - 2 suicides at (0, 0) and (1, 1) = 74 legal
   expect(mixedCount).toBe(74);
   expect(Array.from(mixedLegal.slice(0, mixedCount)).includes(mixedLegality.index(1, 1))).toBe(false);
   expect(Array.from(mixedLegal.slice(0, mixedCount)).includes(mixedLegality.index(0, 0))).toBe(false);
