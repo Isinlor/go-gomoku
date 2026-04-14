@@ -481,6 +481,8 @@ describe('useGame', () => {
       timedOut: false,
       forcedWin: false,
       forcedLoss: false,
+      heuristicWin: false,
+      heuristicLoss: false,
     };
     (worker as any).onmessage({ data: response } as MessageEvent);
 
@@ -488,6 +490,7 @@ describe('useGame', () => {
     expect(gameState.game.value.at(4, 4)).toBe(BLACK);
     expect(gameState.statusExtra.value).toContain('AI depth 2');
     expect(gameState.statusExtra.value).not.toContain('forced win');
+    expect(gameState.statusExtra.value).not.toContain('likely forced');
     wrapper.unmount();
   });
 
@@ -511,12 +514,15 @@ describe('useGame', () => {
       timedOut: false,
       forcedWin: true,
       forcedLoss: false,
+      heuristicWin: true,
+      heuristicLoss: false,
     };
     (worker as any).onmessage({ data: response } as MessageEvent);
 
     expect(gameState.aiThinking.value).toBe(false);
     expect(gameState.game.value.at(4, 4)).toBe(BLACK);
     expect(gameState.statusExtra.value).toContain('forced win');
+    expect(gameState.statusExtra.value).not.toContain('likely');
     wrapper.unmount();
   });
 
@@ -540,12 +546,75 @@ describe('useGame', () => {
       timedOut: false,
       forcedWin: false,
       forcedLoss: true,
+      heuristicWin: false,
+      heuristicLoss: true,
     };
     (worker as any).onmessage({ data: response } as MessageEvent);
 
     expect(gameState.aiThinking.value).toBe(false);
     expect(gameState.game.value.at(4, 4)).toBe(BLACK);
     expect(gameState.statusExtra.value).toContain('forced loss');
+    expect(gameState.statusExtra.value).not.toContain('likely');
+    wrapper.unmount();
+  });
+
+  test('maybeRunAI statusExtra shows likely forced win when only heuristic win', async () => {
+    const worker = createMockWorker();
+    const { gameState, wrapper } = mountWithGame({
+      createWorker: () => worker,
+      getLocationHash: () => '',
+      setLocationHash: () => {},
+    });
+
+    gameState.whiteIsAI.value = false;
+    gameState.blackIsAI.value = true;
+    gameState.onModeChange();
+
+    const response: AIResponse = {
+      move: 40,
+      score: 1000000000,
+      depth: 1,
+      nodes: 1,
+      timedOut: false,
+      forcedWin: false,
+      forcedLoss: false,
+      heuristicWin: true,
+      heuristicLoss: false,
+    };
+    (worker as any).onmessage({ data: response } as MessageEvent);
+
+    expect(gameState.statusExtra.value).toContain('likely forced win');
+    expect(gameState.statusExtra.value).not.toMatch(/[^y] forced win/);
+    wrapper.unmount();
+  });
+
+  test('maybeRunAI statusExtra shows likely forced loss when only heuristic loss', async () => {
+    const worker = createMockWorker();
+    const { gameState, wrapper } = mountWithGame({
+      createWorker: () => worker,
+      getLocationHash: () => '',
+      setLocationHash: () => {},
+    });
+
+    gameState.whiteIsAI.value = false;
+    gameState.blackIsAI.value = true;
+    gameState.onModeChange();
+
+    const response: AIResponse = {
+      move: 40,
+      score: -999999998,
+      depth: 2,
+      nodes: 10,
+      timedOut: false,
+      forcedWin: false,
+      forcedLoss: false,
+      heuristicWin: false,
+      heuristicLoss: true,
+    };
+    (worker as any).onmessage({ data: response } as MessageEvent);
+
+    expect(gameState.statusExtra.value).toContain('likely forced loss');
+    expect(gameState.statusExtra.value).not.toMatch(/[^y] forced loss/);
     wrapper.unmount();
   });
 
@@ -600,6 +669,8 @@ describe('useGame', () => {
       timedOut: false,
       forcedWin: false,
       forcedLoss: false,
+      heuristicWin: false,
+      heuristicLoss: false,
     };
     (worker as any).onmessage({ data: response } as MessageEvent);
     expect(gameState.game.value.ply).toBe(0);
@@ -630,6 +701,8 @@ describe('useGame', () => {
       timedOut: false,
       forcedWin: false,
       forcedLoss: false,
+      heuristicWin: false,
+      heuristicLoss: false,
     };
     // The worker was terminated by newGame, so onmessage won't fire on the old worker
     // But let's test the case where we get a response after the game changed
@@ -761,7 +834,7 @@ describe('useGame', () => {
     expect(worker.postMessage).toHaveBeenCalledTimes(1);
 
     // Simulate black AI response
-    (worker as any).onmessage({ data: { move: 40, score: 100, depth: 2, nodes: 50, timedOut: false, forcedWin: false } as AIResponse } as MessageEvent);
+    (worker as any).onmessage({ data: { move: 40, score: 100, depth: 2, nodes: 50, timedOut: false, forcedWin: false, forcedLoss: false, heuristicWin: false, heuristicLoss: false } as AIResponse } as MessageEvent);
 
     // Now white AI should be requested
     expect(gameState.aiThinking.value).toBe(true);
@@ -838,7 +911,7 @@ describe('useGame', () => {
 
     // Simulating a late response after worker terminated
     // The onmessage was set on the old worker object, calling it should be safe
-    const response: AIResponse = { move: 40, score: 0, depth: 1, nodes: 10, timedOut: false, forcedWin: false };
+    const response: AIResponse = { move: 40, score: 0, depth: 1, nodes: 10, timedOut: false, forcedWin: false, forcedLoss: false, heuristicWin: false, heuristicLoss: false };
     (worker as any).onmessage({ data: response } as MessageEvent);
     expect(gameState.game.value.ply).toBe(0);
     wrapper.unmount();
@@ -1017,7 +1090,7 @@ describe('useGame', () => {
     (worker as any)._pendingId = 0;
     const staleResponse: AIResponse = {
       move: 40, score: 100, depth: 2, nodes: 50, timedOut: false, forcedWin: false,
-      forcedLoss: false,
+      forcedLoss: false, heuristicWin: false, heuristicLoss: false,
     };
     (worker as any).onmessage({ data: staleResponse } as MessageEvent);
     // Should still be thinking (stale response not processed)
@@ -1074,7 +1147,7 @@ describe('useGame', () => {
     // Simulate a late message from Worker A's handler arriving after B is active
     const staleResponse: AIResponse = {
       move: 40, score: 100, depth: 2, nodes: 50, timedOut: false, forcedWin: false,
-      forcedLoss: false,
+      forcedLoss: false, heuristicWin: false, heuristicLoss: false,
     };
     handlerA({ data: staleResponse } as MessageEvent);
 

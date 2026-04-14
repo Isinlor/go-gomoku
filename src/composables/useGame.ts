@@ -159,7 +159,11 @@ export function useGame(options: UseGameOptions = {}) {
         ? ', forced win'
         : result.forcedLoss
           ? ', forced loss'
-          : '';
+          : result.heuristicWin
+            ? ', likely forced win'
+            : result.heuristicLoss
+              ? ', likely forced loss'
+              : '';
       statusExtra.value = `AI depth ${result.depth}, nodes ${result.nodes}${forcedOutcomeSuffix}`;
       notifyBoardChange();
       updateLocationHash();
