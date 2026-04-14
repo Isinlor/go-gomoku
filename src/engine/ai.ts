@@ -30,6 +30,16 @@ const KILLER_BONUS = 1_000_000;
 const CAPTURE_BONUS = 5_000;
 const ESCAPE_BONUS = 3_500;
 const NO_SCORE = Number.NEGATIVE_INFINITY;
+const MAX_CANDIDATES = 15;
+
+// Transposition table constants
+const TT_SIZE_BITS = 18;
+const TT_SIZE = 1 << TT_SIZE_BITS;
+const TT_MASK = TT_SIZE - 1;
+const TT_NONE = 0;
+const TT_EXACT = 1;
+const TT_LOWERBOUND = 2;
+const TT_UPPERBOUND = 3;
 
 function otherPlayer(player: Player): Player {
   return player === BLACK ? WHITE : BLACK;
@@ -54,6 +64,13 @@ export class GogoAI {
   private timedOut = false;
   private killerMoves = new Int16Array(0);
   private readonly timeoutSignal = new Error('SEARCH_TIMEOUT');
+
+  // Transposition table
+  private ttHash = new Int32Array(TT_SIZE);
+  private ttScore = new Int32Array(TT_SIZE);
+  private ttDepth = new Int8Array(TT_SIZE);
+  private ttFlag = new Uint8Array(TT_SIZE);
+  private ttBestMove = new Int16Array(TT_SIZE);
 
   constructor(options: GogoAIOptions = {}) {
     this.maxDepth = Math.max(1, options.maxDepth ?? 6);
@@ -242,31 +259,55 @@ export class GogoAI {
       return this.quiescence(position, alpha, beta, ply, this.quiescenceDepth);
     }
 
+    const origAlpha = alpha;
+
+    // Transposition table probe
+    const hash = position.hash;
+    const ttIndex = hash & TT_MASK;
+    let ttBest = -1;
+    if (this.ttHash[ttIndex] === hash && this.ttFlag[ttIndex] !== TT_NONE) {
+      if (this.ttDepth[ttIndex] >= depth) {
+        const ttFlag = this.ttFlag[ttIndex];
+        const ttScore = this.ttAdjustRetrieve(this.ttScore[ttIndex], ply);
+        if (ttFlag === TT_EXACT) return ttScore;
+        if (ttFlag === TT_LOWERBOUND && ttScore >= beta) return ttScore;
+        if (ttFlag === TT_UPPERBOUND && ttScore <= alpha) return ttScore;
+      }
+      ttBest = this.ttBestMove[ttIndex];
+    }
+
     // Null move pruning: if we give the opponent a free move and they still
     // can't beat beta, the position is likely good enough to prune.
     if (depth >= 3 && canNullMove) {
+      const R = depth >= 6 ? 3 : 2;
       const savedToMove = position.toMove;
       const savedKo = position.koPoint;
+      const savedHash = position.hash;
       position.toMove = otherPlayer(savedToMove);
       position.koPoint = -1;
+      position.hash ^= position.meta.zobristBlackToMove;
       let nullScore: number;
       try {
-        nullScore = -this.search(position, depth - 3, -beta, -beta + 1, ply + 1, false);
+        nullScore = -this.search(position, depth - 1 - R, -beta, -beta + 1, ply + 1, false);
       } finally {
         position.toMove = savedToMove;
         position.koPoint = savedKo;
+        position.hash = savedHash;
       }
       if (nullScore >= beta) {
         return beta;
       }
     }
 
+    const hintMove = ttBest !== -1 ? ttBest : -1;
     const moves = this.moveBuffers[ply];
     const scores = this.scoreBuffers[ply];
-    let count = this.generateOrderedMoves(position, moves, scores, -1, false, ply);
+    let count = this.generateOrderedMoves(position, moves, scores, hintMove, false, ply);
+    if (count > MAX_CANDIDATES) count = MAX_CANDIDATES;
     let usedFullBoard = false;
     let legalCount = 0;
     let bestScore = -WIN_SCORE;
+    let bestMove = -1;
 
     for (;;) {
       for (let i = 0; i < count; i += 1) {
@@ -281,8 +322,17 @@ export class GogoAI {
             // PVS: full window for the first (best-ordered) move
             score = -this.search(position, depth - 1, -beta, -alpha, ply + 1);
           } else {
-            // PVS: zero-window scout search for subsequent moves
-            score = -this.search(position, depth - 1, -alpha - 1, -alpha, ply + 1);
+            // LMR: reduce search depth for later moves
+            let searchDepth = depth - 1;
+            if (depth >= 3 && legalCount > 3) {
+              searchDepth = Math.max(1, searchDepth - 1);
+            }
+            // PVS: zero-window scout search (possibly reduced)
+            score = -this.search(position, searchDepth, -alpha - 1, -alpha, ply + 1);
+            // If LMR was applied and scout found improvement, re-search at full depth
+            if (searchDepth < depth - 1 && score > alpha) {
+              score = -this.search(position, depth - 1, -alpha - 1, -alpha, ply + 1);
+            }
             if (score > alpha && score < beta) {
               // Re-search with full window if scout indicates a better move
               score = -this.search(position, depth - 1, -beta, -alpha, ply + 1);
@@ -293,6 +343,7 @@ export class GogoAI {
         }
         if (score > bestScore) {
           bestScore = score;
+          bestMove = move;
         }
         if (score > alpha) {
           alpha = score;
@@ -303,18 +354,33 @@ export class GogoAI {
               this.killerMoves[ply * 2 + 1] = this.killerMoves[ply * 2];
               this.killerMoves[ply * 2] = move;
             }
-            return score;
+            break;
           }
         }
       }
       if (legalCount !== 0 || usedFullBoard) {
         break;
       }
-      count = this.generateFullBoardMoves(position, moves, scores, -1, false, ply);
+      count = this.generateFullBoardMoves(position, moves, scores, hintMove, false, ply);
+      if (count > MAX_CANDIDATES) count = MAX_CANDIDATES;
       usedFullBoard = true;
     }
 
-    return legalCount === 0 ? 0 : bestScore;
+    if (legalCount === 0) {
+      return 0;
+    }
+
+    // Transposition table store
+    const storeFlag = bestScore <= origAlpha ? TT_UPPERBOUND
+                    : alpha >= beta ? TT_LOWERBOUND
+                    : TT_EXACT;
+    this.ttHash[ttIndex] = hash;
+    this.ttScore[ttIndex] = this.ttAdjustStore(bestScore, ply);
+    this.ttDepth[ttIndex] = depth;
+    this.ttFlag[ttIndex] = storeFlag;
+    this.ttBestMove[ttIndex] = bestMove;
+
+    return bestScore;
   }
 
   private quiescence(position: GogoPosition, alpha: number, beta: number, ply: number, remainingDepth: number): number {
@@ -589,5 +655,17 @@ export class GogoAI {
     if ((force || (this.nodesVisited & 127) === 0) && this.now() >= this.deadline) {
       throw this.timeoutSignal;
     }
+  }
+
+  private ttAdjustStore(score: number, ply: number): number {
+    if (score >= WIN_SCORE - this.maxPly) return score + ply;
+    if (score <= -WIN_SCORE + this.maxPly) return score - ply;
+    return score;
+  }
+
+  private ttAdjustRetrieve(score: number, ply: number): number {
+    if (score >= WIN_SCORE - this.maxPly) return score - ply;
+    if (score <= -WIN_SCORE + this.maxPly) return score + ply;
+    return score;
   }
 }

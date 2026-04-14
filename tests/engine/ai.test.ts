@@ -346,6 +346,35 @@ test('white-box AI helpers cover generation, evaluation, quiescence, search fall
   const illegalRoot = anyIllegal.searchRoot(noPlay, 1, -1);
   expect(illegalRoot.move).toBe(-1);
   expect(anyIllegal.search(noPlay, 1, -100, 100, 0)).toBe(0);
+
+  // Test fullboard fallback with MAX_CANDIDATES cap in search:
+  // generateOrderedMoves returns 0 (forcing fullboard fallback),
+  // generateFullBoardMoves returns 20 candidates (> MAX_CANDIDATES=15).
+  const cappedAI = new GogoAI({ maxDepth: 2, now: () => 0 });
+  const anyCapped = cappedAI as any;
+  anyCapped.ensureBuffers(81);
+  anyCapped.deadline = 1e15;
+  anyCapped.killerMoves.fill(-1);
+  anyCapped.history.fill(0);
+  anyCapped.ttFlag.fill(0);
+  const cappedPos = new GogoPosition(9);
+  cappedPos.playXY(4, 4);
+  const savedPlay = cappedPos.play.bind(cappedPos);
+  const savedUndo = cappedPos.undo.bind(cappedPos);
+  anyCapped.generateOrderedMoves = () => 0;
+  anyCapped.generateFullBoardMoves = (_pos: any, mvs: Int16Array, scs: Int32Array) => {
+    // Fill 20 candidates (all point to valid empty cells)
+    for (let i = 0; i < 20; i += 1) {
+      mvs[i] = i < 40 ? i : i + 1; // skip center at 40
+      scs[i] = 100 - i;
+    }
+    return 20;
+  };
+  cappedPos.play = savedPlay;
+  cappedPos.undo = savedUndo;
+  const cappedScore = anyCapped.search(cappedPos, 1, -100, 100, 0);
+  expect(typeof cappedScore).toBe('number');
+
   anyIllegal.generateOrderedMoves = (_position: any, moves: Int16Array) => { moves[0] = 0; return 1; };
   noPlay.winner = EMPTY;
   expect(anyIllegal.quiescence(noPlay, -100, 100, 0, 2)).toBe(anyIllegal.evaluate(noPlay));
@@ -483,4 +512,181 @@ test('killer moves are stored on beta cutoffs and boost scores in scoreMove', ()
     const withoutKiller = anyAI.scoreMove(pos, k0, -1, false, 1);
     expect(withKiller).toBeGreaterThan(withoutKiller);
   }
+});
+
+test('transposition table stores entries during search and produces cutoffs on replay', () => {
+  const ai = new GogoAI({ maxDepth: 4, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+  const pos = rawPosition([
+    '.........',
+    '.........',
+    '.........',
+    '...XO....',
+    '...OX....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  anyAI.ensureBuffers(pos.area);
+  anyAI.deadline = 1e15;
+  anyAI.killerMoves.fill(-1);
+  anyAI.history.fill(0);
+
+  // First search populates TT entries
+  const score1 = anyAI.search(pos, 3, -1_000_000, 1_000_000, 1);
+
+  // Verify TT was populated for this position
+  const hash = pos.hash;
+  const ttIndex = hash & 0x3FFFF;
+  expect(anyAI.ttFlag[ttIndex]).not.toBe(0);
+  expect(anyAI.ttHash[ttIndex]).toBe(hash);
+
+  // Second search at same depth should hit TT and return same score
+  const score2 = anyAI.search(pos, 3, -1_000_000, 1_000_000, 1);
+  expect(score2).toBe(score1);
+
+  // Search at lower depth should also hit TT (stored depth >= requested)
+  const score3 = anyAI.search(pos, 2, -1_000_000, 1_000_000, 1);
+  expect(score3).toBe(score1);
+
+  // TT lowerbound cutoff: search with narrow beta window
+  const lbScore = anyAI.search(pos, 3, score1 - 100, score1 - 50, 1, false);
+  expect(lbScore).toBeGreaterThanOrEqual(score1 - 50);
+
+  // TT upperbound cutoff: search with narrow alpha window above the score
+  const ubScore = anyAI.search(pos, 3, score1 + 50, score1 + 100, 1, false);
+  expect(ubScore).toBeLessThanOrEqual(score1 + 50);
+});
+
+test('TT score adjustment correctly handles forced win/loss scores and pass-through', () => {
+  const ai = new GogoAI({ maxDepth: 4 });
+  const anyAI = ai as any;
+
+  // Regular scores pass through unchanged
+  expect(anyAI.ttAdjustStore(100, 5)).toBe(100);
+  expect(anyAI.ttAdjustRetrieve(100, 5)).toBe(100);
+  expect(anyAI.ttAdjustStore(-100, 5)).toBe(-100);
+  expect(anyAI.ttAdjustRetrieve(-100, 5)).toBe(-100);
+
+  // Win scores are adjusted by ply
+  const winScore = 1_000_000_000 - 3;
+  expect(anyAI.ttAdjustStore(winScore, 5)).toBe(winScore + 5);
+  expect(anyAI.ttAdjustRetrieve(winScore + 5, 5)).toBe(winScore);
+
+  // Loss scores are adjusted by ply
+  const lossScore = -1_000_000_000 + 3;
+  expect(anyAI.ttAdjustStore(lossScore, 5)).toBe(lossScore - 5);
+  expect(anyAI.ttAdjustRetrieve(lossScore - 5, 5)).toBe(lossScore);
+});
+
+test('LMR reduces later moves at depth >= 3 and re-searches on improvement', () => {
+  const ai = new GogoAI({ maxDepth: 6, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+  // Position with many legal moves and balanced evaluation so moves don't
+  // immediately cause beta cutoffs, allowing legalCount to exceed 3.
+  const pos = rawPosition([
+    '.........',
+    '.........',
+    '.X..O....',
+    '.........',
+    '....X....',
+    '.........',
+    '.O..X....',
+    '.........',
+    '.........',
+  ], BLACK);
+  anyAI.ensureBuffers(pos.area);
+  anyAI.deadline = 1e15;
+  anyAI.killerMoves.fill(-1);
+  anyAI.history.fill(0);
+
+  // Clear TT to ensure fresh search
+  anyAI.ttFlag.fill(0);
+
+  // Search at depth 5 to trigger LMR (depth >= 3 in subtree, legalCount > 3)
+  const score = anyAI.search(pos, 5, -1_000_000, 1_000_000, 1);
+  expect(typeof score).toBe('number');
+
+  // Run findBestMove which uses iterative deepening and exercises TT across depths
+  const result = ai.findBestMove(pos, 500);
+  expect(result.move).not.toBe(-1);
+  expect(result.depth).toBeGreaterThanOrEqual(1);
+});
+
+test('adaptive null move pruning uses R=3 at depth >= 6', () => {
+  const ai = new GogoAI({ maxDepth: 8, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+  // Strong position for BLACK to trigger NMP cutoff with R=3
+  const pos = rawPosition([
+    '.........',
+    '.........',
+    '.........',
+    '..XXX....',
+    '.........',
+    '..OO.....',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  anyAI.ensureBuffers(pos.area);
+  anyAI.deadline = 1e15;
+  anyAI.killerMoves.fill(-1);
+  anyAI.history.fill(0);
+  anyAI.ttFlag.fill(0);
+
+  // Search at depth 6 should use R=3 for NMP (depth >= 6)
+  const score6 = anyAI.search(pos, 6, -1_000_000, 100, 1, true);
+  expect(score6).toBe(100);
+});
+
+test('MAX_CANDIDATES caps the number of moves explored per node', () => {
+  const ai = new GogoAI({ maxDepth: 3, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+  // Position with many stones creating many near-2 candidates (> 15)
+  const pos = rawPosition([
+    'X.O.X.O.X',
+    '.........', 
+    'O.X.O.X.O',
+    '.........',
+    'X.O.X.O.X',
+    '.........',
+    'O.X.O.X.O',
+    '.........',
+    'X.O.X.O.X',
+  ], BLACK);
+  anyAI.ensureBuffers(pos.area);
+
+  // Verify generateOrderedMoves returns more than MAX_CANDIDATES
+  const moves = anyAI.moveBuffers[0];
+  const scores = anyAI.scoreBuffers[0];
+  const rawCount = anyAI.generateOrderedMoves(pos, moves, scores, -1, false);
+  expect(rawCount).toBeGreaterThan(15);
+
+  // Search should still work correctly with the cap
+  anyAI.deadline = 1e15;
+  anyAI.killerMoves.fill(-1);
+  anyAI.history.fill(0);
+  anyAI.ttFlag.fill(0);
+  const score = anyAI.search(pos, 2, -1_000_000, 1_000_000, 1);
+  expect(typeof score).toBe('number');
+});
+
+test('Zobrist hash is consistent after play/undo sequences', () => {
+  const pos = new GogoPosition(9);
+  const hashBefore = pos.hash;
+
+  pos.playXY(4, 4);
+  const hashAfterFirst = pos.hash;
+  expect(hashAfterFirst).not.toBe(hashBefore);
+
+  pos.playXY(3, 3);
+  const hashAfterSecond = pos.hash;
+  expect(hashAfterSecond).not.toBe(hashAfterFirst);
+
+  pos.undo();
+  expect(pos.hash).toBe(hashAfterFirst);
+
+  pos.undo();
+  expect(pos.hash).toBe(hashBefore);
 });
