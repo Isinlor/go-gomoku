@@ -70,6 +70,9 @@ export class GogoAI {
   private deadline = 0;
   private nodesVisited = 0;
   private timedOut = false;
+  private rootBestMove = -1;
+  private rootBestScore = 0;
+  private rootLegalCount = 0;
   private killerMoves = new Int16Array(0);
   private readonly timeoutSignal = new Error('SEARCH_TIMEOUT');
   private proofMode = false;
@@ -293,18 +296,19 @@ export class GogoAI {
   }
 
   private proofSearchRoot(position: GogoPosition, depth: number, hintMove: number): number {
-    return this.rootSearch(position, depth, hintMove).bestScore;
+    this.rootSearch(position, depth, hintMove);
+    return this.rootBestScore;
   }
 
   private searchRoot(position: GogoPosition, depth: number, hintMove: number): SearchResult {
-    const { bestMove, bestScore, legalCount } = this.rootSearch(position, depth, hintMove);
-    if (legalCount === 0) {
+    this.rootSearch(position, depth, hintMove);
+    if (this.rootLegalCount === 0) {
       return { move: -1, score: 0, depth, nodes: this.nodesVisited, timedOut: false, forcedWin: false, forcedLoss: false, heuristicWin: false, heuristicLoss: false };
     }
-    return { move: bestMove, score: bestScore, depth, nodes: this.nodesVisited, timedOut: false, forcedWin: false, forcedLoss: false, heuristicWin: false, heuristicLoss: false };
+    return { move: this.rootBestMove, score: this.rootBestScore, depth, nodes: this.nodesVisited, timedOut: false, forcedWin: false, forcedLoss: false, heuristicWin: false, heuristicLoss: false };
   }
 
-  private rootSearch(position: GogoPosition, depth: number, hintMove: number): { bestMove: number; bestScore: number; legalCount: number } {
+  private rootSearch(position: GogoPosition, depth: number, hintMove: number): void {
     this.checkTime(true);
     const moves = this.moveBuffers[0];
     const scores = this.scoreBuffers[0];
@@ -343,8 +347,9 @@ export class GogoAI {
       count = this.generateFullBoardMoves(position, moves, scores, hintMove, false);
       usedFullBoard = true;
     }
-
-    return { bestMove, bestScore: legalCount === 0 ? 0 : bestScore, legalCount };
+    this.rootBestMove = bestMove;
+    this.rootBestScore = legalCount === 0 ? 0 : bestScore;
+    this.rootLegalCount = legalCount;
   }
 
   private search(position: GogoPosition, depth: number, alpha: number, beta: number, ply: number, canNullMove = true): number {
@@ -859,14 +864,29 @@ export class GogoAI {
     if (depthLeft <= 0) return false;
 
     const hash = position.hash;
-    const [ttIdx, ttResult, ttBest] = this.loadProofTT(hash, depthLeft);
-    if (ttResult !== 0) {
-      return ttResult > 0;
+    const ttIdx = hash & TT_MASK;
+    let ttBest = -1;
+    if (this.proofTTHash[ttIdx] === hash) {
+      if (this.proofTTDepth[ttIdx] >= depthLeft) {
+        const ttResult = this.proofTTResult[ttIdx];
+        if (ttResult !== 0) {
+          return ttResult > 0;
+        }
+      }
+      ttBest = this.proofTTBestMove[ttIdx];
     }
 
-    if (ttBest !== -1 && position.board[ttBest] === EMPTY && ttBest !== position.koPoint && this.attackMoveWins(position, ttBest, depthLeft, ply)) {
-      this.storeProofTT(ttIdx, hash, depthLeft, 1, ttBest);
-      return true;
+    if (ttBest !== -1 && position.board[ttBest] === EMPTY && ttBest !== position.koPoint && position.play(ttBest)) {
+      let wins: boolean;
+      try {
+        wins = position.winner !== EMPTY || this.proofDefend(position, depthLeft - 1, ply + 1);
+      } finally {
+        position.undo();
+      }
+      if (wins) {
+        this.storeProofTT(ttIdx, hash, depthLeft, 1, ttBest);
+        return true;
+      }
     }
 
     const moves = this.moveBuffers[ply];
@@ -875,7 +895,14 @@ export class GogoAI {
     for (let i = 0; i < count; i += 1) {
       const move = moves[i];
       if (move === ttBest) continue;
-      if (this.attackMoveWins(position, move, depthLeft, ply)) {
+      if (!position.play(move)) continue;
+      let wins: boolean;
+      try {
+        wins = position.winner !== EMPTY || this.proofDefend(position, depthLeft - 1, ply + 1);
+      } finally {
+        position.undo();
+      }
+      if (wins) {
         this.storeProofTT(ttIdx, hash, depthLeft, 1, move);
         return true;
       }
@@ -891,9 +918,16 @@ export class GogoAI {
     if (depthLeft <= 0) return false;
 
     const hash = position.hash;
-    const [ttIdx, ttResult, ttBest] = this.loadProofTT(hash, depthLeft);
-    if (ttResult !== 0) {
-      return ttResult > 0;
+    const ttIdx = hash & TT_MASK;
+    let ttBest = -1;
+    if (this.proofTTHash[ttIdx] === hash) {
+      if (this.proofTTDepth[ttIdx] >= depthLeft) {
+        const ttResult = this.proofTTResult[ttIdx];
+        if (ttResult !== 0) {
+          return ttResult > 0;
+        }
+      }
+      ttBest = this.proofTTBestMove[ttIdx];
     }
 
     let anyLegalCount = 0;
@@ -902,8 +936,13 @@ export class GogoAI {
 
     if (ttBest !== -1 && position.board[ttBest] === EMPTY && ttBest !== position.koPoint) {
       this.triedMoveMarks[ttBest] = triedEpoch;
-      const refutes = this.defenseMoveRefutes(position, ttBest, depthLeft, ply);
-      if (refutes !== undefined) {
+      if (position.play(ttBest)) {
+        let refutes: boolean;
+        try {
+          refutes = position.winner !== EMPTY || !this.proofAttack(position, depthLeft - 1, ply + 1);
+        } finally {
+          position.undo();
+        }
         anyLegalCount += 1;
         if (refutes) {
           this.storeProofTT(ttIdx, hash, depthLeft, -1, ttBest);
@@ -919,8 +958,13 @@ export class GogoAI {
         const move = moves[i];
         if (this.triedMoveMarks[move] === triedEpoch) continue;
         this.triedMoveMarks[move] = triedEpoch;
-        const refutes = this.defenseMoveRefutes(position, move, depthLeft, ply);
-        if (refutes === undefined) continue;
+        if (!position.play(move)) continue;
+        let refutes: boolean;
+        try {
+          refutes = position.winner !== EMPTY || !this.proofAttack(position, depthLeft - 1, ply + 1);
+        } finally {
+          position.undo();
+        }
         anyLegalCount += 1;
         if (refutes) {
           this.storeProofTT(ttIdx, hash, depthLeft, -1, move);
@@ -940,8 +984,13 @@ export class GogoAI {
         const move = moves[i];
         if (this.triedMoveMarks[move] === triedEpoch) continue;
         this.triedMoveMarks[move] = triedEpoch;
-        const refutes = this.defenseMoveRefutes(position, move, depthLeft, ply);
-        if (refutes === undefined) continue;
+        if (!position.play(move)) continue;
+        let refutes: boolean;
+        try {
+          refutes = position.winner !== EMPTY || !this.proofAttack(position, depthLeft - 1, ply + 1);
+        } finally {
+          position.undo();
+        }
         anyLegalCount += 1;
         stageLegalCount += 1;
         if (refutes) {
@@ -960,37 +1009,11 @@ export class GogoAI {
     return true;
   }
 
-  private loadProofTT(hash: number, depthLeft: number): [number, number, number] {
-    const index = hash & TT_MASK;
-    if (this.proofTTHash[index] !== hash) {
-      return [index, 0, -1];
-    }
-    return [index, this.proofTTDepth[index] >= depthLeft ? this.proofTTResult[index] : 0, this.proofTTBestMove[index]];
-  }
-
   private storeProofTT(index: number, hash: number, depthLeft: number, result: number, bestMove = -1): void {
     this.proofTTHash[index] = hash;
     this.proofTTResult[index] = result;
     this.proofTTDepth[index] = depthLeft;
     this.proofTTBestMove[index] = bestMove;
-  }
-
-  private attackMoveWins(position: GogoPosition, move: number, depthLeft: number, ply: number): boolean {
-    if (!position.play(move)) return false;
-    try {
-      return position.winner !== EMPTY || this.proofDefend(position, depthLeft - 1, ply + 1);
-    } finally {
-      position.undo();
-    }
-  }
-
-  private defenseMoveRefutes(position: GogoPosition, move: number, depthLeft: number, ply: number): boolean | undefined {
-    if (!position.play(move)) return undefined;
-    try {
-      return position.winner !== EMPTY || !this.proofAttack(position, depthLeft - 1, ply + 1);
-    } finally {
-      position.undo();
-    }
   }
 
   /**
