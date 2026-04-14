@@ -2311,11 +2311,28 @@ test('proofAttack: hash-move-first succeeds from seeded TT best move', () => {
   anyAI.proofTTDepth[ttIdx] = 0;
   anyAI.proofTTBestMove[ttIdx] = 4; // winning move
 
-  // proofAttack should try hash move first and succeed
+  const playCalls: number[] = [];
+  const realPlay = pos.play.bind(pos);
+  (pos as any).play = (move: number) => {
+    playCalls.push(move);
+    return realPlay(move);
+  };
+  const realGen = anyAI.generateOrderedMoves.bind(anyAI);
+  let genCalls = 0;
+  anyAI.generateOrderedMoves = () => {
+    genCalls += 1;
+    throw new Error('generateOrderedMoves should not be needed when the TT move resolves proofAttack');
+  };
+
+  // proofAttack should try the TT move before move generation and resolve immediately
   expect(anyAI.proofAttack(pos, 1, 1)).toBe(true);
+  expect(playCalls).toEqual([4]);
+  expect(genCalls).toBe(0);
   // TT should now store the proven result with best move
   expect(anyAI.proofTTResult[ttIdx]).toBe(1);
   expect(anyAI.proofTTBestMove[ttIdx]).toBe(4);
+  anyAI.generateOrderedMoves = realGen;
+  (pos as any).play = realPlay;
 });
 
 test('proofAttack: hash-move-first wins via proofDefend (non-immediate)', () => {
@@ -2389,8 +2406,25 @@ test('proofDefend: hash-move-first with defender making five', () => {
   anyAI.proofTTDepth[ttIdx] = 0;
   anyAI.proofTTBestMove[ttIdx] = 13; // WHITE completes five at index 13
 
-  // proofDefend: defender plays winning move via hash-move-first → refutes
+  const playCalls: number[] = [];
+  const realPlay = pos.play.bind(pos);
+  (pos as any).play = (move: number) => {
+    playCalls.push(move);
+    return realPlay(move);
+  };
+  const realGen = anyAI.generateOrderedMoves.bind(anyAI);
+  let genCalls = 0;
+  anyAI.generateOrderedMoves = () => {
+    genCalls += 1;
+    throw new Error('generateOrderedMoves should not be needed when the TT move resolves proofDefend');
+  };
+
+  // proofDefend: defender plays winning TT move before any move generation → refutes
   expect(anyAI.proofDefend(pos, 2, 1)).toBe(false);
+  expect(playCalls).toEqual([13]);
+  expect(genCalls).toBe(0);
+  anyAI.generateOrderedMoves = realGen;
+  (pos as any).play = realPlay;
 });
 
 test('proofDefend: full generation finds defender five (winner check)', () => {
@@ -2465,6 +2499,52 @@ test('findThreatResponses: capture move for group with single liberty', () => {
   expect(moveSet.has(21)).toBe(true);
 });
 
+test('proofAttack: illegal TT move is attempted before move generation and skipped safely', () => {
+  const ai = new GogoAI({ maxDepth: 10 });
+  const anyAI = ai as any;
+  const pos = rawPosition([
+    '.........',
+    '.........',
+    '.........',
+    '....O....',
+    '...O.O...',
+    '....O....',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  anyAI.ensureBuffers(pos.area);
+  anyAI.deadline = 1e15;
+  anyAI.proofTTHash.fill(0);
+  anyAI.proofTTResult.fill(0);
+  anyAI.proofTTDepth.fill(0);
+  anyAI.proofTTBestMove.fill(-1);
+
+  const hash = pos.hash;
+  const ttIdx = hash & 0x3FFFF;
+  anyAI.proofTTHash[ttIdx] = hash;
+  anyAI.proofTTBestMove[ttIdx] = 40;
+
+  const playCalls: number[] = [];
+  const realPlay = pos.play.bind(pos);
+  (pos as any).play = (move: number) => {
+    playCalls.push(move);
+    return realPlay(move);
+  };
+  const realGen = anyAI.generateOrderedMoves.bind(anyAI);
+  let genCalls = 0;
+  anyAI.generateOrderedMoves = (...args: any[]) => {
+    genCalls += 1;
+    expect(playCalls).toEqual([40]);
+    return 0;
+  };
+
+  expect(anyAI.proofAttack(pos, 1, 1)).toBe(false);
+  expect(genCalls).toBe(1);
+  anyAI.generateOrderedMoves = realGen;
+  (pos as any).play = realPlay;
+});
+
 test('proofAttack: hash move creates non-winning position; killer move skip in tactical loop', () => {
   // BLACK has XXXX. on row 0. ttBest=5 (an empty cell that does not complete a five).
   // After play(5) the position is not a win; proofDefend(depth=0)=false → wins=false
@@ -2510,6 +2590,55 @@ test('proofAttack: hash move creates non-winning position; killer move skip in t
   // generateOrderedMoves includes 5 (killer+near-four) → m=5=ttBest → skip
   // move 4 found → play(4) → XXXXX → returns true
   expect(anyAI.proofAttack(pos, 1, 1)).toBe(true);
+});
+
+test('proofDefend: illegal TT move is attempted before ordered generation and skipped safely', () => {
+  const ai = new GogoAI({ maxDepth: 10 });
+  const anyAI = ai as any;
+  const pos = rawPosition([
+    '.........',
+    '.........',
+    '.........',
+    '....X....',
+    '...X.X...',
+    '....X....',
+    '.........',
+    '.........',
+    '.........',
+  ], WHITE);
+  anyAI.ensureBuffers(pos.area);
+  anyAI.deadline = 1e15;
+  anyAI.proofTTHash.fill(0);
+  anyAI.proofTTResult.fill(0);
+  anyAI.proofTTDepth.fill(0);
+  anyAI.proofTTBestMove.fill(-1);
+
+  const hash = pos.hash;
+  const ttIdx = hash & 0x3FFFF;
+  anyAI.proofTTHash[ttIdx] = hash;
+  anyAI.proofTTBestMove[ttIdx] = 40;
+
+  const playCalls: number[] = [];
+  const realPlay = pos.play.bind(pos);
+  (pos as any).play = (move: number) => {
+    playCalls.push(move);
+    return realPlay(move);
+  };
+  const realGen = anyAI.generateOrderedMoves.bind(anyAI);
+  const realFullGen = anyAI.generateFullBoardMoves.bind(anyAI);
+  let genCalls = 0;
+  anyAI.generateOrderedMoves = (...args: any[]) => {
+    genCalls += 1;
+    expect(playCalls).toEqual([40]);
+    return 0;
+  };
+  anyAI.generateFullBoardMoves = () => 0;
+
+  expect(anyAI.proofDefend(pos, 2, 1)).toBe(false);
+  expect(genCalls).toBe(1);
+  anyAI.generateOrderedMoves = realGen;
+  anyAI.generateFullBoardMoves = realFullGen;
+  (pos as any).play = realPlay;
 });
 
 test('proofDefend: hash move does not refute double threat; ttBest skipped in threat and full loops', () => {
@@ -2585,10 +2714,128 @@ test('findThreatResponses: defender winning cell in overlapping horizontal and v
   anyAI.deadline = 1e15;
 
   const count = anyAI.findThreatResponses(pos, 1);
-  // Must detect the threat and include cell 0 (blocking cell)
   expect(count).toBeGreaterThanOrEqual(1);
   const moves = anyAI.moveBuffers[1];
-  const moveSet = new Set<number>();
-  for (let i = 0; i < count; i++) moveSet.add(moves[i]);
-  expect(moveSet.has(0)).toBe(true);
+  const scores = anyAI.scoreBuffers[1];
+  const moveIndex = Array.from({ length: count }, (_, index) => index).find((index) => moves[index] === 0);
+  expect(moveIndex).not.toBeUndefined();
+  expect(scores[moveIndex ?? 0]).toBe(3_000_000);
+});
+
+test('proofDefend: restricted move play failure is handled without coverage suppression', () => {
+  const ai = new GogoAI({ maxDepth: 10 });
+  const anyAI = ai as any;
+  const pos = rawPosition([
+    'X........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], WHITE);
+  anyAI.ensureBuffers(pos.area);
+  anyAI.deadline = 1e15;
+  anyAI.proofTTHash.fill(0);
+  anyAI.proofTTResult.fill(0);
+  anyAI.proofTTDepth.fill(0);
+  anyAI.proofTTBestMove.fill(-1);
+
+  const realFindThreatResponses = anyAI.findThreatResponses.bind(anyAI);
+  const realGen = anyAI.generateOrderedMoves.bind(anyAI);
+  const realFullGen = anyAI.generateFullBoardMoves.bind(anyAI);
+  anyAI.findThreatResponses = function (_position: GogoPosition, ply: number) {
+    const moves = this.moveBuffers[ply];
+    const scores = this.scoreBuffers[ply];
+    moves[0] = 0; // occupied; play() fails
+    scores[0] = 2_000_000;
+    return 1;
+  };
+  anyAI.generateOrderedMoves = () => 0;
+  anyAI.generateFullBoardMoves = () => 0;
+
+  expect(anyAI.proofDefend(pos, 2, 1)).toBe(false);
+
+  anyAI.findThreatResponses = realFindThreatResponses;
+  anyAI.generateOrderedMoves = realGen;
+  anyAI.generateFullBoardMoves = realFullGen;
+});
+
+test('proofDefend: falls back to full-board generation even after an earlier legal restricted move', () => {
+  const ai = new GogoAI({ maxDepth: 10 });
+  const anyAI = ai as any;
+  const pos = rawPosition([
+    'XXXX.....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], WHITE);
+  anyAI.ensureBuffers(pos.area);
+  anyAI.deadline = 1e15;
+  anyAI.proofTTHash.fill(0);
+  anyAI.proofTTResult.fill(0);
+  anyAI.proofTTDepth.fill(0);
+  anyAI.proofTTBestMove.fill(-1);
+
+  const realGen = anyAI.generateOrderedMoves.bind(anyAI);
+  const realFullGen = anyAI.generateFullBoardMoves.bind(anyAI);
+  const realProofAttack = anyAI.proofAttack.bind(anyAI);
+  let orderedCalls = 0;
+  let fullCalls = 0;
+  anyAI.generateOrderedMoves = (...args: any[]) => {
+    const tacticalOnly = args[4];
+    if (tacticalOnly) {
+      return realGen(...args);
+    }
+    orderedCalls += 1;
+    return 0;
+  };
+  anyAI.generateFullBoardMoves = function (_position: GogoPosition, moves: Int16Array, scores: Int32Array) {
+    fullCalls += 1;
+    moves[0] = 20;
+    scores[0] = 0;
+    return 1;
+  };
+  anyAI.proofAttack = function (positionAfterDefense: GogoPosition) {
+    return positionAfterDefense.lastMove !== 20;
+  };
+
+  expect(anyAI.proofDefend(pos, 2, 1)).toBe(false);
+  expect(orderedCalls).toBe(1);
+  expect(fullCalls).toBe(1);
+
+  anyAI.generateOrderedMoves = realGen;
+  anyAI.generateFullBoardMoves = realFullGen;
+  anyAI.proofAttack = realProofAttack;
+});
+
+test('insertOrPromoteMove promotes higher scores and tolerates stale marks without a matching move', () => {
+  const ai = new GogoAI({ maxDepth: 10 });
+  const anyAI = ai as any;
+  anyAI.ensureBuffers(81);
+
+  const moves = anyAI.moveBuffers[0];
+  const scores = anyAI.scoreBuffers[0];
+  anyAI.candidateEpoch += 1;
+  let count = 0;
+
+  count = anyAI.insertOrPromoteMove(moves, scores, count, 10, 100);
+  count = anyAI.insertOrPromoteMove(moves, scores, count, 20, 200);
+  count = anyAI.insertOrPromoteMove(moves, scores, count, 10, 300);
+
+  expect(count).toBe(2);
+  expect(moves[0]).toBe(10);
+  expect(scores[0]).toBe(300);
+  expect(moves[1]).toBe(20);
+  expect(scores[1]).toBe(200);
+
+  anyAI.candidateMarks[30] = anyAI.candidateEpoch;
+  expect(anyAI.insertOrPromoteMove(moves, scores, count, 30, 50)).toBe(count);
 });
