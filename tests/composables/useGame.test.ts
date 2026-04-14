@@ -667,7 +667,7 @@ describe('useGame', () => {
     gameState.playMove(40);
     expect(setHash).toHaveBeenCalled();
     const lastCall = setHash.mock.calls[setHash.mock.calls.length - 1][0];
-    expect(lastCall).toContain('B9');
+    expect(lastCall).toContain('B9%20e5'); // board + encoded center move
     wrapper.unmount();
   });
 
@@ -723,8 +723,9 @@ describe('useGame', () => {
 
     gameState.blackIsAI.value = true;
     gameState.onModeChange();
-    expect(worker.postMessage).toHaveBeenCalled();
+    expect(worker.postMessage).toHaveBeenCalledTimes(1);
     const request = (worker.postMessage as any).mock.calls[0][0];
+    expect(request.encodedGame).toBe('B13');
     expect(request.maxDepth).toBe(12); // uses generous search depth regardless of board size
     wrapper.unmount();
   });
@@ -740,7 +741,9 @@ describe('useGame', () => {
     // White is AI (default), black is human
     gameState.playMove(40); // Human plays center
     expect(gameState.aiThinking.value).toBe(true);
-    expect(worker.postMessage).toHaveBeenCalled();
+    expect(worker.postMessage).toHaveBeenCalledTimes(1);
+    const request = (worker.postMessage as any).mock.calls[0][0];
+    expect(request.encodedGame).toBe('B9 e5'); // Black played center (index 40 = e5)
     wrapper.unmount();
   });
 
@@ -756,16 +759,20 @@ describe('useGame', () => {
     gameState.whiteIsAI.value = true;
     gameState.onModeChange();
 
-    // Black AI should be requested
+    // Black AI should be requested with empty board
     expect(gameState.aiThinking.value).toBe(true);
     expect(worker.postMessage).toHaveBeenCalledTimes(1);
+    const req1 = (worker.postMessage as any).mock.calls[0][0];
+    expect(req1.encodedGame).toBe('B9');
 
     // Simulate black AI response
     (worker as any).onmessage({ data: { move: 40, score: 100, depth: 2, nodes: 50, timedOut: false, forcedWin: false } as AIResponse } as MessageEvent);
 
-    // Now white AI should be requested
+    // Now white AI should be requested with black's move applied
     expect(gameState.aiThinking.value).toBe(true);
     expect(worker.postMessage).toHaveBeenCalledTimes(2);
+    const req2 = (worker.postMessage as any).mock.calls[1][0];
+    expect(req2.encodedGame).toBe('B9 e5'); // Black played center (index 40 = e5)
     wrapper.unmount();
   });
 

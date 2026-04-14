@@ -272,14 +272,15 @@ test('formatResults - zero totalGames returns 0.0% for all', () => {
 describe('main', () => {
   test('supports built-in AI factory through CLI flags', () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as never);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(process, 'exit').mockImplementation((() => {}) as never);
 
     main(['--pairs', '1', '--time', '5', '--ai1', 'classic', '--ai2', 'classic', '--seed', '9']);
 
-    expect(exitSpy.mock.calls.length <= 1).toBeTruthy();
-    expect(logSpy).toHaveBeenCalled();
-    expect(errSpy.mock.calls.length <= 1).toBeTruthy();
+    // The header log always fires regardless of game outcome
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Comparing AIs: 1 pairs (2 games)'));
+    // The results log always fires and always shows 2 games regardless of timing
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Results after 2 games:'));
     vi.restoreAllMocks();
   });
 

@@ -18,7 +18,7 @@ test('AI chooses the center on an empty board, handles immediate timeout, and ha
   const result = ai.findBestMove(empty, 100);
   expect(result.move).toBe(empty.index(4, 4));
   expect(result.timedOut).toBe(false);
-  expect(result.depth >= 1).toBeTruthy();
+  expect(result.depth).toBeGreaterThanOrEqual(1);
 
   let tick = 0;
   const timeoutAI = new GogoAI({ maxDepth: 4, now: () => tick++ });
@@ -58,7 +58,7 @@ test('AI finds immediate wins, blocks forced replies at depth one, and returns b
   const winningAI = new GogoAI({ maxDepth: 3, quiescenceDepth: 2 });
   const win = winningAI.findBestMove(winning, 100);
   expect(win.move).toBe(winning.index(4, 0));
-  expect(win.score > 100000).toBeTruthy();
+  expect(win.score).toBeGreaterThan(100000);
 
   const blocking = rawPosition([
     '.........',
@@ -166,7 +166,7 @@ test('AI restores position state after a mid-search timeout so the board is not 
 
   const result = ai.findBestMove(pos, 1);
   expect(result.timedOut).toBe(true);
-  expect(result.depth >= 1).toBeTruthy();
+  expect(result.depth).toBeGreaterThanOrEqual(1);
 
   // The position must be identical to before the search.
   expect(pos.ply).toBe(plyBefore);
@@ -252,12 +252,12 @@ test('white-box AI helpers cover generation, evaluation, quiescence, search fall
   const blackEval = anyAI.evaluate(evalPosition);
   evalPosition.toMove = WHITE;
   const whiteEval = anyAI.evaluate(evalPosition);
-  expect(blackEval > 0).toBeTruthy();
-  expect(whiteEval < 0).toBeTruthy();
+  expect(blackEval).toBeGreaterThan(0);
+  expect(whiteEval).toBeLessThan(0);
 
   anyAI.deadline = 1;
   const betaCut = anyAI.quiescence(tactical, -1000, 0, 0, 2);
-  expect(betaCut >= 0).toBeTruthy();
+  expect(betaCut).toBeGreaterThanOrEqual(0);
   expect(anyAI.quiescence(evalPosition, -1000, 1000, 0, 0)).toBe(whiteEval);
 
   const full = new GogoPosition(9);
@@ -286,7 +286,7 @@ test('white-box AI helpers cover generation, evaluation, quiescence, search fall
   ], BLACK);
   expect(anyAI.generateOrderedMoves(won, anyAI.moveBuffers[0], anyAI.scoreBuffers[0], -1, false)).toBe(0);
   won.winner = EMPTY;
-  expect(anyAI.generateFullBoardMoves(won, anyAI.moveBuffers[0], anyAI.scoreBuffers[0], -1, false) > 0).toBeTruthy();
+  expect(anyAI.generateFullBoardMoves(won, anyAI.moveBuffers[0], anyAI.scoreBuffers[0], -1, false)).toBeGreaterThan(0);
   const quietFull = rawPosition([
     '.........',
     '.........',

@@ -227,8 +227,8 @@ test('legal move generation and group scanning reflect current state', () => {
   expect(game.hasAnyLegalMove()).toBe(true);
   const legal = new Int16Array(game.area);
   const count = game.generateAllLegalMoves(legal);
-  expect(count > 0).toBeTruthy();
-  expect(legal.includes(game.index(2, 2))).toBeTruthy();
+  expect(count).toBe(76);
+  expect(legal.includes(game.index(2, 2))).toBe(true);
   expect(game.scanGroup(game.index(1, 1), WHITE)).toBe(4);
   expect(game.scanGroupSize).toBe(2);
 
@@ -259,7 +259,12 @@ test('legal move generation and group scanning reflect current state', () => {
   mixedLegality.board[mixedLegality.index(8, 8)] = WHITE;
   mixedLegality.stoneCount += 1;
   expect(mixedLegality.hasAnyLegalMove()).toBe(true);
-  expect(!Array.from(new Int16Array(mixedLegality.area).fill(-1)).includes(999)).toBeTruthy();
+  const mixedLegal = new Int16Array(mixedLegality.area);
+  const mixedCount = mixedLegality.generateAllLegalMoves(mixedLegal);
+  // 81 cells - 4 whites from ASCII - 1 white manually added at (8,8) - 2 suicides at (0,0) and (1,1) = 74 legal
+  expect(mixedCount).toBe(74);
+  expect(Array.from(mixedLegal.slice(0, mixedCount)).includes(mixedLegality.index(1, 1))).toBe(false);
+  expect(Array.from(mixedLegal.slice(0, mixedCount)).includes(mixedLegality.index(0, 0))).toBe(false);
 
   const noLegal = new GogoPosition(9);
   noLegal.board.fill(BLACK);
@@ -281,8 +286,8 @@ test('white-box internals cover helper branches that are otherwise hard to trigg
   game.capturePositions = new Int16Array(0);
   game.ensureHistoryCapacity(2);
   game.ensureCaptureCapacity(2);
-  expect(game.historyMoves.length >= 4).toBeTruthy();
-  expect(game.capturePositions.length >= 4).toBeTruthy();
+  expect(game.historyMoves.length).toBe(4);
+  expect(game.capturePositions.length).toBe(4);
 
   game.board[0] = BLACK;
   game.board[1] = WHITE;
