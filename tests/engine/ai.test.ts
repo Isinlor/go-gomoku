@@ -484,3 +484,91 @@ test('killer moves are stored on beta cutoffs and boost scores in scoreMove', ()
     expect(withKiller).toBeGreaterThan(withoutKiller);
   }
 });
+
+test('evaluateBoard returns per-move scores and keeps a useful fallback on timeout', () => {
+  const winning = rawPosition([
+    'XXXX.....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  const ai = new GogoAI({ maxDepth: 3, quiescenceDepth: 2, now: () => 0 });
+  const result = ai.evaluateBoard(winning, 100);
+  expect(result.depth).toBeGreaterThanOrEqual(1);
+  expect(result.scores.length).toBeGreaterThan(0);
+  const best = result.scores[0];
+  expect(best.move).toBe(winning.index(4, 0));
+  expect(best.score).toBeGreaterThan(100000);
+
+  let tick = 0;
+  const timeoutAI = new GogoAI({
+    maxDepth: 4,
+    quiescenceDepth: 2,
+    now: () => tick++,
+  });
+  const timeoutResult = timeoutAI.evaluateBoard(new GogoPosition(9), 0);
+  expect(timeoutResult.timedOut).toBe(true);
+  expect(timeoutResult.scores.length).toBeGreaterThan(0);
+});
+
+test('evaluateBoard handles terminal/no-move states, empty root-move collections, and rethrows unexpected errors', () => {
+  const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
+  const terminal = position([
+    'XXXXX....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  const terminalResult = ai.evaluateBoard(terminal, 100);
+  expect(terminalResult.scores).toEqual([]);
+  expect(terminalResult.depth).toBe(0);
+
+  const anyAI = ai as any;
+  const withForcedEmptyRoot = new GogoPosition(9);
+  anyAI.collectRootLegalMoves = () => [];
+  const emptyRoot = ai.evaluateBoard(withForcedEmptyRoot, 100);
+  expect(emptyRoot.scores).toEqual([]);
+
+  anyAI.collectRootLegalMoves = () => [40];
+  anyAI.evaluateBoardDepth = () => {
+    throw new Error('boom');
+  };
+  expect(() => ai.evaluateBoard(new GogoPosition(9), 100)).toThrow(/boom/);
+});
+
+test('collectRootLegalMoves and evaluateBoardDepth skip illegal plays and fallback to full-board generation', () => {
+  const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+  anyAI.ensureBuffers(81);
+  anyAI.generateOrderedMoves = (_position: unknown, moves: Int16Array) => {
+    moves[0] = 0;
+    return 1;
+  };
+  anyAI.generateFullBoardMoves = (_position: unknown, moves: Int16Array) => {
+    moves[0] = 1;
+    return 1;
+  };
+  const fake = {
+    play(move: number) { return move === 1; },
+    undo() { return true; },
+  };
+  expect(anyAI.collectRootLegalMoves(fake)).toEqual([1]);
+
+  const depthPos = new GogoPosition(9);
+  anyAI.deadline = 1_000_000;
+  const originalPlay = depthPos.play.bind(depthPos);
+  depthPos.play = ((move: number) => (move === 0 ? false : originalPlay(move))) as typeof depthPos.play;
+  const depthScores = anyAI.evaluateBoardDepth(depthPos, [0, 1], 1);
+  expect(depthScores.length).toBe(1);
+  expect(depthScores[0].move).toBe(1);
+});

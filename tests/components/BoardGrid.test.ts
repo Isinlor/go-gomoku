@@ -111,4 +111,19 @@ describe('BoardGrid', () => {
     expect(buttons[0].classes()).toContain('stone-black');
     expect(buttons[0].text()).toBe('●');
   });
+
+  test('shows board-evaluation heatmap title and style on empty evaluated moves', () => {
+    const board = createBoard(9);
+    board[0] = BLACK;
+    const moveEvaluation = Array.from({ length: 81 }, () => null as { score: number; probability: number } | null);
+    moveEvaluation[1] = { score: 1234, probability: 0.8 };
+    const wrapper = mount(BoardGrid, {
+      props: { board, size: 9, disabled: false, boardVersion: 0, moveEvaluation },
+    });
+
+    const buttons = wrapper.findAll('button');
+    expect(buttons[1].attributes('title')).toContain('1234');
+    expect(buttons[1].attributes('style')).toContain('--eval-probability: 0.8');
+    expect(buttons[0].attributes('title')).toBeUndefined();
+  });
 });

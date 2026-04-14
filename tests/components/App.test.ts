@@ -21,6 +21,7 @@ const mockGameState = () => {
     gameUrl: computed(() => '#B9'),
     loadError: ref(''),
     boardVersion: ref(0),
+    boardEvaluation: ref([]),
     boardDisabled: () => false,
     newGame: vi.fn(),
     undo: vi.fn(),
@@ -28,6 +29,7 @@ const mockGameState = () => {
     loadGame: vi.fn(),
     loadPuzzle: vi.fn(),
     setSize: vi.fn(),
+    evaluateBoard: vi.fn(),
     onModeChange: vi.fn(),
     onAITypeChange: vi.fn(),
     tryLoadFromUrl: vi.fn(),
@@ -173,5 +175,13 @@ describe('App', () => {
     puzzleSelect.vm.$emit('loadPuzzle', puzzle);
     await wrapper.vm.$nextTick();
     expect(currentMockState.loadPuzzle).toHaveBeenCalledWith(puzzle);
+  });
+
+  test('evaluate-board toolbar event calls evaluateBoard in composable', async () => {
+    const wrapper = mount(App);
+    const toolbar = wrapper.findComponent({ name: 'GameToolbar' });
+    toolbar.vm.$emit('evaluateBoard');
+    await wrapper.vm.$nextTick();
+    expect(currentMockState.evaluateBoard).toHaveBeenCalled();
   });
 });

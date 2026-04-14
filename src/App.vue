@@ -24,11 +24,13 @@ const {
   loadError,
   boardDisabled,
   boardVersion,
+  boardEvaluation,
   newGame,
   undo,
   playMove,
   loadGame,
   loadPuzzle,
+  evaluateBoard,
   setSize,
   onModeChange,
   onAITypeChange,
@@ -89,6 +91,7 @@ function onLoadPuzzle(puzzle: Puzzle): void {
     @update:board-size="onUpdateBoardSize"
     @new-game="newGame"
     @undo="undo"
+    @evaluate-board="evaluateBoard"
   />
 
   <div id="status">{{ statusText }}</div>
@@ -98,6 +101,7 @@ function onLoadPuzzle(puzzle: Puzzle): void {
     :size="game.size"
     :disabled="boardDisabled()"
     :board-version="boardVersion"
+    :move-evaluation="boardEvaluation"
     @cell-click="playMove"
   />
 

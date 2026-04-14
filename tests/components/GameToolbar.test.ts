@@ -22,7 +22,7 @@ describe('GameToolbar', () => {
     expect(wrapper.findAll('input[type="number"]').length).toBe(2);
     // board-size select + white AI type select (whiteIsAI=true)
     expect(wrapper.findAll('select').length).toBe(2);
-    expect(wrapper.findAll('button').length).toBe(2);
+    expect(wrapper.findAll('button').length).toBe(3);
   });
 
   test('renders AI type select only when AI is selected', () => {
@@ -169,5 +169,12 @@ describe('GameToolbar', () => {
     const wrapper = mount(GameToolbar, { props: { ...defaultProps, whiteAIType: 'classic' as const } });
     const select = wrapper.find('fieldset:last-of-type select');
     expect((select.element as HTMLSelectElement).value).toBe('classic');
+  });
+
+  test('emits evaluateBoard when Evaluate board button is clicked', async () => {
+    const wrapper = mount(GameToolbar, { props: defaultProps });
+    const buttons = wrapper.findAll('button');
+    await buttons[2].trigger('click');
+    expect(wrapper.emitted('evaluateBoard')).toBeTruthy();
   });
 });

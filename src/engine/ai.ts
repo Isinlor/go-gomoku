@@ -10,6 +10,18 @@ export interface SearchResult {
   forcedLoss: boolean;
 }
 
+export interface MoveScore {
+  move: number;
+  score: number;
+}
+
+export interface BoardEvaluationResult {
+  scores: MoveScore[];
+  depth: number;
+  nodes: number;
+  timedOut: boolean;
+}
+
 export interface GogoAIOptions {
   maxDepth?: number;
   quiescenceDepth?: number;
@@ -133,6 +145,63 @@ export class GogoAI {
     };
   }
 
+  evaluateBoard(position: GogoPosition, timeLimitMs: number): BoardEvaluationResult {
+    this.ensureBuffers(position.area);
+    this.history.fill(0);
+    this.killerMoves.fill(-1);
+    this.deadline = this.now() + Math.max(0, timeLimitMs);
+    this.nodesVisited = 0;
+    this.timedOut = false;
+
+    if (position.winner !== EMPTY || !position.hasAnyLegalMove()) {
+      return {
+        scores: [],
+        depth: 0,
+        nodes: 0,
+        timedOut: false,
+      };
+    }
+
+    const rootMoves = this.collectRootLegalMoves(position);
+    if (rootMoves.length === 0) {
+      return {
+        scores: [],
+        depth: 0,
+        nodes: this.nodesVisited,
+        timedOut: false,
+      };
+    }
+
+    let completedDepth = 0;
+    let bestScores = this.fallbackBoardScores(position, rootMoves);
+
+    for (let depth = 1; depth <= this.maxDepth; depth += 1) {
+      try {
+        const depthScores = this.evaluateBoardDepth(position, rootMoves, depth);
+        bestScores = depthScores;
+        completedDepth = depth;
+        rootMoves.sort((left, right) => {
+          const leftScore = depthScores.find((entry) => entry.move === left)?.score ?? -WIN_SCORE;
+          const rightScore = depthScores.find((entry) => entry.move === right)?.score ?? -WIN_SCORE;
+          return rightScore - leftScore;
+        });
+      } catch (error) {
+        if (error !== this.timeoutSignal) {
+          throw error;
+        }
+        this.timedOut = true;
+        break;
+      }
+    }
+
+    return {
+      scores: bestScores,
+      depth: completedDepth,
+      nodes: this.nodesVisited,
+      timedOut: this.timedOut,
+    };
+  }
+
   private ensureBuffers(area: number): void {
     if (this.bufferArea === area) {
       return;
@@ -185,6 +254,58 @@ export class GogoAI {
     }
 
     return -1;
+  }
+
+  private collectRootLegalMoves(position: GogoPosition): number[] {
+    const moves = this.moveBuffers[0];
+    const scores = this.scoreBuffers[0];
+    let count = this.generateOrderedMoves(position, moves, scores, -1, false);
+    let usedFullBoard = false;
+
+    for (;;) {
+      const rootMoves: number[] = [];
+      for (let i = 0; i < count; i += 1) {
+        const move = moves[i];
+        if (!position.play(move)) {
+          continue;
+        }
+        position.undo();
+        rootMoves.push(move);
+      }
+      if (rootMoves.length !== 0 || usedFullBoard) {
+        return rootMoves;
+      }
+      count = this.generateFullBoardMoves(position, moves, scores, -1, false);
+      usedFullBoard = true;
+    }
+  }
+
+  private fallbackBoardScores(position: GogoPosition, rootMoves: readonly number[]): MoveScore[] {
+    const fallbackScores = rootMoves.map((move) => ({
+      move,
+      score: this.scoreMove(position, move, -1, false, 0),
+    }));
+    fallbackScores.sort((left, right) => right.score - left.score);
+    return fallbackScores;
+  }
+
+  private evaluateBoardDepth(position: GogoPosition, rootMoves: readonly number[], depth: number): MoveScore[] {
+    this.checkTime(true);
+    const scores: MoveScore[] = [];
+    for (const move of rootMoves) {
+      if (!position.play(move)) {
+        continue;
+      }
+      let score = -WIN_SCORE;
+      try {
+        score = -this.search(position, depth - 1, -WIN_SCORE, WIN_SCORE, 1);
+      } finally {
+        position.undo();
+      }
+      scores.push({ move, score });
+    }
+    scores.sort((left, right) => right.score - left.score);
+    return scores;
   }
 
   private searchRoot(position: GogoPosition, depth: number, hintMove: number): SearchResult {

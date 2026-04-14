@@ -1,6 +1,7 @@
 import { ref, shallowRef, triggerRef, computed, onUnmounted } from 'vue';
 import {
   GogoPosition,
+  GogoAI,
   BLACK,
   WHITE,
   EMPTY,
@@ -38,10 +39,16 @@ export function useGame(options: UseGameOptions = {}) {
   const statusExtra = ref('');
   const loadError = ref('');
   const boardVersion = ref(0);
+  const boardEvaluation = ref<Array<{ score: number; probability: number } | null>>([]);
 
   function notifyBoardChange(): void {
     boardVersion.value += 1;
     triggerRef(game);
+  }
+
+  function clearBoardEvaluation(): void {
+    if (boardEvaluation.value.length === 0) return;
+    boardEvaluation.value = [];
   }
 
   let worker: Worker | null = null;
@@ -124,6 +131,7 @@ export function useGame(options: UseGameOptions = {}) {
     if (!isAITurn() || aiThinking.value) {
       return;
     }
+    clearBoardEvaluation();
     aiThinking.value = true;
     statusExtra.value = 'AI searching';
     pendingGameId += 1;
@@ -183,6 +191,7 @@ export function useGame(options: UseGameOptions = {}) {
   function newGame(): void {
     terminateWorker();
     aiThinking.value = false;
+    clearBoardEvaluation();
     game.value = new GogoPosition(size.value);
     statusExtra.value = '';
     notifyBoardChange();
@@ -199,6 +208,7 @@ export function useGame(options: UseGameOptions = {}) {
     if (hasHumanPlayer && isAITurn() && g.ply > 0) {
       g.undo();
     }
+    clearBoardEvaluation();
     statusExtra.value = '';
     notifyBoardChange();
     updateLocationHash();
@@ -214,6 +224,7 @@ export function useGame(options: UseGameOptions = {}) {
       notifyBoardChange();
       return;
     }
+    clearBoardEvaluation();
     statusExtra.value = '';
     notifyBoardChange();
     updateLocationHash();
@@ -228,6 +239,7 @@ export function useGame(options: UseGameOptions = {}) {
       const loaded = decodeGame(trimmed);
       terminateWorker();
       aiThinking.value = false;
+      clearBoardEvaluation();
       game.value = loaded;
       size.value = loaded.size;
       statusExtra.value = '';
@@ -244,6 +256,7 @@ export function useGame(options: UseGameOptions = {}) {
   function loadPuzzle(puzzle: Puzzle): void {
     blackIsAI.value = false;
     whiteIsAI.value = false;
+    clearBoardEvaluation();
     loadGame(puzzle.encoded);
   }
 
@@ -253,6 +266,7 @@ export function useGame(options: UseGameOptions = {}) {
 
   function onModeChange(): void {
     if (!aiThinking.value) {
+      clearBoardEvaluation();
       statusExtra.value = '';
       notifyBoardChange();
       maybeRunAI();
@@ -261,9 +275,66 @@ export function useGame(options: UseGameOptions = {}) {
 
   function onAITypeChange(): void {
     if (!aiThinking.value) {
+      clearBoardEvaluation();
       statusExtra.value = '';
       notifyBoardChange();
     }
+  }
+
+  function toSoftmaxProbabilities(scores: readonly number[]): number[] {
+    if (scores.length === 0) return [];
+    let maxScore = Number.NEGATIVE_INFINITY;
+    for (const score of scores) {
+      if (score > maxScore) {
+        maxScore = score;
+      }
+    }
+    const logits = new Array(scores.length);
+    let sum = 0;
+    for (let i = 0; i < scores.length; i += 1) {
+      const value = Math.exp(Math.max(-700, scores[i] - maxScore));
+      logits[i] = value;
+      sum += value;
+    }
+    if (sum <= 0 || !Number.isFinite(sum)) {
+      const uniform = 1 / scores.length;
+      return new Array(scores.length).fill(uniform);
+    }
+    return logits.map((value) => value / sum);
+  }
+
+  function evaluateBoard(): void {
+    if (aiThinking.value) {
+      return;
+    }
+    const g = game.value;
+    if (g.winner !== EMPTY || !g.hasAnyLegalMove()) {
+      clearBoardEvaluation();
+      statusExtra.value = 'No legal moves to evaluate';
+      notifyBoardChange();
+      return;
+    }
+    const config = makeAIConfig();
+    const timeLimit = g.toMove === BLACK ? blackTimeLimit.value : whiteTimeLimit.value;
+    const evaluationPosition = decodeGame(g.encodeGame());
+    const result = new GogoAI({
+      maxDepth: config.maxDepth,
+      quiescenceDepth: config.quiescenceDepth,
+      maxPly: config.maxPly,
+    }).evaluateBoard(evaluationPosition, Math.max(1, timeLimit));
+
+    const probabilities = toSoftmaxProbabilities(result.scores.map((entry) => entry.score));
+    const overlay = new Array<{ score: number; probability: number } | null>(g.area).fill(null);
+    for (let i = 0; i < result.scores.length; i += 1) {
+      const entry = result.scores[i];
+      overlay[entry.move] = {
+        score: entry.score,
+        probability: probabilities[i],
+      };
+    }
+    boardEvaluation.value = overlay;
+    statusExtra.value = `Board eval depth ${result.depth}, nodes ${result.nodes}${result.timedOut ? ', timed out' : ''}`;
+    notifyBoardChange();
   }
 
   function tryLoadFromUrl(): boolean {
@@ -304,12 +375,14 @@ export function useGame(options: UseGameOptions = {}) {
     gameUrl,
     loadError,
     boardVersion,
+    boardEvaluation,
     boardDisabled,
     newGame,
     undo,
     playMove,
     loadGame,
     loadPuzzle,
+    evaluateBoard,
     setSize,
     onModeChange,
     onAITypeChange,

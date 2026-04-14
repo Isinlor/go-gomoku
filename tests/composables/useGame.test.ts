@@ -1300,4 +1300,113 @@ describe('useGame', () => {
     expect(gameState.game.value.toMove).toBe(BLACK);
     wrapper.unmount();
   });
+
+  test('evaluateBoard populates softmax probabilities and status', () => {
+    const worker = createMockWorker();
+    const { gameState, wrapper } = mountWithGame({
+      createWorker: () => worker,
+      getLocationHash: () => '',
+      setLocationHash: () => {},
+    });
+
+    gameState.whiteIsAI.value = false;
+    gameState.playMove(40); // white to move
+    gameState.evaluateBoard();
+
+    expect(gameState.boardEvaluation.value.length).toBe(81);
+    const probabilities = gameState.boardEvaluation.value
+      .filter((entry) => entry !== null)
+      .map((entry) => entry!.probability);
+    expect(probabilities.length).toBeGreaterThan(0);
+    expect(probabilities.every((prob) => prob > 0)).toBe(true);
+    const probabilitySum = probabilities.reduce((sum, value) => sum + value, 0);
+    expect(probabilitySum).toBeGreaterThan(0.99);
+    expect(probabilitySum).toBeLessThan(1.01);
+    expect(gameState.statusExtra.value).toContain('Board eval depth');
+    wrapper.unmount();
+  });
+
+  test('evaluateBoard uses active color time limit and clears on move changes', () => {
+    const worker = createMockWorker();
+    const { gameState, wrapper } = mountWithGame({
+      createWorker: () => worker,
+      getLocationHash: () => '',
+      setLocationHash: () => {},
+    });
+
+    const evaluateSpy = vi.spyOn(engineModule.GogoAI.prototype, 'evaluateBoard');
+    gameState.blackTimeLimit.value = 123;
+    gameState.whiteTimeLimit.value = 456;
+    gameState.whiteIsAI.value = false;
+
+    gameState.evaluateBoard(); // black to move
+    expect(evaluateSpy).toHaveBeenLastCalledWith(expect.any(GogoPosition), 123);
+
+    gameState.playMove(40); // white to move
+    gameState.evaluateBoard();
+    expect(evaluateSpy).toHaveBeenLastCalledWith(expect.any(GogoPosition), 456);
+
+    const hasEvalBefore = gameState.boardEvaluation.value.some((entry) => entry !== null);
+    expect(hasEvalBefore).toBe(true);
+    gameState.playMove(30);
+    expect(gameState.boardEvaluation.value.some((entry) => entry !== null)).toBe(false);
+    evaluateSpy.mockRestore();
+    wrapper.unmount();
+  });
+
+  test('evaluateBoard is ignored while AI is thinking', () => {
+    const worker = createMockWorker();
+    const { gameState, wrapper } = mountWithGame({
+      createWorker: () => worker,
+      getLocationHash: () => '',
+      setLocationHash: () => {},
+    });
+
+    gameState.aiThinking.value = true;
+    gameState.statusExtra.value = 'keep';
+    gameState.evaluateBoard();
+    expect(gameState.statusExtra.value).toBe('keep');
+    expect(gameState.boardEvaluation.value.length).toBe(0);
+    wrapper.unmount();
+  });
+
+  test('evaluateBoard reports when there are no legal moves', () => {
+    const worker = createMockWorker();
+    const { gameState, wrapper } = mountWithGame({
+      createWorker: () => worker,
+      getLocationHash: () => '#B9%20a1%20a6%20b1%20b6%20c1%20c6%20d1%20d6%20e1',
+      setLocationHash: () => {},
+    });
+
+    gameState.evaluateBoard();
+    expect(gameState.statusExtra.value).toBe('No legal moves to evaluate');
+    expect(gameState.boardEvaluation.value.length).toBe(0);
+    wrapper.unmount();
+  });
+
+  test('evaluateBoard softmax falls back to a uniform distribution when logits are invalid', () => {
+    const worker = createMockWorker();
+    const { gameState, wrapper } = mountWithGame({
+      createWorker: () => worker,
+      getLocationHash: () => '',
+      setLocationHash: () => {},
+    });
+
+    const evaluateSpy = vi.spyOn(engineModule.GogoAI.prototype, 'evaluateBoard').mockReturnValue({
+      scores: [
+        { move: 40, score: 100 },
+        { move: 41, score: 90 },
+      ],
+      depth: 1,
+      nodes: 5,
+      timedOut: false,
+    });
+    const expSpy = vi.spyOn(Math, 'exp').mockReturnValue(Number.NaN);
+    gameState.evaluateBoard();
+    expect(gameState.boardEvaluation.value[40]?.probability).toBe(0.5);
+    expect(gameState.boardEvaluation.value[41]?.probability).toBe(0.5);
+    expSpy.mockRestore();
+    evaluateSpy.mockRestore();
+    wrapper.unmount();
+  });
 });

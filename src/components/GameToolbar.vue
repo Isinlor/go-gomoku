@@ -23,6 +23,7 @@ const emit = defineEmits<{
   'update:boardSize': [value: SupportedSize];
   newGame: [];
   undo: [];
+  evaluateBoard: [];
 }>();
 
 function onBlackModeChange(event: Event): void {
@@ -154,5 +155,6 @@ function onBoardSizeChange(event: Event): void {
 
     <button type="button" @click="emit('newGame')">New game</button>
     <button type="button" @click="emit('undo')">Undo</button>
+    <button type="button" :disabled="props.aiThinking" @click="emit('evaluateBoard')">Evaluate board</button>
   </div>
 </template>
