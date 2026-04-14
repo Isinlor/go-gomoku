@@ -1623,16 +1623,18 @@ test('recompute heuristic flags after resume: flags update when score changes', 
   const anyAI = ai as any;
   anyAI.ensureBuffers(pos.area);
 
-  // Mock searchRoot: d=2 fake forced win, then d=3 normal (not winning)
+  // Mock searchRoot: d=2 fake forced win, then d=3+ fast non-winning mock
+  // (avoids running real deep searches in Phase 3 with no timeout on CI)
   let searchRootCallCount = 0;
-  const realSearchRoot = anyAI.searchRoot.bind(anyAI);
   anyAI.searchRoot = function (position: any, depth: number, hintMove: number) {
     searchRootCallCount++;
     if (searchRootCallCount === 2) {
       return { move: 40, score: WIN - 2, depth: 2, nodes: 10, timedOut: false,
         forcedWin: false, forcedLoss: false, heuristicWin: false, heuristicLoss: false };
     }
-    return realSearchRoot(position, depth, hintMove);
+    // Phase 3 and all other depths: return a cheap non-winning result
+    return { move: 40, score: 100, depth, nodes: 1, timedOut: false,
+      forcedWin: false, forcedLoss: false, heuristicWin: false, heuristicLoss: false };
   };
 
   anyAI.verifyWinningMove = function () { return false; };
