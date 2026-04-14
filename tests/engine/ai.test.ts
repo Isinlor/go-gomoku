@@ -205,13 +205,13 @@ test('AI constructor also uses default search parameters when options are omitte
   expect(ai.maxPly).toBe(64);
 });
 
-test('deepen skips empty root results and continues searching', () => {
+test('deepen skips root results with move=-1 and continues searching', () => {
   const ai = new GogoAI({ maxDepth: 2 });
-  const anyAI = ai as any;
+  const aiPrivate = ai as any;
   const pos = new GogoPosition(9);
   let calls = 0;
 
-  anyAI.searchRoot = (_position: GogoPosition, depth: number) => {
+  aiPrivate.searchRoot = (_position: GogoPosition, depth: number) => {
     calls += 1;
     if (depth === 1) {
       return { move: -1, score: 0, depth, nodes: 0, timedOut: false, forcedWin: false, forcedLoss: false, heuristicWin: false, heuristicLoss: false };
@@ -219,7 +219,7 @@ test('deepen skips empty root results and continues searching', () => {
     return { move: pos.index(4, 4), score: 123, depth, nodes: 0, timedOut: false, forcedWin: false, forcedLoss: false, heuristicWin: false, heuristicLoss: false };
   };
 
-  expect(anyAI.deepen(pos, 1, -1, 0, 0, -1)).toEqual({
+  expect(aiPrivate.deepen(pos, 1, -1, 0, 0, -1)).toEqual({
     bestMove: pos.index(4, 4),
     bestScore: 123,
     completedDepth: 2,

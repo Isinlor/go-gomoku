@@ -70,6 +70,8 @@ export class GogoAI {
   private deadline = 0;
   private nodesVisited = 0;
   private timedOut = false;
+  // rootSearch writes into these scratch fields so callers can avoid
+  // per-iteration result allocations in small puzzle searches.
   private rootBestMove = -1;
   private rootBestScore = 0;
   private rootLegalCount = 0;
@@ -221,6 +223,7 @@ export class GogoAI {
     this.killerMoves.fill(-1);
   }
 
+  /** Reset heuristic search state and optionally clear the main TT. */
   private resetSearchState(clearTT = false): void {
     if (clearTT) {
       this.ttFlag.fill(0);
@@ -229,6 +232,7 @@ export class GogoAI {
     this.killerMoves.fill(-1);
   }
 
+  /** Run iterative deepening starting from the supplied best-so-far search state. */
   private deepen(
     position: GogoPosition,
     startDepth: number,
@@ -308,6 +312,7 @@ export class GogoAI {
     return { move: this.rootBestMove, score: this.rootBestScore, depth, nodes: this.nodesVisited, timedOut: false, forcedWin: false, forcedLoss: false, heuristicWin: false, heuristicLoss: false };
   }
 
+  /** Root negamax search that stores its result in scratch fields. */
   private rootSearch(position: GogoPosition, depth: number, hintMove: number): void {
     this.checkTime(true);
     const moves = this.moveBuffers[0];
@@ -937,14 +942,14 @@ export class GogoAI {
     if (ttBest !== -1 && position.board[ttBest] === EMPTY && ttBest !== position.koPoint) {
       this.triedMoveMarks[ttBest] = triedEpoch;
       if (position.play(ttBest)) {
-        let refutes: boolean;
+        anyLegalCount += 1;
+        let defenseSucceeds: boolean;
         try {
-          refutes = position.winner !== EMPTY || !this.proofAttack(position, depthLeft - 1, ply + 1);
+          defenseSucceeds = position.winner !== EMPTY || !this.proofAttack(position, depthLeft - 1, ply + 1);
         } finally {
           position.undo();
         }
-        anyLegalCount += 1;
-        if (refutes) {
+        if (defenseSucceeds) {
           this.storeProofTT(ttIdx, hash, depthLeft, -1, ttBest);
           return false;
         }
@@ -959,14 +964,14 @@ export class GogoAI {
         if (this.triedMoveMarks[move] === triedEpoch) continue;
         this.triedMoveMarks[move] = triedEpoch;
         if (!position.play(move)) continue;
-        let refutes: boolean;
+        anyLegalCount += 1;
+        let defenseSucceeds: boolean;
         try {
-          refutes = position.winner !== EMPTY || !this.proofAttack(position, depthLeft - 1, ply + 1);
+          defenseSucceeds = position.winner !== EMPTY || !this.proofAttack(position, depthLeft - 1, ply + 1);
         } finally {
           position.undo();
         }
-        anyLegalCount += 1;
-        if (refutes) {
+        if (defenseSucceeds) {
           this.storeProofTT(ttIdx, hash, depthLeft, -1, move);
           return false;
         }
@@ -985,15 +990,15 @@ export class GogoAI {
         if (this.triedMoveMarks[move] === triedEpoch) continue;
         this.triedMoveMarks[move] = triedEpoch;
         if (!position.play(move)) continue;
-        let refutes: boolean;
+        anyLegalCount += 1;
+        stageLegalCount += 1;
+        let defenseSucceeds: boolean;
         try {
-          refutes = position.winner !== EMPTY || !this.proofAttack(position, depthLeft - 1, ply + 1);
+          defenseSucceeds = position.winner !== EMPTY || !this.proofAttack(position, depthLeft - 1, ply + 1);
         } finally {
           position.undo();
         }
-        anyLegalCount += 1;
-        stageLegalCount += 1;
-        if (refutes) {
+        if (defenseSucceeds) {
           this.storeProofTT(ttIdx, hash, depthLeft, -1, move);
           return false;
         }
@@ -1009,6 +1014,7 @@ export class GogoAI {
     return true;
   }
 
+  /** Store a proven proof-search result (`1` win, `-1` loss) plus its best move. */
   private storeProofTT(index: number, hash: number, depthLeft: number, result: number, bestMove = -1): void {
     this.proofTTHash[index] = hash;
     this.proofTTResult[index] = result;
