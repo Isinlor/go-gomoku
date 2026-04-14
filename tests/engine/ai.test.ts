@@ -205,6 +205,22 @@ test('AI constructor also uses default search parameters when options are omitte
   expect(ai.maxPly).toBe(64);
 });
 
+test('searchDepths skips empty root results and keeps deepening', () => {
+  const ai = new GogoAI({ maxDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+  const state = { bestMove: 40, bestScore: 0, completedDepth: 0, hintMove: 40 };
+  let calls = 0;
+  anyAI.searchRoot = (_position: any, depth: number) => {
+    calls += 1;
+    return calls === 1
+      ? { move: -1, score: 0, depth, nodes: 0, timedOut: false, forcedWin: false, forcedLoss: false, heuristicWin: false, heuristicLoss: false }
+      : { move: 41, score: 10, depth, nodes: 0, timedOut: false, forcedWin: false, forcedLoss: false, heuristicWin: false, heuristicLoss: false };
+  };
+
+  anyAI.searchDepths(new GogoPosition(9), 1, state);
+  expect(state).toEqual({ bestMove: 41, bestScore: 10, completedDepth: 2, hintMove: 41 });
+});
+
 test('white-box AI helpers cover generation, evaluation, quiescence, search fallback, insertion ordering, and timing', () => {
   const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
   const anyAI = ai as any;
