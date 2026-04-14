@@ -51,6 +51,8 @@ function formatStats(s: GeneratorStats): string {
 
 const { puzzles, stats } = generatePuzzles(difficulty, countArg, {
   seed: seedArg,
+  // 5 million max games ensures sufficient coverage for constrained searches
+  // (e.g. targetPly=6 yields ~1 puzzle per 5,500 games, so 100 puzzles needs ~550k games)
   maxGames: 5_000_000,
   targetPly: targetPlyArg,
   onProgress: (s: GeneratorStats) => {
