@@ -868,6 +868,9 @@ export class GogoAI {
           const result = this.proofDefend(position, maxDepth, 1);
           if (result) return true;
         } catch (error) {
+          if (error !== this.timeoutSignal) {
+            throw error;
+          }
           this.timedOut = true;
           return false;
         }
@@ -957,13 +960,11 @@ export class GogoAI {
       if (this.proofTTResult[ttIdx] === -1) return false;
     }
 
-    // Generate near-2 moves for the defender, ordered by heuristic score.
-    // Cap to MAX_CANDIDATES best moves for efficiency while maintaining
-    // practical soundness (relevant defenses score highly in move ordering).
+    // Generate ALL legal moves for the defender — no cap.
+    // The defender must be sound: capping could miss a refutation.
     const moves = this.moveBuffers[ply];
     const scores = this.scoreBuffers[ply];
     let count = this.generateOrderedMoves(position, moves, scores, -1, false, ply);
-    if (count > MAX_CANDIDATES) count = MAX_CANDIDATES;
     let usedFullBoard = false;
     let legalCount = 0;
 
@@ -994,11 +995,14 @@ export class GogoAI {
       }
       if (legalCount !== 0 || usedFullBoard) break;
       count = this.generateFullBoardMoves(position, moves, scores, -1, false, ply);
-      if (count > MAX_CANDIDATES) count = MAX_CANDIDATES;
       usedFullBoard = true;
     }
 
-    // If no legal moves, treat as pass - attacker wins
+    // No legal moves → neutral (not proven). Matches search()'s neutral semantics.
+    if (legalCount === 0) {
+      return false;
+    }
+
     // All defenses exhausted - attacker's win is proven
     this.proofTTHash[ttIdx] = hash;
     this.proofTTResult[ttIdx] = 1;

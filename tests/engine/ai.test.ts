@@ -2138,7 +2138,7 @@ test('proofDefend: play() failure is handled', () => {
   anyAI.generateOrderedMoves = realGen;
 });
 
-test('proofDefend: fullboard fallback capped at MAX_CANDIDATES', () => {
+test('proofDefend: fullboard fallback explores all candidates (no cap)', () => {
   const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4, now: () => 0 });
   const anyAI = ai as any;
   const pos = rawPosition([
@@ -2169,7 +2169,7 @@ test('proofDefend: fullboard fallback capped at MAX_CANDIDATES', () => {
     return realGen(...args);
   };
 
-  // On 9x9 with 1 stone: fullboard generates ~80 candidates > MAX_CANDIDATES(15)
+  // On 9x9 with 1 stone: fullboard generates ~80 candidates — all explored, no cap
   const result = anyAI.proofDefend(pos, 2, 1);
   expect(typeof result).toBe('boolean');
   anyAI.generateOrderedMoves = realGen;
@@ -2207,8 +2207,67 @@ test('proofDefend: fullboard fallback with few candidates (no cap needed)', () =
     return realGen(...args);
   };
 
-  // Only 3 empty cells → fullboard returns ≤ 3 < MAX_CANDIDATES → no cap needed
+  // Only 3 empty cells → fullboard returns ≤ 3
   const result = anyAI.proofDefend(pos, 2, 1);
   expect(typeof result).toBe('boolean');
   anyAI.generateOrderedMoves = realGen;
+});
+
+test('verifyWinningMove rethrows non-timeout errors', () => {
+  const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4, now: () => 0 });
+  const anyAI = ai as any;
+  const pos = rawPosition([
+    'XXXX.....',
+    'OOO......',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  anyAI.ensureBuffers(pos.area);
+
+  // Mock proofDefend to throw a non-timeout error
+  const realProofDefend = anyAI.proofDefend.bind(anyAI);
+  anyAI.proofDefend = function () {
+    throw new Error('PROOF_BUG');
+  };
+
+  expect(() => ai.verifyWinningMove(pos, 4, 1000)).toThrow('PROOF_BUG');
+  anyAI.proofDefend = realProofDefend;
+});
+
+test('proofDefend: returns false (not proven) when no legal moves exist', () => {
+  const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4, now: () => 0 });
+  const anyAI = ai as any;
+  const pos = rawPosition([
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '....X....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], WHITE);
+  anyAI.ensureBuffers(pos.area);
+  anyAI.deadline = 1e15;
+  anyAI.proofTTHash = new Int32Array(1 << 18);
+  anyAI.proofTTResult = new Int8Array(1 << 18);
+  anyAI.proofTTDepth = new Int8Array(1 << 18);
+
+  // Mock both generators to return 0 candidates → no legal moves
+  const realGen = anyAI.generateOrderedMoves.bind(anyAI);
+  const realFullGen = anyAI.generateFullBoardMoves.bind(anyAI);
+  anyAI.generateOrderedMoves = function () { return 0; };
+  anyAI.generateFullBoardMoves = function () { return 0; };
+
+  // No legal moves → neutral → not proven (false)
+  const result = anyAI.proofDefend(pos, 2, 1);
+  expect(result).toBe(false);
+  anyAI.generateOrderedMoves = realGen;
+  anyAI.generateFullBoardMoves = realFullGen;
 });
