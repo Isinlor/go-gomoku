@@ -24,7 +24,10 @@ export interface GogoAIOptions {
 }
 
 interface SearchState {
-  bestMove: number; bestScore: number; completedDepth: number; hintMove: number;
+  bestMove: number;
+  bestScore: number;
+  completedDepth: number;
+  hintMove: number;
 }
 
 const WIN_SCORE = 1_000_000_000;
@@ -46,9 +49,14 @@ const MAX_CANDIDATES = 12;
 const TT_SIZE_BITS = 18;
 const TT_SIZE = 1 << TT_SIZE_BITS;
 const TT_MASK = TT_SIZE - 1;
-const TT_NONE = 0, TT_EXACT = 1, TT_LOWERBOUND = 2, TT_UPPERBOUND = 3;
+const TT_NONE = 0;
+const TT_EXACT = 1;
+const TT_LOWERBOUND = 2;
+const TT_UPPERBOUND = 3;
 
-function otherPlayer(player: Player): Player { return player === BLACK ? WHITE : BLACK; }
+function otherPlayer(player: Player): Player {
+  return player === BLACK ? WHITE : BLACK;
+}
 
 export class GogoAI {
   readonly maxDepth: number;
@@ -291,6 +299,7 @@ export class GogoAI {
 
   /**
    * Full exact root search for forced-loss proof (proof mode).
+   * Searches ALL root moves to verify that every defense leads to a loss.
    * Returns the best score achievable from the root.
    */
   private proofSearchRoot(position: GogoPosition, depth: number, hintMove: number): number {
@@ -794,6 +803,9 @@ export class GogoAI {
       return count;
     }
 
+    // Defensive fallback: a stale mark may remain even when the move is absent
+    // from the current buffer (for example in white-box tests that seed marks
+    // directly). Treat it as already known and leave the ordering unchanged.
     return count;
   }
 
@@ -827,6 +839,9 @@ export class GogoAI {
   private proofTTBestMove = new Int16Array(TT_SIZE);
 
   private resetProofSearch(): void {
+    // Reset proof TT and search heuristics so the main iterative-deepening
+    // heuristic phase does not leak move-ordering state (history/killers) into
+    // proof search, which can amplify TT collision patterns and make proofs incomplete.
     this.resetSearchHeuristics();
     this.proofTTHash.fill(0);
     this.proofTTResult.fill(0);
@@ -834,11 +849,11 @@ export class GogoAI {
     this.proofTTBestMove.fill(-1);
   }
 
-  private storeProofTT(ttIdx: number, hash: number, depthLeft: number, result: 1 | -1, bestMove = -1): void {
+  private storeProofTT(ttIdx: number, hash: number, depthLeft: number, result: 1 | -1, bestMove?: number): void {
     this.proofTTHash[ttIdx] = hash;
     this.proofTTResult[ttIdx] = result;
     this.proofTTDepth[ttIdx] = depthLeft;
-    if (bestMove !== -1) this.proofTTBestMove[ttIdx] = bestMove;
+    this.proofTTBestMove[ttIdx] = bestMove ?? -1;
   }
 
   /**
@@ -851,9 +866,6 @@ export class GogoAI {
     this.deadline = this.now() + Math.max(0, timeLimitMs);
     this.nodesVisited = 0;
     this.timedOut = false;
-    // Reset proof TT and search heuristics so the main iterative-deepening
-    // heuristic phase does not leak move-ordering state (history/killers) into
-    // proof search, which can amplify TT collision patterns and make proofs incomplete.
     this.resetProofSearch();
 
     if (!position.play(move)) return false;
@@ -920,6 +932,7 @@ export class GogoAI {
 
     const moves = this.moveBuffers[ply];
     const scores = this.scoreBuffers[ply];
+    // Generate only tactical (forcing) moves for the attacker.
     const count = this.generateOrderedMoves(position, moves, scores, -1, true, ply);
 
     for (let i = 0; i < count; i += 1) {
