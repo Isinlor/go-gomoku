@@ -308,6 +308,27 @@ export class GogoPosition {
     return position;
   }
 
+  clone(): GogoPosition {
+    return GogoPosition.fromAscii(this.toAscii(), this.toMove, {
+      historyCapacity: this.historyMoves.length,
+      captureCapacity: this.capturePositions.length,
+    });
+  }
+
+  toAscii(): string[] {
+    const rows: string[] = [];
+    for (let y = 0; y < this.size; y += 1) {
+      let row = '';
+      const rowBase = y * this.size;
+      for (let x = 0; x < this.size; x += 1) {
+        const cell = this.board[rowBase + x];
+        row += cell === BLACK ? 'X' : cell === WHITE ? 'O' : '.';
+      }
+      rows.push(row);
+    }
+    return rows;
+  }
+
   index(x: number, y: number): number {
     if (x < 0 || x >= this.size || y < 0 || y >= this.size) {
       return -1;

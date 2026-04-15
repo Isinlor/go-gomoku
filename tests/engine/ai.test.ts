@@ -1214,6 +1214,70 @@ test('verifyWinningMove proves trivial one-move win', () => {
   expect(ai.verifyWinningMove(pos, 4, 1000)).toBe(true);
 });
 
+test('verifyWinningMove only proves the real winning move and restores state on success, failure, and timeout', () => {
+  const winning = GogoPosition.fromAscii([
+    'XXXX.....',
+    'OOOO.....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  const winningSnapshot = winning.clone();
+  const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4, now: () => 0 });
+
+  expect(ai.verifyWinningMove(winning, winning.index(4, 0), 1000)).toBe(true);
+  expect(winning.toAscii()).toEqual(winningSnapshot.toAscii());
+  expect(winning.toMove).toBe(winningSnapshot.toMove);
+  expect(winning.winner).toBe(winningSnapshot.winner);
+  expect(winning.koPoint).toBe(winningSnapshot.koPoint);
+  expect(winning.ply).toBe(winningSnapshot.ply);
+  expect(winning.stoneCount).toBe(winningSnapshot.stoneCount);
+  expect(winning.lastMove).toBe(winningSnapshot.lastMove);
+  expect(winning.lastCapturedCount).toBe(winningSnapshot.lastCapturedCount);
+  expect(winning.hash).toBe(winningSnapshot.hash);
+
+  expect(ai.verifyWinningMove(winning, winning.index(8, 8), 1000)).toBe(false);
+  expect(winning.toAscii()).toEqual(winningSnapshot.toAscii());
+  expect(winning.toMove).toBe(winningSnapshot.toMove);
+  expect(winning.winner).toBe(winningSnapshot.winner);
+  expect(winning.koPoint).toBe(winningSnapshot.koPoint);
+  expect(winning.ply).toBe(winningSnapshot.ply);
+  expect(winning.stoneCount).toBe(winningSnapshot.stoneCount);
+  expect(winning.lastMove).toBe(winningSnapshot.lastMove);
+  expect(winning.lastCapturedCount).toBe(winningSnapshot.lastCapturedCount);
+  expect(winning.hash).toBe(winningSnapshot.hash);
+
+  const timeoutPosition = GogoPosition.fromAscii([
+    'XXX......',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  const timeoutSnapshot = timeoutPosition.clone();
+  let tick = 0;
+  const timeoutAI = new GogoAI({ maxDepth: 30, quiescenceDepth: 4, now: () => tick++ });
+
+  expect(timeoutAI.verifyWinningMove(timeoutPosition, timeoutPosition.index(3, 0), 0)).toBe(false);
+  expect(timeoutPosition.toAscii()).toEqual(timeoutSnapshot.toAscii());
+  expect(timeoutPosition.toMove).toBe(timeoutSnapshot.toMove);
+  expect(timeoutPosition.winner).toBe(timeoutSnapshot.winner);
+  expect(timeoutPosition.koPoint).toBe(timeoutSnapshot.koPoint);
+  expect(timeoutPosition.ply).toBe(timeoutSnapshot.ply);
+  expect(timeoutPosition.stoneCount).toBe(timeoutSnapshot.stoneCount);
+  expect(timeoutPosition.lastMove).toBe(timeoutSnapshot.lastMove);
+  expect(timeoutPosition.lastCapturedCount).toBe(timeoutSnapshot.lastCapturedCount);
+  expect(timeoutPosition.hash).toBe(timeoutSnapshot.hash);
+});
+
 test('verifyWinningMove returns false for illegal move', () => {
   const pos = GogoPosition.fromAscii([
     'XXXX.....',
