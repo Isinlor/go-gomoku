@@ -181,6 +181,51 @@ test('AI rethrows unexpected root errors instead of masking them as timeouts', (
   expect(() => ai.findBestMove(new GogoPosition(9), 100)).toThrow(/boom/);
 });
 
+test('AI never recommends an illegal ko recapture move', () => {
+  const ko = GogoPosition.fromAscii([
+    '..O......',
+    '.O.O.....',
+    '.XOX.....',
+    '..X......',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  expect(ko.playXY(2, 1)).toBe(true);
+  expect(ko.koPoint).toBe(ko.index(2, 2));
+
+  const ai = new GogoAI({ maxDepth: 3, quiescenceDepth: 2 });
+  const result = ai.findBestMove(ko, 100);
+
+  expect(result.move).not.toBe(ko.koPoint);
+  expect(ko.isLegal(result.move)).toBe(true);
+});
+
+test('verifyWinningMove returns false for illegal moves and does not mutate position state', () => {
+  const ai = new GogoAI({ maxDepth: 4, quiescenceDepth: 2, now: () => 0 });
+  const position = new GogoPosition(9);
+  expect(position.playXY(4, 4)).toBe(true);
+
+  const before = {
+    board: Array.from(position.board),
+    toMove: position.toMove,
+    winner: position.winner,
+    koPoint: position.koPoint,
+    ply: position.ply,
+    hash: position.hash,
+  };
+
+  expect(ai.verifyWinningMove(position, position.index(4, 4), 100)).toBe(false);
+  expect(Array.from(position.board)).toEqual(before.board);
+  expect(position.toMove).toBe(before.toMove);
+  expect(position.winner).toBe(before.winner);
+  expect(position.koPoint).toBe(before.koPoint);
+  expect(position.ply).toBe(before.ply);
+  expect(position.hash).toBe(before.hash);
+});
+
 test('AI constructor clamps explicit maxPly values', () => {
   const ai = new GogoAI({ maxPly: 1, maxDepth: 0, quiescenceDepth: -1 });
   expect(ai.maxPly).toBe(2);

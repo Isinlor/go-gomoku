@@ -310,6 +310,38 @@ test('suicide is illegal, winning suicide is legal, and ko forbids immediate rec
   expect(ko.at(2, 1)).toBe(EMPTY);
 });
 
+test('single-stone capture only sets ko when capturer is a single stone in atari', () => {
+  const noKoByGroupSize = GogoPosition.fromAscii([
+    '.X.......',
+    'XOX......',
+    '.........',
+    '.X.......',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  expect(noKoByGroupSize.playXY(1, 2)).toBe(true);
+  expect(noKoByGroupSize.lastCapturedCount).toBe(1);
+  expect(noKoByGroupSize.koPoint).toBe(-1);
+
+  const noKoByLiberties = GogoPosition.fromAscii([
+    '.X.......',
+    'XOX......',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  expect(noKoByLiberties.playXY(1, 2)).toBe(true);
+  expect(noKoByLiberties.lastCapturedCount).toBe(1);
+  expect(noKoByLiberties.koPoint).toBe(-1);
+});
+
 test('isLegal checks do not mutate position state for legal moves, suicide, or ko recapture', () => {
   const ko = GogoPosition.fromAscii([
     '..O......',
