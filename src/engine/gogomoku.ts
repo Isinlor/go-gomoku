@@ -309,10 +309,31 @@ export class GogoPosition {
   }
 
   clone(): GogoPosition {
-    return GogoPosition.fromAscii(this.toAscii(), this.toMove, {
+    const cloned = GogoPosition.fromAscii(this.toAscii(), this.toMove, {
       historyCapacity: this.historyMoves.length,
       captureCapacity: this.capturePositions.length,
     });
+
+    cloned.winner = this.winner;
+    cloned.koPoint = this.koPoint;
+    cloned.ply = this.ply;
+    cloned.lastMove = this.lastMove;
+    cloned.lastCapturedCount = this.lastCapturedCount;
+    cloned.hash = this.hash;
+
+    cloned.historyMoves.set(this.historyMoves);
+    cloned.historyPlayers.set(this.historyPlayers);
+    cloned.historyKo.set(this.historyKo);
+    cloned.historyWinner.set(this.historyWinner);
+    cloned.historyCaptureStart.set(this.historyCaptureStart);
+    cloned.historyCaptureCount.set(this.historyCaptureCount);
+    cloned.historyHash.set(this.historyHash);
+    cloned.capturePositions.set(this.capturePositions);
+    cloned.captureTop = this.captureTop;
+    cloned.groupBuffer.set(this.groupBuffer);
+    cloned.scanGroupSize = this.scanGroupSize;
+
+    return cloned;
   }
 
   toAscii(): string[] {
