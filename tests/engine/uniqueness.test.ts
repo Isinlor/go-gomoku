@@ -101,13 +101,12 @@ test('computeCanonicalKey returns empty string for empty input', () => {
 });
 
 test('computeCanonicalKey returns a stable key for a single stone', () => {
-  // A lone stone always maps to (0,0,color) or its color-swap (0,0,otherColor)
+  // A lone stone always maps to the same canonical representation regardless of color.
   const keyBlack = computeCanonicalKey([[5, 3, BLACK]]);
   const keyWhite = computeCanonicalKey([[5, 3, WHITE]]);
   // After color swap, a lone BLACK becomes a lone WHITE → same canonical form
   expect(keyBlack).toBe(keyWhite);
-  // The normalized position of a lone stone is always (0,0,...)
-  expect(keyBlack.startsWith('0,0,')).toBe(true);
+  expect(keyBlack).toBe(String.fromCharCode(BLACK));
 });
 
 test('computeCanonicalKey is invariant under translation', () => {

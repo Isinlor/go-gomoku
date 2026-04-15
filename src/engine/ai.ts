@@ -1,4 +1,5 @@
-import { BLACK, EMPTY, GogoPosition, type Cell, type Player, WHITE } from './gogomoku';
+import { BLACK, EMPTY, GogoPosition, otherPlayer, type Cell, type Player, WHITE } from './gogomoku';
+import { insertMoveDescending } from './moveOrdering';
 
 export interface SearchResult {
   move: number;
@@ -53,10 +54,6 @@ const TT_NONE = 0;
 const TT_EXACT = 1;
 const TT_LOWERBOUND = 2;
 const TT_UPPERBOUND = 3;
-
-function otherPlayer(player: Player): Player {
-  return player === BLACK ? WHITE : BLACK;
-}
 
 export class GogoAI {
   readonly maxDepth: number;
@@ -659,7 +656,7 @@ export class GogoAI {
           continue;
         }
         this.candidateMarks[move] = this.candidateEpoch;
-        this.insertMove(moves, scores, count, move, score);
+        insertMoveDescending(moves, scores, count, move, score);
         count += 1;
       }
     }
@@ -684,7 +681,7 @@ export class GogoAI {
       if (score === NO_SCORE) {
         continue;
       }
-      this.insertMove(moves, scores, count, move, score);
+      insertMoveDescending(moves, scores, count, move, score);
       count += 1;
     }
     return count;
@@ -778,21 +775,10 @@ export class GogoAI {
     return score;
   }
 
-  private insertMove(moves: Int16Array, scores: Int32Array, count: number, move: number, score: number): void {
-    let index = count;
-    while (index > 0 && score > scores[index - 1]) {
-      moves[index] = moves[index - 1];
-      scores[index] = scores[index - 1];
-      index -= 1;
-    }
-    moves[index] = move;
-    scores[index] = score;
-  }
-
   private insertOrPromoteMove(moves: Int16Array, scores: Int32Array, count: number, move: number, score: number): number {
     if (this.candidateMarks[move] !== this.candidateEpoch) {
       this.candidateMarks[move] = this.candidateEpoch;
-      this.insertMove(moves, scores, count, move, score);
+      insertMoveDescending(moves, scores, count, move, score);
       return count + 1;
     }
 

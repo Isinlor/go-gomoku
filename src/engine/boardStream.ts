@@ -1,8 +1,6 @@
-import { BLACK, WHITE, EMPTY, GogoPosition, encodeMove } from './gogomoku';
-import type { Player, SupportedSize } from './gogomoku';
-
-type Stone = readonly [number, number, Player];
-type AbsoluteTransform = (x: number, y: number, size: number) => readonly [number, number];
+import { BLACK, WHITE, EMPTY, GogoPosition, encodeMove, parseSupportedSize } from './gogomoku';
+import type { SupportedSize } from './gogomoku';
+import { computeCanonicalPackedKey, transformPoint } from './uniqueness';
 interface SymmetryKeyScratch {
   readonly xs: Int16Array;
   readonly ys: Int16Array;
@@ -32,16 +30,6 @@ export interface StreamUniqueBoardsStats {
   truncatedByTime: boolean;
 }
 
-const ABSOLUTE_TRANSFORMS: readonly AbsoluteTransform[] = [
-  (x, y) => [x, y],
-  (x, y, size) => [size - 1 - y, x],
-  (x, y, size) => [size - 1 - x, size - 1 - y],
-  (x, y, size) => [y, size - 1 - x],
-  (x, y, size) => [size - 1 - x, y],
-  (x, y, size) => [x, size - 1 - y],
-  (x, y) => [y, x],
-  (x, y, size) => [size - 1 - y, size - 1 - x],
-];
 const DEFAULT_SEED_STATE = 0x6D2B79F5;
 const SYMMETRY_KEY_SCRATCH = new Map<number, SymmetryKeyScratch>();
 
@@ -80,70 +68,6 @@ function collectStoneData(
   return count;
 }
 
-function transformX(transformIndex: number, x: number, y: number, size: number): number {
-  switch (transformIndex) {
-    case 0:
-      return x;
-    case 1:
-      return size - 1 - y;
-    case 2:
-    case 4:
-      return size - 1 - x;
-    case 5:
-      return x;
-    case 3:
-    case 6:
-      return y;
-    default:
-      return size - 1 - y;
-  }
-}
-
-function transformY(transformIndex: number, x: number, y: number, size: number): number {
-  switch (transformIndex) {
-    case 0:
-    case 4:
-      return y;
-    case 1:
-    case 6:
-      return x;
-    case 2:
-    case 5:
-      return size - 1 - y;
-    default:
-      return size - 1 - x;
-  }
-}
-
-function sortPackedKeys(packed: Uint16Array, count: number): void {
-  if (count < 2) {
-    return;
-  }
-
-  if (count < 16) {
-    for (let i = 1; i < count; i += 1) {
-      const value = packed[i];
-      let j = i - 1;
-      while (j >= 0 && packed[j] > value) {
-        packed[j + 1] = packed[j];
-        j -= 1;
-      }
-      packed[j + 1] = value;
-    }
-    return;
-  }
-
-  packed.subarray(0, count).sort();
-}
-
-function encodePackedKeys(packed: Uint16Array, count: number): string {
-  let key = '';
-  for (let i = 0; i < count; i += 1) {
-    key += String.fromCharCode(packed[i]);
-  }
-  return key;
-}
-
 function computePositionSymmetryKeyFast(
   position: GogoPosition,
   options: PositionSymmetryOptions,
@@ -151,46 +75,11 @@ function computePositionSymmetryKeyFast(
   const scratch = getSymmetryKeyScratch(position.area);
   const { xs, ys, colors, packed } = scratch;
   const stoneCount = collectStoneData(position, xs, ys, colors);
-  if (stoneCount === 0) {
-    return '';
-  }
-
-  let best = '';
-  const colorVariants = options.includeColorSymmetry ? 2 : 1;
-  for (let transformIndex = 0; transformIndex < ABSOLUTE_TRANSFORMS.length; transformIndex += 1) {
-    let minX = 0;
-    let minY = 0;
-    if (options.includeTranslationSymmetry) {
-      for (let i = 0; i < stoneCount; i += 1) {
-        const x = transformX(transformIndex, xs[i], ys[i], position.size);
-        const y = transformY(transformIndex, xs[i], ys[i], position.size);
-        if (i === 0 || x < minX) {
-          minX = x;
-        }
-        if (i === 0 || y < minY) {
-          minY = y;
-        }
-      }
-    }
-
-    for (let variant = 0; variant < colorVariants; variant += 1) {
-      for (let i = 0; i < stoneCount; i += 1) {
-        const x = transformX(transformIndex, xs[i], ys[i], position.size) - minX;
-        const y = transformY(transformIndex, xs[i], ys[i], position.size) - minY;
-        const color = variant === 0
-          ? colors[i]
-          : (colors[i] === BLACK ? WHITE : BLACK);
-        packed[i] = (((x << 4) | y) << 2) | color;
-      }
-      sortPackedKeys(packed, stoneCount);
-      const candidate = encodePackedKeys(packed, stoneCount);
-      if (best === '' || candidate < best) {
-        best = candidate;
-      }
-    }
-  }
-
-  return best;
+  return computeCanonicalPackedKey(xs, ys, colors, stoneCount, {
+    boardSize: position.size,
+    includeTranslationSymmetry: options.includeTranslationSymmetry,
+    includeColorSymmetry: options.includeColorSymmetry,
+  }, packed);
 }
 
 function createSeededRandom(seed: number | undefined): () => number {
@@ -211,7 +100,7 @@ function encodeRepresentativeHistory(
   includeTranslationSymmetry: boolean,
   nextRandom: () => number,
 ): string {
-  const transform = ABSOLUTE_TRANSFORMS[nextRandom() % ABSOLUTE_TRANSFORMS.length];
+  const transformIndex = nextRandom() % 8;
   const transformedMoves: Array<readonly [number, number]> = new Array(position.ply);
   let minX = 0;
   let minY = 0;
@@ -220,7 +109,12 @@ function encodeRepresentativeHistory(
 
   for (let ply = 0; ply < position.ply; ply += 1) {
     const move = position.getMoveAt(ply);
-    const [x, y] = transform(position.meta.xs[move], position.meta.ys[move], position.size);
+    const [x, y] = transformPoint(
+      transformIndex,
+      position.meta.xs[move],
+      position.meta.ys[move],
+      position.size,
+    );
     transformedMoves[ply] = [x, y];
     if (ply === 0 || x < minX) {
       minX = x;
@@ -252,13 +146,6 @@ function encodeRepresentativeHistory(
   return `B${position.size}${encodedMoves.length > 0 ? ` ${encodedMoves.join(' ')}` : ''}`;
 }
 
-function validateSize(size: number): SupportedSize {
-  if (size !== 9 && size !== 11 && size !== 13) {
-    throw new Error(`Unsupported board size: ${size}`);
-  }
-  return size;
-}
-
 export function computePositionSymmetryKey(
   position: GogoPosition,
   options: PositionSymmetryOptions,
@@ -274,7 +161,7 @@ export function streamUniqueBoards(
     throw new Error(`Invalid ply: ${options.ply}`);
   }
 
-  const boardSize = validateSize(options.boardSize ?? 9);
+  const boardSize = parseSupportedSize(options.boardSize ?? 9);
   const maxBoards = options.maxBoards ?? Number.POSITIVE_INFINITY;
   if (maxBoards < 0 || Number.isNaN(maxBoards)) {
     throw new Error(`Invalid maxBoards: ${maxBoards}`);

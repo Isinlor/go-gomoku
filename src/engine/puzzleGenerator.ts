@@ -4,10 +4,12 @@ import {
   WHITE,
   GogoPosition,
   encodeMove,
+  otherPlayer,
   type Player,
   type SupportedSize,
 } from './gogomoku';
 import { GogoAI } from './ai';
+import { insertMoveDescending, sortMovesDescending } from './moveOrdering';
 
 /**
  * Validation criteria for a puzzle position at a given difficulty level:
@@ -17,12 +19,68 @@ import { GogoAI } from './ai';
  * 4. realistic: there must be no obvious blunders in game history; no missed forced win sequences in ply 3
  */
 
-function otherPlayer(player: Player): Player {
-  return player === BLACK ? WHITE : BLACK;
-}
-
 const ATTACK_WEIGHTS = [0, 12, 72, 540, 8_000, 500_000] as const;
 const DEFENSE_WEIGHTS = [0, 16, 96, 720, 100_000, 500_000] as const;
+
+function scoreWindowMove(
+  pos: GogoPosition,
+  move: number,
+  player: Player,
+  opponent: Player,
+): number {
+  const meta = pos.meta;
+  const board = pos.board;
+  let attack = 0;
+  let defense = 0;
+
+  for (
+    let cursor = meta.windowsByPointOffsets[move];
+    cursor < meta.windowsByPointOffsets[move + 1];
+    cursor += 1
+  ) {
+    const windowIndex = meta.windowsByPoint[cursor];
+    const base = windowIndex * 5;
+    let mine = 0;
+    let theirs = 0;
+    for (let step = 0; step < 5; step += 1) {
+      const cell = board[meta.windows[base + step]];
+      mine += cell === player ? 1 : 0;
+      theirs += cell === opponent ? 1 : 0;
+    }
+    if (theirs === 0) {
+      attack += ATTACK_WEIGHTS[Math.min(mine + 1, 5)];
+    }
+    if (mine === 0) {
+      defense += DEFENSE_WEIGHTS[Math.min(theirs + 1, 5)];
+    }
+  }
+
+  return attack + defense + meta.centerBias[move] * 3;
+}
+
+function findWinningMoveForPlayer(
+  pos: GogoPosition,
+  moves: Int16Array,
+  moveCount: number,
+  player: Player,
+): number {
+  const saved = pos.toMove;
+  pos.toMove = player;
+  for (let i = 0; i < moveCount; i += 1) {
+    const move = moves[i];
+    if (!pos.play(move)) {
+      continue;
+    }
+    const wins = (pos.winner as number) === player;
+    pos.undo();
+    if (wins) {
+      pos.toMove = saved;
+      return move;
+    }
+  }
+  pos.toMove = saved;
+  return -1;
+}
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -121,70 +179,6 @@ export class ForcedWinSearcher {
 
     pos.undo();
     return -1;
-  }
-
-  /**
-   * Check if a specific move by the current player leads to a forced win
-   * in *exactly* `targetRemaining` additional plies (so total = targetRemaining + 1).
-   * Does NOT iterate; just tests one specific depth.
-   */
-  hasForcedWinAfterMove(pos: GogoPosition, move: number, targetRemaining: number): boolean {
-    const attacker = pos.toMove;
-    if (!pos.play(move)) {
-      return false;
-    }
-    if (pos.winner === attacker) {
-      pos.undo();
-      return targetRemaining >= 0;
-    }
-    if (targetRemaining <= 0) {
-      pos.undo();
-      return false;
-    }
-    this.nodesSearched = 0;
-    const result = this.search(pos, attacker, targetRemaining, 0);
-    pos.undo();
-    return result;
-  }
-
-  /**
-   * Find all root moves that have a forced win within `maxPly`.
-   * Returns -1 if no winning move, the single move index if exactly one,
-   * or -2 if multiple moves win.
-   * Only considers moves from the provided sorted buffer.
-   * Much faster than calling forcedWinDepthForMove per move because we
-   * skip the iterative deepening overhead and share search state.
-   */
-  findUniqueWinningMove(
-    pos: GogoPosition,
-    moves: Int16Array,
-    moveCount: number,
-    maxPly: number,
-  ): number {
-    const attacker = pos.toMove;
-    const targetRemaining = maxPly - 1;
-    let solutionMove = -1;
-
-    for (let i = 0; i < moveCount; i += 1) {
-      const move = moves[i];
-      if (!pos.play(move)) {
-        continue;
-      }
-      if (pos.winner === attacker) {
-        pos.undo();
-        return -2; // immediate win → shorter than target depth
-      }
-      this.nodesSearched = 0;
-      const wins = this.search(pos, attacker, targetRemaining, 0);
-      pos.undo();
-      if (wins) {
-        if (solutionMove !== -1) {
-          return -2; // multiple winning moves
-        }
-        solutionMove = move;
-      }
-    }
-    return solutionMove;
   }
 
   /**
@@ -583,14 +577,7 @@ export class ForcedWinSearcher {
         const score = this.scoreMove(pos, move, player, opponent);
 
         // Insertion sort descending
-        let idx = count;
-        while (idx > 0 && score > scores[idx - 1]) {
-          moves[idx] = moves[idx - 1];
-          scores[idx] = scores[idx - 1];
-          idx -= 1;
-        }
-        moves[idx] = move;
-        scores[idx] = score;
+        insertMoveDescending(moves, scores, count, move, score);
         count += 1;
       }
     }
@@ -616,34 +603,7 @@ export class ForcedWinSearcher {
     player: Player,
     opponent: Player,
   ): number {
-    const meta = pos.meta;
-    const board = pos.board;
-    let attack = 0;
-    let defense = 0;
-
-    for (
-      let cursor = meta.windowsByPointOffsets[move];
-      cursor < meta.windowsByPointOffsets[move + 1];
-      cursor += 1
-    ) {
-      const windowIndex = meta.windowsByPoint[cursor];
-      const base = windowIndex * 5;
-      let mine = 0;
-      let theirs = 0;
-      for (let step = 0; step < 5; step += 1) {
-        const cell = board[meta.windows[base + step]];
-        mine += cell === player ? 1 : 0;
-        theirs += cell === opponent ? 1 : 0;
-      }
-      if (theirs === 0) {
-        attack += ATTACK_WEIGHTS[Math.min(mine + 1, 5)];
-      }
-      if (mine === 0) {
-        defense += DEFENSE_WEIGHTS[Math.min(theirs + 1, 5)];
-      }
-    }
-
-    return attack + defense + meta.centerBias[move] * 3;
+    return scoreWindowMove(pos, move, player, opponent);
   }
 }
 
@@ -656,35 +616,7 @@ export class ForcedWinSearcher {
  */
 export function heuristicMoveScore(pos: GogoPosition, move: number): number {
   const player = pos.toMove;
-  const opponent = otherPlayer(player);
-  const meta = pos.meta;
-  const board = pos.board;
-  let attack = 0;
-  let defense = 0;
-
-  for (
-    let cursor = meta.windowsByPointOffsets[move];
-    cursor < meta.windowsByPointOffsets[move + 1];
-    cursor += 1
-  ) {
-    const windowIndex = meta.windowsByPoint[cursor];
-    const base = windowIndex * 5;
-    let mine = 0;
-    let theirs = 0;
-    for (let step = 0; step < 5; step += 1) {
-      const cell = board[meta.windows[base + step]];
-      mine += cell === player ? 1 : 0;
-      theirs += cell === opponent ? 1 : 0;
-    }
-    if (theirs === 0) {
-      attack += ATTACK_WEIGHTS[Math.min(mine + 1, 5)];
-    }
-    if (mine === 0) {
-      defense += DEFENSE_WEIGHTS[Math.min(theirs + 1, 5)];
-    }
-  }
-
-  return attack + defense + meta.centerBias[move] * 3;
+  return scoreWindowMove(pos, move, player, otherPlayer(player));
 }
 
 /**
@@ -926,26 +858,6 @@ function hasOpenThree(pos: GogoPosition, player: Player): boolean {
   return false;
 }
 
-/** In-place insertion sort for move/score arrays (descending by score). */
-function sortMovesDescending(
-  moves: Int16Array,
-  scores: Int32Array,
-  count: number,
-): void {
-  for (let i = 1; i < count; i += 1) {
-    const move = moves[i];
-    const score = scores[i];
-    let j = i;
-    while (j > 0 && scores[j - 1] < score) {
-      moves[j] = moves[j - 1];
-      scores[j] = scores[j - 1];
-      j -= 1;
-    }
-    moves[j] = move;
-    scores[j] = score;
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Game generation (semi-random play for realistic positions)
 // ---------------------------------------------------------------------------
@@ -993,40 +905,10 @@ export function playRandomGame(
     // Check for immediate wins or blocks
     const player = pos.toMove;
     const opponent = otherPlayer(player);
-    let forced = -1;
-
-    for (let i = 0; i < count; i += 1) {
-      const move = moveBuffer[i];
-      if (!pos.play(move)) {
-        continue;
-      }
-      if ((pos.winner as number) === player) {
-        pos.undo();
-        forced = move;
-        break;
-      }
-      pos.undo();
-    }
-
+    let forced = findWinningMoveForPlayer(pos, moveBuffer, count, player);
     if (forced === -1) {
       // Check opponent threats
-      for (let i = 0; i < count; i += 1) {
-        const move = moveBuffer[i];
-        // Temporarily play as opponent to check if this point wins for them
-        const saved = pos.toMove;
-        pos.toMove = opponent;
-        if (pos.play(move)) {
-          const wins = (pos.winner as number) === opponent;
-          pos.undo();
-          pos.toMove = saved;
-          if (wins) {
-            forced = move;
-            break;
-          }
-        } else {
-          pos.toMove = saved;
-        }
-      }
+      forced = findWinningMoveForPlayer(pos, moveBuffer, count, opponent);
     }
 
     if (forced !== -1) {

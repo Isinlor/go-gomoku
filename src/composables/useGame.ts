@@ -19,6 +19,12 @@ export interface UseGameOptions {
   setLocationHash?: (hash: string) => void;
 }
 
+const AI_CONFIG = {
+  maxDepth: 12,
+  quiescenceDepth: 4,
+  maxPly: 96,
+} as const;
+
 export function useGame(options: UseGameOptions = {}) {
   const getLocationHash = options.getLocationHash ?? (() => window.location.hash);
   const getLocationHref = options.getLocationHref ?? (() => window.location.href);
@@ -44,6 +50,18 @@ export function useGame(options: UseGameOptions = {}) {
     triggerRef(game);
   }
 
+  function playerIsAI(player: Player): boolean {
+    return (player === BLACK ? blackIsAI : whiteIsAI).value;
+  }
+
+  function playerTimeLimit(player: Player): number {
+    return (player === BLACK ? blackTimeLimit : whiteTimeLimit).value;
+  }
+
+  function playerAIType(player: Player): AIType {
+    return (player === BLACK ? blackAIType : whiteAIType).value;
+  }
+
   let worker: Worker | null = null;
   let pendingGameId = 0;
 
@@ -67,23 +85,20 @@ export function useGame(options: UseGameOptions = {}) {
     }
   }
 
-  onUnmounted(() => {
-    terminateWorker();
-  });
+  onUnmounted(terminateWorker);
 
   function isCurrentPlayerHuman(): boolean {
-    return game.value.toMove === BLACK ? !blackIsAI.value : !whiteIsAI.value;
+    return !playerIsAI(game.value.toMove);
   }
 
   function isAITurn(): boolean {
     const g = game.value;
     if (g.winner !== EMPTY || !g.hasAnyLegalMove()) return false;
-    return g.toMove === BLACK ? blackIsAI.value : whiteIsAI.value;
+    return playerIsAI(g.toMove);
   }
 
   function playerLabel(player: Player): string {
-    const isAI = player === BLACK ? blackIsAI.value : whiteIsAI.value;
-    return `${playerName(player)}${isAI ? ' (AI)' : ''}`;
+    return `${playerName(player)}${playerIsAI(player) ? ' (AI)' : ''}`;
   }
 
   const statusText = computed(() => {
@@ -99,9 +114,7 @@ export function useGame(options: UseGameOptions = {}) {
     return `${playerLabel(g.toMove)} to move${suffix}`;
   });
 
-  const gameRecord = computed(() => {
-    return game.value.encodeGame();
-  });
+  const gameRecord = computed(() => game.value.encodeGame());
 
   const gameUrl = computed(() => {
     const base = getLocationHref().split('#')[0];
@@ -112,12 +125,15 @@ export function useGame(options: UseGameOptions = {}) {
     return aiThinking.value || !isCurrentPlayerHuman() || game.value.winner !== EMPTY;
   }
 
-  function makeAIConfig(): { maxDepth: number; quiescenceDepth: number; maxPly: number } {
-    return {
-      maxDepth: 12,
-      quiescenceDepth: 4,
-      maxPly: 96,
-    };
+  function refreshGameState(updateHash = true, runAI = true): void {
+    notifyBoardChange();
+    if (updateHash) updateLocationHash();
+    if (runAI) maybeRunAI();
+  }
+
+  function clearStatusAndRefresh(updateHash = true, runAI = true): void {
+    statusExtra.value = '';
+    refreshGameState(updateHash, runAI);
   }
 
   function maybeRunAI(): void {
@@ -128,16 +144,13 @@ export function useGame(options: UseGameOptions = {}) {
     statusExtra.value = 'AI searching';
     pendingGameId += 1;
     const g = game.value;
-    const config = makeAIConfig();
-    const timeLimit = g.toMove === BLACK ? blackTimeLimit.value : whiteTimeLimit.value;
-    const aiType = g.toMove === BLACK ? blackAIType.value : whiteAIType.value;
     const request: AIRequest = {
       encodedGame: g.encodeGame(),
-      timeLimitMs: Math.max(1, timeLimit),
-      maxDepth: config.maxDepth,
-      quiescenceDepth: config.quiescenceDepth,
-      maxPly: config.maxPly,
-      aiType,
+      timeLimitMs: Math.max(1, playerTimeLimit(g.toMove)),
+      maxDepth: AI_CONFIG.maxDepth,
+      quiescenceDepth: AI_CONFIG.quiescenceDepth,
+      maxPly: AI_CONFIG.maxPly,
+      aiType: playerAIType(g.toMove),
     };
     const w = getWorker();
     (w as unknown as { _pendingId: number })._pendingId = pendingGameId;
@@ -165,9 +178,7 @@ export function useGame(options: UseGameOptions = {}) {
               ? ', likely forced loss'
               : '';
       statusExtra.value = `AI depth ${result.depth}, nodes ${result.nodes}${forcedOutcomeSuffix}`;
-      notifyBoardChange();
-      updateLocationHash();
-      maybeRunAI();
+      refreshGameState();
     };
   }
 
@@ -188,10 +199,7 @@ export function useGame(options: UseGameOptions = {}) {
     terminateWorker();
     aiThinking.value = false;
     game.value = new GogoPosition(size.value);
-    statusExtra.value = '';
-    notifyBoardChange();
-    updateLocationHash();
-    maybeRunAI();
+    clearStatusAndRefresh();
   }
 
   function undo(): void {
@@ -203,10 +211,7 @@ export function useGame(options: UseGameOptions = {}) {
     if (hasHumanPlayer && isAITurn() && g.ply > 0) {
       g.undo();
     }
-    statusExtra.value = '';
-    notifyBoardChange();
-    updateLocationHash();
-    maybeRunAI();
+    clearStatusAndRefresh();
   }
 
   function playMove(index: number): void {
@@ -218,10 +223,7 @@ export function useGame(options: UseGameOptions = {}) {
       notifyBoardChange();
       return;
     }
-    statusExtra.value = '';
-    notifyBoardChange();
-    updateLocationHash();
-    maybeRunAI();
+    clearStatusAndRefresh();
   }
 
   function loadGame(text: string): boolean {
@@ -234,10 +236,7 @@ export function useGame(options: UseGameOptions = {}) {
       aiThinking.value = false;
       game.value = loaded;
       size.value = loaded.size;
-      statusExtra.value = '';
-      notifyBoardChange();
-      updateLocationHash();
-      maybeRunAI();
+      clearStatusAndRefresh();
       return true;
     } catch (err: unknown) {
       loadError.value = err instanceof Error ? err.message : String(err);
@@ -257,16 +256,13 @@ export function useGame(options: UseGameOptions = {}) {
 
   function onModeChange(): void {
     if (!aiThinking.value) {
-      statusExtra.value = '';
-      notifyBoardChange();
-      maybeRunAI();
+      clearStatusAndRefresh(false);
     }
   }
 
   function onAITypeChange(): void {
     if (!aiThinking.value) {
-      statusExtra.value = '';
-      notifyBoardChange();
+      clearStatusAndRefresh(false, false);
     }
   }
 

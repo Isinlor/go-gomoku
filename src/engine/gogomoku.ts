@@ -44,8 +44,15 @@ type GrowableTypedArrayConstructor<T extends GrowableTypedArray> = {
   new(length: number): T;
 };
 
-function otherPlayer(player: Player): Player {
+export function otherPlayer(player: Player): Player {
   return player === BLACK ? WHITE : BLACK;
+}
+
+export function parseSupportedSize(size: number): SupportedSize {
+  if (!SUPPORTED_SIZES.has(size)) {
+    throw new Error(`Unsupported board size: ${size}`);
+  }
+  return size as SupportedSize;
 }
 
 function xorshift32(state: number): number {
@@ -228,9 +235,7 @@ export class GogoPosition {
   scanGroupSize = 0;
 
   constructor(size: SupportedSize, options: PositionOptions = {}) {
-    if (!SUPPORTED_SIZES.has(size)) {
-      throw new Error(`Unsupported board size: ${size}`);
-    }
+    parseSupportedSize(size);
     this.size = size;
     this.area = size * size;
     this.meta = getBoardMeta(size);
@@ -258,10 +263,7 @@ export class GogoPosition {
 
   static fromAscii(rows: string[], toMove: Player = BLACK, options: PositionOptions = {}): GogoPosition {
     const size = rows.length;
-    if (!SUPPORTED_SIZES.has(size)) {
-      throw new Error(`Unsupported board size: ${size}`);
-    }
-    const position = new GogoPosition(size as SupportedSize, options);
+    const position = new GogoPosition(parseSupportedSize(size), options);
     position.toMove = toMove;
 
     for (let y = 0; y < size; y += 1) {
