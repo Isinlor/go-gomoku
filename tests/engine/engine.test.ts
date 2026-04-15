@@ -336,6 +336,80 @@ test('hash stays consistent through capture, ko updates, undo, and reconstructio
   expect(snapshotPosition(position)).toEqual(startSnapshot);
 });
 
+test('legal move probes return the exact legal set and leave position state unchanged', () => {
+  const game = GogoPosition.fromAscii([
+    '.O.......',
+    'O.O......',
+    '.O.......',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  const boardBefore = Array.from(game.board);
+  const hashBefore = game.hash;
+  const toMoveBefore = game.toMove;
+  const plyBefore = game.ply;
+  const koBefore = game.koPoint;
+  const lastMoveBefore = game.lastMove;
+  const lastCapturedBefore = game.lastCapturedCount;
+  const legal = new Int16Array(game.area);
+  const count = game.generateAllLegalMoves(legal);
+  const legalMoves = new Set(Array.from(legal.slice(0, count)));
+  const expected = new Set<number>();
+
+  for (let y = 0; y < game.size; y += 1) {
+    for (let x = 0; x < game.size; x += 1) {
+      const move = game.index(x, y);
+      if (game.at(x, y) !== EMPTY) {
+        continue;
+      }
+      if ((x === 0 && y === 0) || (x === 1 && y === 1)) {
+        continue;
+      }
+      expected.add(move);
+    }
+  }
+
+  expect(count).toBe(expected.size);
+  expect(legalMoves).toEqual(expected);
+  expect(game.hasAnyLegalMove()).toBe(true);
+  expect(Array.from(game.board)).toEqual(boardBefore);
+  expect(game.hash).toBe(hashBefore);
+  expect(game.toMove).toBe(toMoveBefore);
+  expect(game.ply).toBe(plyBefore);
+  expect(game.koPoint).toBe(koBefore);
+  expect(game.lastMove).toBe(lastMoveBefore);
+  expect(game.lastCapturedCount).toBe(lastCapturedBefore);
+});
+
+test('scanGroup returns the full connected group and counts shared liberties once', () => {
+  const game = GogoPosition.fromAscii([
+    '.........',
+    '.XX......',
+    '.X.......',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+
+  const liberties = game.scanGroup(game.index(1, 1), BLACK);
+  const group = Array.from(game.groupBuffer.slice(0, game.scanGroupSize)).sort((a, b) => a - b);
+
+  expect(liberties).toBe(7);
+  expect(game.scanGroupSize).toBe(3);
+  expect(group).toEqual([
+    game.index(1, 1),
+    game.index(2, 1),
+    game.index(1, 2),
+  ].sort((a, b) => a - b));
+});
+
 test('white-box internals cover helper branches that are otherwise hard to trigger', () => {
   const game = new GogoPosition(9, { historyCapacity: 1, captureCapacity: 1 }) as any;
   game.ensureHistoryCapacity(4);
@@ -372,6 +446,54 @@ test('white-box internals cover helper branches that are otherwise hard to trigg
   expect(game.checkFiveFrom(game.index(3, 3), BLACK)).toBe(false);
   game.board[game.index(4, 4)] = BLACK;
   expect(game.checkFiveFrom(game.index(4, 4), BLACK)).toBe(true);
+});
+
+test('hash tracks ko state and matches reconstructed positions after ko clears', () => {
+  const game = GogoPosition.fromAscii([
+    '..O......',
+    '.O.O.....',
+    '.XOX.....',
+    '..X......',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+
+  expect(game.playXY(2, 1)).toBe(true);
+  const hashWithKo = game.hash;
+  expect(game.koPoint).toBe(game.index(2, 2));
+
+  const rebuiltWithoutKo = GogoPosition.fromAscii([
+    '..O......',
+    '.OXO.....',
+    '.X.X.....',
+    '..X......',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], WHITE);
+  expect(hashWithKo).not.toBe(rebuiltWithoutKo.hash);
+
+  expect(game.playXY(8, 8)).toBe(true);
+  expect(game.playXY(7, 8)).toBe(true);
+  expect(game.koPoint).toBe(-1);
+
+  const rebuiltAfterKoClears = GogoPosition.fromAscii([
+    '..O......',
+    '.OXO.....',
+    '.X.X.....',
+    '..X......',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.......XO',
+  ], WHITE);
+  expect(game.hash).toBe(rebuiltAfterKoClears.hash);
 });
 
 test('encodeMove converts a board index to column-letter + row-number notation', () => {
