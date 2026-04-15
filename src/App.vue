@@ -17,7 +17,6 @@ const {
   whiteTimeLimit,
   blackAIType,
   whiteAIType,
-  aiThinking,
   statusText,
   gameRecord,
   loadError,
@@ -61,7 +60,6 @@ function onCopyUrl(): void {
     :black-a-i-type="blackAIType"
     :white-a-i-type="whiteAIType"
     :board-size="size"
-    :ai-thinking="aiThinking"
     @update:black-is-a-i="updatePlayerMode(BLACK, $event)"
     @update:white-is-a-i="updatePlayerMode(WHITE, $event)"
     @update:black-time-limit="blackTimeLimit = $event"

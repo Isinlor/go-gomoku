@@ -1,8 +1,6 @@
 import { BLACK, WHITE, EMPTY, GogoPosition, encodeMove, parseSupportedSize } from './gogomoku';
-import type { Player, SupportedSize } from './gogomoku';
+import type { SupportedSize } from './gogomoku';
 import { DIHEDRAL_TRANSFORMS, computeCanonicalPackedKey } from './uniqueness';
-
-type Stone = readonly [number, number, Player];
 interface SymmetryKeyScratch {
   readonly xs: Int16Array;
   readonly ys: Int16Array;

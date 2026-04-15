@@ -11,7 +11,6 @@ const props = defineProps<{
   blackAIType: AIType;
   whiteAIType: AIType;
   boardSize: SupportedSize;
-  aiThinking: boolean;
 }>();
 
 const emit = defineEmits<{
