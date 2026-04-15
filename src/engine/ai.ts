@@ -47,7 +47,7 @@ const NO_SCORE = Number.NEGATIVE_INFINITY;
 const MAX_CANDIDATES = 12;
 
 // Transposition table constants
-const TT_SIZE_BITS = 18;
+const TT_SIZE_BITS = 20;
 const TT_SIZE = 1 << TT_SIZE_BITS;
 const TT_MASK = TT_SIZE - 1;
 const TT_NONE = 0;
@@ -803,7 +803,7 @@ export class GogoAI {
 
   private checkTime(force: boolean): void {
     this.nodesVisited += 1;
-    if ((force || (this.nodesVisited & 127) === 0) && this.now() >= this.deadline) {
+    if ((force || (this.nodesVisited & 511) === 0) && this.now() >= this.deadline) {
       throw this.timeoutSignal;
     }
   }
@@ -853,7 +853,7 @@ export class GogoAI {
    * Uses AND/OR threat-space search with a dedicated proof TT.
    * Returns true if the win is provable within the time and depth limits.
    */
-  verifyWinningMove(position: GogoPosition, move: number, timeLimitMs: number): boolean {
+  verifyWinningMove(position: GogoPosition, move: number, timeLimitMs: number, maxProofDepth = this.maxPly): boolean {
     this.ensureBuffers(position.area);
     this.deadline = this.now() + Math.max(0, timeLimitMs);
     this.nodesVisited = 0;
@@ -865,7 +865,8 @@ export class GogoAI {
       // Iterative deepening: start shallow and deepen. Earlier iterations
       // populate the proof TT, which acts as a powerful pruning mechanism
       // for deeper iterations.
-      for (let maxDepth = 1; maxDepth <= this.maxPly; maxDepth += 2) {
+      const cappedProofDepth = Math.max(1, Math.min(this.maxPly, maxProofDepth));
+      for (let maxDepth = 1; maxDepth <= cappedProofDepth;) {
         try {
           const result = this.proofDefend(position, maxDepth, 1);
           if (result) return true;
@@ -876,6 +877,7 @@ export class GogoAI {
           this.timedOut = true;
           return false;
         }
+        maxDepth += maxDepth < 11 ? 2 : 6;
       }
       return false;
     } finally {
@@ -1016,6 +1018,14 @@ export class GogoAI {
             position.undo();
           }
         }
+      }
+
+      // Sound fast path: without ko, any move outside the must-respond set
+      // loses immediately to the existing open-four threat. Since all
+      // responses above failed to refute, the win is proven.
+      if (position.koPoint === -1) {
+        this.storeProofTT(ttIdx, hash, depthLeft, 1);
+        return true;
       }
     }
 
