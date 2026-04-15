@@ -80,41 +80,6 @@ function collectStoneData(
   return count;
 }
 
-function transformX(transformIndex: number, x: number, y: number, size: number): number {
-  switch (transformIndex) {
-    case 0:
-      return x;
-    case 1:
-      return size - 1 - y;
-    case 2:
-    case 4:
-      return size - 1 - x;
-    case 5:
-      return x;
-    case 3:
-    case 6:
-      return y;
-    default:
-      return size - 1 - y;
-  }
-}
-
-function transformY(transformIndex: number, x: number, y: number, size: number): number {
-  switch (transformIndex) {
-    case 0:
-    case 4:
-      return y;
-    case 1:
-    case 6:
-      return x;
-    case 2:
-    case 5:
-      return size - 1 - y;
-    default:
-      return size - 1 - x;
-  }
-}
-
 function sortPackedKeys(packed: Uint16Array, count: number): void {
   if (count < 2) {
     return;
@@ -144,7 +109,7 @@ function encodePackedKeys(packed: Uint16Array, count: number): string {
   return key;
 }
 
-function computePositionSymmetryKeyFast(
+export function computePositionSymmetryKey(
   position: GogoPosition,
   options: PositionSymmetryOptions,
 ): string {
@@ -158,12 +123,12 @@ function computePositionSymmetryKeyFast(
   let best = '';
   const colorVariants = options.includeColorSymmetry ? 2 : 1;
   for (let transformIndex = 0; transformIndex < ABSOLUTE_TRANSFORMS.length; transformIndex += 1) {
+    const transform = ABSOLUTE_TRANSFORMS[transformIndex];
     let minX = 0;
     let minY = 0;
     if (options.includeTranslationSymmetry) {
       for (let i = 0; i < stoneCount; i += 1) {
-        const x = transformX(transformIndex, xs[i], ys[i], position.size);
-        const y = transformY(transformIndex, xs[i], ys[i], position.size);
+        const [x, y] = transform(xs[i], ys[i], position.size);
         if (i === 0 || x < minX) {
           minX = x;
         }
@@ -175,12 +140,11 @@ function computePositionSymmetryKeyFast(
 
     for (let variant = 0; variant < colorVariants; variant += 1) {
       for (let i = 0; i < stoneCount; i += 1) {
-        const x = transformX(transformIndex, xs[i], ys[i], position.size) - minX;
-        const y = transformY(transformIndex, xs[i], ys[i], position.size) - minY;
+        const [x, y] = transform(xs[i], ys[i], position.size);
         const color = variant === 0
           ? colors[i]
           : (colors[i] === BLACK ? WHITE : BLACK);
-        packed[i] = (((x << 4) | y) << 2) | color;
+        packed[i] = ((((x - minX) << 4) | (y - minY)) << 2) | color;
       }
       sortPackedKeys(packed, stoneCount);
       const candidate = encodePackedKeys(packed, stoneCount);
@@ -258,14 +222,6 @@ function validateSize(size: number): SupportedSize {
   }
   return size;
 }
-
-export function computePositionSymmetryKey(
-  position: GogoPosition,
-  options: PositionSymmetryOptions,
-): string {
-  return computePositionSymmetryKeyFast(position, options);
-}
-
 export function streamUniqueBoards(
   options: StreamUniqueBoardsOptions,
   emit: (encodedBoard: string) => void,

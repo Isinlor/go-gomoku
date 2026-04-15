@@ -17,22 +17,18 @@ const cells = computed(() => {
   // Access boardVersion to ensure Vue invalidates the cache when the board mutates
   void props.boardVersion;
   const result: { index: number; value: Cell; label: string; className: string }[] = [];
-  for (let y = 0; y < props.size; y++) {
-    for (let x = 0; x < props.size; x++) {
-      const index = y * props.size + x;
-      const value = props.board[index] as Cell;
-      let label = '';
-      let className = 'cell';
-      if (value === BLACK) {
-        label = '●';
-        className += ' stone-black';
-      } else if (value === WHITE) {
-        label = '●';
-        className += ' stone-white';
+    for (let y = 0; y < props.size; y++) {
+      for (let x = 0; x < props.size; x++) {
+        const index = y * props.size + x;
+        const value = props.board[index] as Cell;
+        result.push({
+          index,
+          value,
+          label: value === EMPTY ? '' : '●',
+          className: `cell${value === BLACK ? ' stone-black' : value === WHITE ? ' stone-white' : ''}`,
+        });
       }
-      result.push({ index, value, label, className });
     }
-  }
   return result;
 });
 </script>

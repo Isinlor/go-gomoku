@@ -19,6 +19,12 @@ export interface UseGameOptions {
   setLocationHash?: (hash: string) => void;
 }
 
+const AI_CONFIG = {
+  maxDepth: 12,
+  quiescenceDepth: 4,
+  maxPly: 96,
+} as const;
+
 export function useGame(options: UseGameOptions = {}) {
   const getLocationHash = options.getLocationHash ?? (() => window.location.hash);
   const getLocationHref = options.getLocationHref ?? (() => window.location.href);
@@ -44,6 +50,21 @@ export function useGame(options: UseGameOptions = {}) {
     triggerRef(game);
   }
 
+  function syncGame(updateLocation = true, runAI = true): void {
+    notifyBoardChange();
+    if (updateLocation) {
+      updateLocationHash();
+    }
+    if (runAI) {
+      maybeRunAI();
+    }
+  }
+
+  function resetWorkerState(): void {
+    terminateWorker();
+    aiThinking.value = false;
+  }
+
   let worker: Worker | null = null;
   let pendingGameId = 0;
 
@@ -67,9 +88,7 @@ export function useGame(options: UseGameOptions = {}) {
     }
   }
 
-  onUnmounted(() => {
-    terminateWorker();
-  });
+  onUnmounted(terminateWorker);
 
   function isCurrentPlayerHuman(): boolean {
     return game.value.toMove === BLACK ? !blackIsAI.value : !whiteIsAI.value;
@@ -99,26 +118,12 @@ export function useGame(options: UseGameOptions = {}) {
     return `${playerLabel(g.toMove)} to move${suffix}`;
   });
 
-  const gameRecord = computed(() => {
-    return game.value.encodeGame();
-  });
+  const gameRecord = computed(() => game.value.encodeGame());
 
-  const gameUrl = computed(() => {
-    const base = getLocationHref().split('#')[0];
-    return `${base}#${encodeURIComponent(gameRecord.value)}`;
-  });
+  const gameUrl = computed(() => `${getLocationHref().split('#')[0]}#${encodeURIComponent(gameRecord.value)}`);
 
-  function boardDisabled(): boolean {
-    return aiThinking.value || !isCurrentPlayerHuman() || game.value.winner !== EMPTY;
-  }
-
-  function makeAIConfig(): { maxDepth: number; quiescenceDepth: number; maxPly: number } {
-    return {
-      maxDepth: 12,
-      quiescenceDepth: 4,
-      maxPly: 96,
-    };
-  }
+  const boardDisabled = (): boolean =>
+    aiThinking.value || !isCurrentPlayerHuman() || game.value.winner !== EMPTY;
 
   function maybeRunAI(): void {
     if (!isAITurn() || aiThinking.value) {
@@ -128,15 +133,14 @@ export function useGame(options: UseGameOptions = {}) {
     statusExtra.value = 'AI searching';
     pendingGameId += 1;
     const g = game.value;
-    const config = makeAIConfig();
     const timeLimit = g.toMove === BLACK ? blackTimeLimit.value : whiteTimeLimit.value;
     const aiType = g.toMove === BLACK ? blackAIType.value : whiteAIType.value;
     const request: AIRequest = {
       encodedGame: g.encodeGame(),
       timeLimitMs: Math.max(1, timeLimit),
-      maxDepth: config.maxDepth,
-      quiescenceDepth: config.quiescenceDepth,
-      maxPly: config.maxPly,
+      maxDepth: AI_CONFIG.maxDepth,
+      quiescenceDepth: AI_CONFIG.quiescenceDepth,
+      maxPly: AI_CONFIG.maxPly,
       aiType,
     };
     const w = getWorker();
@@ -165,9 +169,7 @@ export function useGame(options: UseGameOptions = {}) {
               ? ', likely forced loss'
               : '';
       statusExtra.value = `AI depth ${result.depth}, nodes ${result.nodes}${forcedOutcomeSuffix}`;
-      notifyBoardChange();
-      updateLocationHash();
-      maybeRunAI();
+      syncGame();
     };
   }
 
@@ -185,13 +187,10 @@ export function useGame(options: UseGameOptions = {}) {
   }
 
   function newGame(): void {
-    terminateWorker();
-    aiThinking.value = false;
+    resetWorkerState();
     game.value = new GogoPosition(size.value);
     statusExtra.value = '';
-    notifyBoardChange();
-    updateLocationHash();
-    maybeRunAI();
+    syncGame();
   }
 
   function undo(): void {
@@ -204,9 +203,7 @@ export function useGame(options: UseGameOptions = {}) {
       g.undo();
     }
     statusExtra.value = '';
-    notifyBoardChange();
-    updateLocationHash();
-    maybeRunAI();
+    syncGame();
   }
 
   function playMove(index: number): void {
@@ -219,9 +216,7 @@ export function useGame(options: UseGameOptions = {}) {
       return;
     }
     statusExtra.value = '';
-    notifyBoardChange();
-    updateLocationHash();
-    maybeRunAI();
+    syncGame();
   }
 
   function loadGame(text: string): boolean {
@@ -230,14 +225,11 @@ export function useGame(options: UseGameOptions = {}) {
     if (!trimmed) return false;
     try {
       const loaded = decodeGame(trimmed);
-      terminateWorker();
-      aiThinking.value = false;
+      resetWorkerState();
       game.value = loaded;
       size.value = loaded.size;
       statusExtra.value = '';
-      notifyBoardChange();
-      updateLocationHash();
-      maybeRunAI();
+      syncGame();
       return true;
     } catch (err: unknown) {
       loadError.value = err instanceof Error ? err.message : String(err);
@@ -251,23 +243,25 @@ export function useGame(options: UseGameOptions = {}) {
     loadGame(puzzle.encoded);
   }
 
-  function setSize(newSize: SupportedSize): void {
-    size.value = newSize;
+  function setSize(newSize: SupportedSize): void { size.value = newSize; }
+
+  function onSettingChange(runAI: boolean): void {
+    if (!aiThinking.value) {
+      statusExtra.value = '';
+      if (runAI) {
+        syncGame(false);
+      } else {
+        notifyBoardChange();
+      }
+    }
   }
 
   function onModeChange(): void {
-    if (!aiThinking.value) {
-      statusExtra.value = '';
-      notifyBoardChange();
-      maybeRunAI();
-    }
+    onSettingChange(true);
   }
 
   function onAITypeChange(): void {
-    if (!aiThinking.value) {
-      statusExtra.value = '';
-      notifyBoardChange();
-    }
+    onSettingChange(false);
   }
 
   function tryLoadFromUrl(): boolean {

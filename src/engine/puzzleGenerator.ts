@@ -4,6 +4,7 @@ import {
   WHITE,
   GogoPosition,
   encodeMove,
+  otherPlayer,
   type Player,
   type SupportedSize,
 } from './gogomoku';
@@ -16,10 +17,6 @@ import { GogoAI } from './ai';
  * 3. not obvious: a basic heuristic search with ply k must not select the unique correct answer
  * 4. realistic: there must be no obvious blunders in game history; no missed forced win sequences in ply 3
  */
-
-function otherPlayer(player: Player): Player {
-  return player === BLACK ? WHITE : BLACK;
-}
 
 const ATTACK_WEIGHTS = [0, 12, 72, 540, 8_000, 500_000] as const;
 const DEFENSE_WEIGHTS = [0, 16, 96, 720, 100_000, 500_000] as const;
@@ -555,8 +552,6 @@ export class ForcedWinSearcher {
   private generateMoves(pos: GogoPosition, depth: number): number {
     const board = pos.board;
     const meta = pos.meta;
-    const player = pos.toMove;
-    const opponent = otherPlayer(player);
     const moves = this.moveBuffers[depth];
     const scores = this.scoreBuffers[depth];
     const near2 = meta.near2;
@@ -580,7 +575,7 @@ export class ForcedWinSearcher {
         }
         this.candidateMarks[move] = this.candidateEpoch;
 
-        const score = this.scoreMove(pos, move, player, opponent);
+        const score = heuristicMoveScore(pos, move);
 
         // Insertion sort descending
         let idx = count;
@@ -608,42 +603,6 @@ export class ForcedWinSearcher {
     }
 
     return count;
-  }
-
-  private scoreMove(
-    pos: GogoPosition,
-    move: number,
-    player: Player,
-    opponent: Player,
-  ): number {
-    const meta = pos.meta;
-    const board = pos.board;
-    let attack = 0;
-    let defense = 0;
-
-    for (
-      let cursor = meta.windowsByPointOffsets[move];
-      cursor < meta.windowsByPointOffsets[move + 1];
-      cursor += 1
-    ) {
-      const windowIndex = meta.windowsByPoint[cursor];
-      const base = windowIndex * 5;
-      let mine = 0;
-      let theirs = 0;
-      for (let step = 0; step < 5; step += 1) {
-        const cell = board[meta.windows[base + step]];
-        mine += cell === player ? 1 : 0;
-        theirs += cell === opponent ? 1 : 0;
-      }
-      if (theirs === 0) {
-        attack += ATTACK_WEIGHTS[Math.min(mine + 1, 5)];
-      }
-      if (mine === 0) {
-        defense += DEFENSE_WEIGHTS[Math.min(theirs + 1, 5)];
-      }
-    }
-
-    return attack + defense + meta.centerBias[move] * 3;
   }
 }
 

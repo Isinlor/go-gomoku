@@ -7,18 +7,9 @@ const emit = defineEmits<{
 
 function onPuzzleChange(event: Event): void {
   const target = event.target as HTMLSelectElement;
-  const id = target.value;
-  if (!id) return;
-  const puzzle = PUZZLES.find((p) => p.id === id);
-  if (puzzle) {
-    emit('loadPuzzle', puzzle);
-  }
+  const puzzle = PUZZLES.find((p) => p.id === target.value);
+  if (puzzle !== undefined) emit('loadPuzzle', puzzle);
   target.value = '';
-}
-
-function label(puzzle: Puzzle): string {
-  const color = puzzle.toMove === 1 ? 'Black' : 'White';
-  return `${color} (${puzzle.depth},${puzzle.threshold})`;
 }
 </script>
 
@@ -28,7 +19,7 @@ function label(puzzle: Puzzle): string {
     <select id="puzzle-select" @change="onPuzzleChange">
       <option value="">Select a puzzle…</option>
       <option v-for="p in PUZZLES" :key="p.id" :value="p.id">
-        {{ label(p) }}
+        {{ p.toMove === 1 ? 'Black' : 'White' }} ({{ p.depth }},{{ p.threshold }})
       </option>
     </select>
   </div>

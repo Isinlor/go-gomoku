@@ -1,4 +1,4 @@
-import { BLACK, EMPTY, GogoPosition, type Cell, type Player, WHITE } from './gogomoku';
+import { BLACK, EMPTY, GogoPosition, otherPlayer, type Cell, type Player, WHITE } from './gogomoku';
 
 export interface SearchResult {
   move: number;
@@ -53,10 +53,6 @@ const TT_NONE = 0;
 const TT_EXACT = 1;
 const TT_LOWERBOUND = 2;
 const TT_UPPERBOUND = 3;
-
-function otherPlayer(player: Player): Player {
-  return player === BLACK ? WHITE : BLACK;
-}
 
 export class GogoAI {
   readonly maxDepth: number;

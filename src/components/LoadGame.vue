@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 
-const props = defineProps<{
+const { error } = defineProps<{
   error: string;
 }>();
 
@@ -10,10 +10,6 @@ const emit = defineEmits<{
 }>();
 
 const loadInput = ref('');
-
-function onLoad(): void {
-  emit('loadGame', loadInput.value);
-}
 </script>
 
 <template>
@@ -26,8 +22,8 @@ function onLoad(): void {
       placeholder="e.g. B9 e5 d4 f4 ..."
     />
     <div class="load-row">
-      <button type="button" @click="onLoad">Load game</button>
-      <span id="load-error">{{ props.error }}</span>
+      <button type="button" @click="emit('loadGame', loadInput)">Load game</button>
+      <span id="load-error">{{ error }}</span>
     </div>
   </div>
 </template>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-const props = defineProps<{
+const { record } = defineProps<{
   record: string;
 }>();
 
@@ -17,7 +17,7 @@ const emit = defineEmits<{
         readonly
         rows="2"
         aria-label="Game record in move notation"
-        :value="props.record"
+        :value="record"
       />
       <button type="button" @click="emit('copyUrl')">Copy URL</button>
     </div>

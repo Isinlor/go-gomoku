@@ -40,6 +40,32 @@ export interface CompareResult {
   results: GameResult[];
 }
 
+const FLAG_UPDATERS = {
+  '--time': (value: string, update: (value: number) => void) => update(Number.parseInt(value, 10)),
+  '--pairs': (value: string, update: (value: number) => void) => update(Number.parseInt(value, 10)),
+  '--size': (value: string, update: (value: SupportedSize) => void) =>
+    update(Number.parseInt(value, 10) as SupportedSize),
+  '--seed': (value: string, update: (value: number) => void) => update(Number.parseInt(value, 10)),
+  '--ai1': (_value: string, update: (value: 'classic') => void) => update('classic'),
+  '--ai2': (_value: string, update: (value: 'classic') => void) => update('classic'),
+} as const;
+
+function invalidGameResult(
+  winner: 1 | 2,
+  moves: number,
+  ai1Color: 1 | 2,
+  ai: 1 | 2,
+  move: number,
+  reason: InvalidMoveInfo['reason'],
+): GameResult {
+  return {
+    winner,
+    moves,
+    ai1Color,
+    invalidMove: { ai, move, reason },
+  };
+}
+
 export function playGame(
   ai1: AIPlayer,
   ai2: AIPlayer,
@@ -62,30 +88,15 @@ export function playGame(
     const elapsed = now() - start;
 
     if (elapsed > timeLimitMs) {
-      return {
-        winner: opponent,
-        moves,
-        ai1Color,
-        invalidMove: { ai: currentAINum, move: result.move, reason: 'timeout' },
-      };
+      return invalidGameResult(opponent, moves, ai1Color, currentAINum, result.move, 'timeout');
     }
 
     if (result.move === -1) {
-      return {
-        winner: opponent,
-        moves,
-        ai1Color,
-        invalidMove: { ai: currentAINum, move: -1, reason: 'refused' },
-      };
+      return invalidGameResult(opponent, moves, ai1Color, currentAINum, -1, 'refused');
     }
 
     if (!position.isLegal(result.move)) {
-      return {
-        winner: opponent,
-        moves,
-        ai1Color,
-        invalidMove: { ai: currentAINum, move: result.move, reason: 'illegal' },
-      };
+      return invalidGameResult(opponent, moves, ai1Color, currentAINum, result.move, 'illegal');
     }
 
     position.play(result.move);
@@ -143,26 +154,20 @@ export function parseArgs(args: string[]): CompareOptions {
   let ai1: 'classic' = 'classic';
   let ai2: 'classic' = 'classic';
   let seed = 1;
+  const setters = {
+    '--time': (value: string) => FLAG_UPDATERS['--time'](value, (next) => { timeLimitMs = next; }),
+    '--pairs': (value: string) => FLAG_UPDATERS['--pairs'](value, (next) => { numPairs = next; }),
+    '--size': (value: string) => FLAG_UPDATERS['--size'](value, (next) => { boardSize = next; }),
+    '--ai1': (value: string) => FLAG_UPDATERS['--ai1'](value, (next) => { ai1 = next; }),
+    '--ai2': (value: string) => FLAG_UPDATERS['--ai2'](value, (next) => { ai2 = next; }),
+    '--seed': (value: string) => FLAG_UPDATERS['--seed'](value, (next) => { seed = next; }),
+  } as const;
 
   for (let i = 0; i < args.length; i++) {
     const value = readFlagValue(args, i);
-    if (args[i] === '--time' && value !== undefined) {
-      timeLimitMs = Number.parseInt(value, 10);
-      i += 1;
-    } else if (args[i] === '--pairs' && value !== undefined) {
-      numPairs = Number.parseInt(value, 10);
-      i += 1;
-    } else if (args[i] === '--size' && value !== undefined) {
-      boardSize = Number.parseInt(value, 10) as SupportedSize;
-      i += 1;
-    } else if (args[i] === '--ai1' && value !== undefined) {
-      ai1 = 'classic';
-      i += 1;
-    } else if (args[i] === '--ai2' && value !== undefined) {
-      ai2 = 'classic';
-      i += 1;
-    } else if (args[i] === '--seed' && value !== undefined) {
-      seed = Number.parseInt(value, 10);
+    const update = setters[args[i] as keyof typeof setters];
+    if (value !== undefined && update !== undefined) {
+      update(value);
       i += 1;
     }
   }

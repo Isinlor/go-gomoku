@@ -18,6 +18,7 @@ const DIHEDRAL_TRANSFORMS: readonly TransformFn[] = [
   (x, y) => [y, x],     // reflect about main diagonal
   (x, y) => [-y, -x],   // reflect about anti-diagonal
 ];
+const ADJACENT_OFFSETS = [-1, 0, 1] as const;
 
 function applyTransformAndNormalize(
   stones: readonly Stone[],
@@ -105,14 +106,11 @@ export function removeIsolatedStones(stones: readonly Stone[]): Stone[] {
 
   return stones.filter(
     ([x, y]) =>
-      occupied.has((x + 1) * 10000 + y) ||
-      occupied.has((x - 1) * 10000 + y) ||
-      occupied.has(x * 10000 + (y + 1)) ||
-      occupied.has(x * 10000 + (y - 1)) ||
-      occupied.has((x + 1) * 10000 + (y + 1)) ||
-      occupied.has((x + 1) * 10000 + (y - 1)) ||
-      occupied.has((x - 1) * 10000 + (y + 1)) ||
-      occupied.has((x - 1) * 10000 + (y - 1)),
+      ADJACENT_OFFSETS.some((dx) =>
+        ADJACENT_OFFSETS.some((dy) =>
+          (dx !== 0 || dy !== 0) && occupied.has((x + dx) * 10000 + (y + dy)),
+        ),
+      ),
   );
 }
 

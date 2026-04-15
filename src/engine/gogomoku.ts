@@ -44,7 +44,7 @@ type GrowableTypedArrayConstructor<T extends GrowableTypedArray> = {
   new(length: number): T;
 };
 
-function otherPlayer(player: Player): Player {
+export function otherPlayer(player: Player): Player {
   return player === BLACK ? WHITE : BLACK;
 }
 
