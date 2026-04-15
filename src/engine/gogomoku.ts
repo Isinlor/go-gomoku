@@ -309,17 +309,14 @@ export class GogoPosition {
   }
 
   clone(): GogoPosition {
-    const cloned = new GogoPosition(this.size, {
+    const cloned = GogoPosition.fromAscii(this.toAscii(), this.toMove, {
       historyCapacity: this.historyMoves.length,
       captureCapacity: this.capturePositions.length,
     });
 
-    cloned.board.set(this.board);
-    cloned.toMove = this.toMove;
     cloned.winner = this.winner;
     cloned.koPoint = this.koPoint;
     cloned.ply = this.ply;
-    cloned.stoneCount = this.stoneCount;
     cloned.lastMove = this.lastMove;
     cloned.lastCapturedCount = this.lastCapturedCount;
     cloned.hash = this.hash;
@@ -333,15 +330,7 @@ export class GogoPosition {
     cloned.historyHash.set(this.historyHash);
     cloned.capturePositions.set(this.capturePositions);
     cloned.captureTop = this.captureTop;
-
-    cloned.groupVisitMarks.set(this.groupVisitMarks);
-    cloned.libertyMarks.set(this.libertyMarks);
-    cloned.adjacentGroupMarks.set(this.adjacentGroupMarks);
-    cloned.groupStack.set(this.groupStack);
     cloned.groupBuffer.set(this.groupBuffer);
-    cloned.groupVisitEpoch = this.groupVisitEpoch;
-    cloned.libertyEpoch = this.libertyEpoch;
-    cloned.adjacentGroupEpoch = this.adjacentGroupEpoch;
     cloned.scanGroupSize = this.scanGroupSize;
 
     return cloned;
