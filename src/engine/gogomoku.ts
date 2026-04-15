@@ -308,6 +308,59 @@ export class GogoPosition {
     return position;
   }
 
+  clone(): GogoPosition {
+    const cloned = new GogoPosition(this.size, {
+      historyCapacity: this.historyMoves.length,
+      captureCapacity: this.capturePositions.length,
+    });
+
+    cloned.board.set(this.board);
+    cloned.toMove = this.toMove;
+    cloned.winner = this.winner;
+    cloned.koPoint = this.koPoint;
+    cloned.ply = this.ply;
+    cloned.stoneCount = this.stoneCount;
+    cloned.lastMove = this.lastMove;
+    cloned.lastCapturedCount = this.lastCapturedCount;
+    cloned.hash = this.hash;
+
+    cloned.historyMoves.set(this.historyMoves);
+    cloned.historyPlayers.set(this.historyPlayers);
+    cloned.historyKo.set(this.historyKo);
+    cloned.historyWinner.set(this.historyWinner);
+    cloned.historyCaptureStart.set(this.historyCaptureStart);
+    cloned.historyCaptureCount.set(this.historyCaptureCount);
+    cloned.historyHash.set(this.historyHash);
+    cloned.capturePositions.set(this.capturePositions);
+    cloned.captureTop = this.captureTop;
+
+    cloned.groupVisitMarks.set(this.groupVisitMarks);
+    cloned.libertyMarks.set(this.libertyMarks);
+    cloned.adjacentGroupMarks.set(this.adjacentGroupMarks);
+    cloned.groupStack.set(this.groupStack);
+    cloned.groupBuffer.set(this.groupBuffer);
+    cloned.groupVisitEpoch = this.groupVisitEpoch;
+    cloned.libertyEpoch = this.libertyEpoch;
+    cloned.adjacentGroupEpoch = this.adjacentGroupEpoch;
+    cloned.scanGroupSize = this.scanGroupSize;
+
+    return cloned;
+  }
+
+  toAscii(): string[] {
+    const symbols = ['.', 'X', 'O'] as const;
+    const rows: string[] = [];
+    for (let y = 0; y < this.size; y += 1) {
+      let row = '';
+      const rowBase = y * this.size;
+      for (let x = 0; x < this.size; x += 1) {
+        row += symbols[this.board[rowBase + x] as Cell];
+      }
+      rows.push(row);
+    }
+    return rows;
+  }
+
   index(x: number, y: number): number {
     if (x < 0 || x >= this.size || y < 0 || y >= this.size) {
       return -1;

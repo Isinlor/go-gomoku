@@ -1,7 +1,6 @@
 import { test, expect } from 'vitest';
 
 import { BLACK, EMPTY, GogoPosition, WHITE, playerName, encodeMove, decodeMove, decodeGame } from '../../src/engine';
-import { boardRows, snapshotPosition } from './testUtils';
 
 test('constructor, parser, coordinates, and helpers validate inputs', () => {
   expect(() => new GogoPosition(10)).toThrow(/Unsupported board size/);
@@ -37,6 +36,25 @@ test('constructor, parser, coordinates, and helpers validate inputs', () => {
   expect(game.play(game.index(4, 4))).toBe(false);
   game.undo();
   expect(game.undo()).toBe(false);
+  expect(symbolGame.toAscii()).toEqual([
+    '.XXOO....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ]);
+  const cloned = symbolGame.clone();
+  expect(cloned).not.toBe(symbolGame);
+  expect(cloned.toAscii()).toEqual(symbolGame.toAscii());
+  expect(cloned.toMove).toBe(symbolGame.toMove);
+  expect(cloned.hash).toBe(symbolGame.hash);
+  cloned.playXY(8, 8);
+  expect(cloned.at(8, 8)).toBe(BLACK);
+  expect(symbolGame.at(8, 8)).toBe(EMPTY);
   expect(playerName(BLACK)).toBe('black');
   expect(playerName(WHITE)).toBe('white');
 });
@@ -220,13 +238,29 @@ test('isLegal checks do not mutate position state for legal moves, suicide, or k
     '.........',
   ], BLACK);
   expect(ko.playXY(2, 1)).toBe(true);
-  const koSnapshot = snapshotPosition(ko);
+  const koSnapshot = ko.clone();
 
   expect(ko.isLegal(ko.index(2, 2))).toBe(false);
-  expect(snapshotPosition(ko)).toEqual(koSnapshot);
+  expect(ko.toAscii()).toEqual(koSnapshot.toAscii());
+  expect(ko.toMove).toBe(koSnapshot.toMove);
+  expect(ko.winner).toBe(koSnapshot.winner);
+  expect(ko.koPoint).toBe(koSnapshot.koPoint);
+  expect(ko.ply).toBe(koSnapshot.ply);
+  expect(ko.stoneCount).toBe(koSnapshot.stoneCount);
+  expect(ko.lastMove).toBe(koSnapshot.lastMove);
+  expect(ko.lastCapturedCount).toBe(koSnapshot.lastCapturedCount);
+  expect(ko.hash).toBe(koSnapshot.hash);
 
   expect(ko.isLegal(ko.index(8, 8))).toBe(true);
-  expect(snapshotPosition(ko)).toEqual(koSnapshot);
+  expect(ko.toAscii()).toEqual(koSnapshot.toAscii());
+  expect(ko.toMove).toBe(koSnapshot.toMove);
+  expect(ko.winner).toBe(koSnapshot.winner);
+  expect(ko.koPoint).toBe(koSnapshot.koPoint);
+  expect(ko.ply).toBe(koSnapshot.ply);
+  expect(ko.stoneCount).toBe(koSnapshot.stoneCount);
+  expect(ko.lastMove).toBe(koSnapshot.lastMove);
+  expect(ko.lastCapturedCount).toBe(koSnapshot.lastCapturedCount);
+  expect(ko.hash).toBe(koSnapshot.hash);
 
   const suicide = GogoPosition.fromAscii([
     '.O.......',
@@ -239,10 +273,18 @@ test('isLegal checks do not mutate position state for legal moves, suicide, or k
     '.........',
     '.........',
   ], BLACK);
-  const suicideSnapshot = snapshotPosition(suicide);
+  const suicideSnapshot = suicide.clone();
 
   expect(suicide.isLegal(suicide.index(1, 1))).toBe(false);
-  expect(snapshotPosition(suicide)).toEqual(suicideSnapshot);
+  expect(suicide.toAscii()).toEqual(suicideSnapshot.toAscii());
+  expect(suicide.toMove).toBe(suicideSnapshot.toMove);
+  expect(suicide.winner).toBe(suicideSnapshot.winner);
+  expect(suicide.koPoint).toBe(suicideSnapshot.koPoint);
+  expect(suicide.ply).toBe(suicideSnapshot.ply);
+  expect(suicide.stoneCount).toBe(suicideSnapshot.stoneCount);
+  expect(suicide.lastMove).toBe(suicideSnapshot.lastMove);
+  expect(suicide.lastCapturedCount).toBe(suicideSnapshot.lastCapturedCount);
+  expect(suicide.hash).toBe(suicideSnapshot.hash);
 });
 
 test('legal move generation and group scanning reflect current state', () => {
@@ -313,18 +355,18 @@ test('hash stays consistent through capture, ko updates, undo, and reconstructio
     '.........',
     '.........',
   ], BLACK);
-  const startSnapshot = snapshotPosition(position);
+  const startSnapshot = position.clone();
 
   expect(position.playXY(2, 1)).toBe(true);
   expect(position.koPoint).toBe(position.index(2, 2));
   const afterCaptureHash = position.hash;
-  const rebuiltAfterCapture = GogoPosition.fromAscii(boardRows(position), position.toMove);
+  const rebuiltAfterCapture = GogoPosition.fromAscii(position.toAscii(), position.toMove);
   expect(rebuiltAfterCapture.koPoint).toBe(-1);
   expect(rebuiltAfterCapture.hash).not.toBe(afterCaptureHash);
 
   expect(position.playXY(8, 8)).toBe(true);
   expect(position.playXY(7, 8)).toBe(true);
-  const rebuiltAfterKoExpires = GogoPosition.fromAscii(boardRows(position), position.toMove);
+  const rebuiltAfterKoExpires = GogoPosition.fromAscii(position.toAscii(), position.toMove);
   expect(rebuiltAfterKoExpires.hash).toBe(position.hash);
 
   expect(position.undo()).toBe(true);
@@ -333,7 +375,15 @@ test('hash stays consistent through capture, ko updates, undo, and reconstructio
   expect(position.koPoint).toBe(position.index(2, 2));
 
   expect(position.undo()).toBe(true);
-  expect(snapshotPosition(position)).toEqual(startSnapshot);
+  expect(position.toAscii()).toEqual(startSnapshot.toAscii());
+  expect(position.toMove).toBe(startSnapshot.toMove);
+  expect(position.winner).toBe(startSnapshot.winner);
+  expect(position.koPoint).toBe(startSnapshot.koPoint);
+  expect(position.ply).toBe(startSnapshot.ply);
+  expect(position.stoneCount).toBe(startSnapshot.stoneCount);
+  expect(position.lastMove).toBe(startSnapshot.lastMove);
+  expect(position.lastCapturedCount).toBe(startSnapshot.lastCapturedCount);
+  expect(position.hash).toBe(startSnapshot.hash);
 });
 
 test('legal move probes return the exact legal set and leave position state unchanged', () => {
