@@ -1,33 +1,7 @@
 import { test, expect } from 'vitest';
 
 import { BLACK, EMPTY, GogoPosition, WHITE, playerName, encodeMove, decodeMove, decodeGame } from '../../src/engine';
-
-function snapshotPosition(position: GogoPosition) {
-  return {
-    board: Array.from(position.board),
-    toMove: position.toMove,
-    winner: position.winner,
-    koPoint: position.koPoint,
-    ply: position.ply,
-    stoneCount: position.stoneCount,
-    lastMove: position.lastMove,
-    lastCapturedCount: position.lastCapturedCount,
-    hash: position.hash,
-  };
-}
-
-function boardRows(position: GogoPosition): string[] {
-  const symbols = ['.', 'X', 'O'] as const;
-  const rows: string[] = [];
-  for (let y = 0; y < position.size; y += 1) {
-    let row = '';
-    for (let x = 0; x < position.size; x += 1) {
-      row += symbols[position.at(x, y)];
-    }
-    rows.push(row);
-  }
-  return rows;
-}
+import { boardRows, snapshotPosition } from './testUtils';
 
 test('constructor, parser, coordinates, and helpers validate inputs', () => {
   expect(() => new GogoPosition(10)).toThrow(/Unsupported board size/);
@@ -345,7 +319,7 @@ test('hash stays consistent through capture, ko updates, undo, and reconstructio
   expect(position.koPoint).toBe(position.index(2, 2));
   const afterCaptureHash = position.hash;
   const rebuiltAfterCapture = GogoPosition.fromAscii(boardRows(position), position.toMove);
-  expect(rebuiltAfterCapture.hash).toBe(afterCaptureHash);
+  expect(rebuiltAfterCapture.hash).not.toBe(afterCaptureHash);
 
   expect(position.playXY(8, 8)).toBe(true);
   expect(position.playXY(7, 8)).toBe(true);

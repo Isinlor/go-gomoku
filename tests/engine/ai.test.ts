@@ -1,22 +1,9 @@
 import { test, expect } from 'vitest';
 
 import { BLACK, EMPTY, GogoAI, GogoPosition, WHITE } from '../../src/engine';
+import { snapshotPosition } from './testUtils';
 
 const GENERATE_ORDERED_MOVES_TACTICAL_ONLY_INDEX = 4;
-
-function snapshotPosition(position: GogoPosition) {
-  return {
-    board: Array.from(position.board),
-    toMove: position.toMove,
-    winner: position.winner,
-    koPoint: position.koPoint,
-    ply: position.ply,
-    stoneCount: position.stoneCount,
-    lastMove: position.lastMove,
-    lastCapturedCount: position.lastCapturedCount,
-    hash: position.hash,
-  };
-}
 
 test('AI chooses the center on an empty board, handles immediate timeout, and handles terminal states', () => {
   const empty = new GogoPosition(9);
@@ -1231,7 +1218,7 @@ test('verifyWinningMove proves trivial one-move win', () => {
 test('verifyWinningMove only proves the real winning move and restores state on success, failure, and timeout', () => {
   const winning = GogoPosition.fromAscii([
     'XXXX.....',
-    '.........',
+    'OOOO.....',
     '.........',
     '.........',
     '.........',
