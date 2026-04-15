@@ -106,7 +106,7 @@ test('computeCanonicalKey returns a stable key for a single stone', () => {
   const keyWhite = computeCanonicalKey([[5, 3, WHITE]]);
   // After color swap, a lone BLACK becomes a lone WHITE → same canonical form
   expect(keyBlack).toBe(keyWhite);
-  expect(keyBlack).not.toBe('');
+  expect(keyBlack).toBe(String.fromCharCode(BLACK));
 });
 
 test('computeCanonicalKey is invariant under translation', () => {
