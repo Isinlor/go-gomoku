@@ -348,13 +348,13 @@ export class GogoPosition {
   }
 
   toAscii(): string[] {
-    const symbols = ['.', 'X', 'O'] as const;
     const rows: string[] = [];
     for (let y = 0; y < this.size; y += 1) {
       let row = '';
       const rowBase = y * this.size;
       for (let x = 0; x < this.size; x += 1) {
-        row += symbols[this.board[rowBase + x] as Cell];
+        const cell = this.board[rowBase + x];
+        row += cell === BLACK ? 'X' : cell === WHITE ? 'O' : '.';
       }
       rows.push(row);
     }

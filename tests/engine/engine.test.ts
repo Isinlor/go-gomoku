@@ -79,9 +79,7 @@ test('clone preserves playable state and toAscii serialises empty and full board
   expect(cloned.at(3, 4)).toBe(EMPTY);
   expect(original.at(3, 4)).toBe(WHITE);
 
-  const full = new GogoPosition(9);
-  full.board.fill(BLACK);
-  full.stoneCount = full.area;
+  const full = GogoPosition.fromAscii(Array.from({ length: 9 }, () => 'XXXXXXXXX'), BLACK);
   expect(full.toAscii()).toEqual(Array.from({ length: 9 }, () => 'XXXXXXXXX'));
 });
 
