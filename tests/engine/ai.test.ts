@@ -82,6 +82,56 @@ test('AI finds immediate wins, blocks forced replies at depth one, and returns b
   expect(timeout.depth).toBe(1);
 });
 
+test('AI never returns illegal ko recapture moves', () => {
+  const position = GogoPosition.fromAscii([
+    '..O......',
+    '.O.O.....',
+    '.XOX.....',
+    '..X......',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  expect(position.playXY(2, 1)).toBe(true);
+  const illegalKoRecapture = position.index(2, 2);
+  expect(position.koPoint).toBe(illegalKoRecapture);
+  expect(position.toMove).toBe(WHITE);
+
+  const ai = new GogoAI({ maxDepth: 3, quiescenceDepth: 2, now: () => 0 });
+  const result = ai.findBestMove(position, 100);
+
+  expect(result.move).not.toBe(illegalKoRecapture);
+  expect(position.isLegal(result.move)).toBe(true);
+});
+
+test('verifyWinningMove rejects illegal candidates, proves winning candidates, and restores board state', () => {
+  const position = GogoPosition.fromAscii([
+    'XXXX.....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  const snapshot = position.clone();
+  const ai = new GogoAI({ maxDepth: 5, quiescenceDepth: 2, now: () => 0 });
+
+  expect(ai.verifyWinningMove(position, position.index(0, 0), 100)).toBe(false);
+  expect(position.toAscii()).toEqual(snapshot.toAscii());
+  expect(position.toMove).toBe(snapshot.toMove);
+  expect(position.hash).toBe(snapshot.hash);
+
+  expect(ai.verifyWinningMove(position, position.index(4, 0), 100)).toBe(true);
+  expect(position.toAscii()).toEqual(snapshot.toAscii());
+  expect(position.toMove).toBe(snapshot.toMove);
+  expect(position.hash).toBe(snapshot.hash);
+});
+
 test('AI iterative deepening exits early once a forced win is proven at the root', () => {
   const winning = GogoPosition.fromAscii([
     'XXXX.....',
