@@ -1,16 +1,7 @@
 import { test, expect } from 'vitest';
 
 import { BLACK, EMPTY, GogoPosition, WHITE, playerName, encodeMove, decodeMove, decodeGame } from '../../src/engine';
-
-function position(rows: string[], toMove = BLACK, options = {}) {
-  return GogoPosition.fromAscii(rows, toMove, options);
-}
-
-function rawPosition(rows: string[], toMove = BLACK, options = {}) {
-  const game = position(rows, toMove, options);
-  game.winner = EMPTY;
-  return game;
-}
+import { position, rawPosition } from './helpers';
 
 test('constructor, parser, coordinates, and helpers validate inputs', () => {
   expect(() => new GogoPosition(10)).toThrow(/Unsupported board size/);

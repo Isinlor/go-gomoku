@@ -1,4 +1,5 @@
 import { GogoAI, GogoPosition } from './engine/index.js';
+import { readFlagValue } from './cliArgs';
 import type { SupportedSize } from './engine/index.js';
 
 declare const process: { argv: string[]; exit(code: number): never };
@@ -144,13 +145,13 @@ export function parseArgs(args: string[]): CompareOptions {
   let seed = 1;
 
   for (let i = 0; i < args.length; i++) {
-    const hasValue = i + 1 < args.length && !args[i + 1].startsWith('--');
-    if (args[i] === '--time' && hasValue) timeLimitMs = parseInt(args[++i], 10);
-    else if (args[i] === '--pairs' && hasValue) numPairs = parseInt(args[++i], 10);
-    else if (args[i] === '--size' && hasValue) boardSize = parseInt(args[++i], 10) as SupportedSize;
-    else if (args[i] === '--ai1' && hasValue) ai1 = 'classic';
-    else if (args[i] === '--ai2' && hasValue) ai2 = 'classic';
-    else if (args[i] === '--seed' && hasValue) seed = parseInt(args[++i], 10);
+    const value = readFlagValue(args, i);
+    if (args[i] === '--time' && value !== undefined) timeLimitMs = Number.parseInt(args[++i], 10);
+    else if (args[i] === '--pairs' && value !== undefined) numPairs = Number.parseInt(args[++i], 10);
+    else if (args[i] === '--size' && value !== undefined) boardSize = Number.parseInt(args[++i], 10) as SupportedSize;
+    else if (args[i] === '--ai1' && value !== undefined) ai1 = 'classic';
+    else if (args[i] === '--ai2' && value !== undefined) ai2 = 'classic';
+    else if (args[i] === '--seed' && value !== undefined) seed = Number.parseInt(args[++i], 10);
   }
 
   return { timeLimitMs, numPairs, boardSize, ai1, ai2, seed };

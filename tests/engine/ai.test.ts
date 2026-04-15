@@ -1,16 +1,7 @@
 import { test, expect } from 'vitest';
 
 import { BLACK, EMPTY, GogoAI, GogoPosition, WHITE } from '../../src/engine';
-
-function position(rows: string[], toMove = BLACK) {
-  return GogoPosition.fromAscii(rows, toMove);
-}
-
-function rawPosition(rows: string[], toMove = BLACK) {
-  const game = position(rows, toMove);
-  game.winner = EMPTY;
-  return game;
-}
+import { position, rawPosition } from './helpers';
 
 const GENERATE_ORDERED_MOVES_TACTICAL_ONLY_INDEX = 4;
 
