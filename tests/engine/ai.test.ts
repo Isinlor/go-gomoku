@@ -2936,7 +2936,75 @@ test('proofDefend: restricted move play failure is handled without coverage supp
   anyAI.generateFullBoardMoves = realFullGen;
 });
 
-test('proofDefend: falls back to full-board generation even after an earlier legal restricted move', () => {
+
+
+test('proofDefend: skips already-marked moves in full generation after restricted stage', () => {
+  const ai = new GogoAI({ maxDepth: 10 });
+  const anyAI = ai as any;
+  const pos = new GogoPosition(9);
+  pos.play(40);
+  anyAI.ensureBuffers(pos.area);
+  anyAI.deadline = 1e15;
+  anyAI.proofTTHash.fill(0);
+  anyAI.proofTTResult.fill(0);
+  anyAI.proofTTDepth.fill(0);
+  anyAI.proofTTBestMove.fill(-1);
+
+  const realFindThreatResponses = anyAI.findThreatResponses.bind(anyAI);
+  const realGen = anyAI.generateOrderedMoves.bind(anyAI);
+  const realFullGen = anyAI.generateFullBoardMoves.bind(anyAI);
+
+  anyAI.findThreatResponses = function (_position: GogoPosition, ply: number) {
+    const moves = this.moveBuffers[ply];
+    const scores = this.scoreBuffers[ply];
+    moves[0] = 40; // occupied, so play() fails but mark is still set
+    scores[0] = 2_000_000;
+    return 1;
+  };
+  anyAI.generateOrderedMoves = function (_position: GogoPosition, moves: Int16Array, scores: Int32Array) {
+    moves[0] = 40; // should be skipped via triedMoveMarks check
+    scores[0] = 0;
+    return 1;
+  };
+  anyAI.generateFullBoardMoves = () => 0;
+
+  expect(anyAI.proofDefend(pos, 2, 1)).toBe(false);
+
+  anyAI.findThreatResponses = realFindThreatResponses;
+  anyAI.generateOrderedMoves = realGen;
+  anyAI.generateFullBoardMoves = realFullGen;
+});
+
+test('proofDefend: returns true after exhausting full defender move generation', () => {
+  const ai = new GogoAI({ maxDepth: 10 });
+  const anyAI = ai as any;
+  const pos = new GogoPosition(9);
+  anyAI.ensureBuffers(pos.area);
+  anyAI.deadline = 1e15;
+  anyAI.proofTTHash.fill(0);
+  anyAI.proofTTResult.fill(0);
+  anyAI.proofTTDepth.fill(0);
+  anyAI.proofTTBestMove.fill(-1);
+
+  const realFindThreatResponses = anyAI.findThreatResponses.bind(anyAI);
+  const realGen = anyAI.generateOrderedMoves.bind(anyAI);
+  const realProofAttack = anyAI.proofAttack.bind(anyAI);
+
+  anyAI.findThreatResponses = () => -1;
+  anyAI.generateOrderedMoves = function (_position: GogoPosition, moves: Int16Array, scores: Int32Array) {
+    moves[0] = 40;
+    scores[0] = 0;
+    return 1;
+  };
+  anyAI.proofAttack = () => true;
+
+  expect(anyAI.proofDefend(pos, 2, 1)).toBe(true);
+
+  anyAI.findThreatResponses = realFindThreatResponses;
+  anyAI.generateOrderedMoves = realGen;
+  anyAI.proofAttack = realProofAttack;
+});
+test('proofDefend: skips full-board generation when legal restricted responses are exhausted', () => {
   const ai = new GogoAI({ maxDepth: 10 });
   const anyAI = ai as any;
   const pos = GogoPosition.fromAscii([
@@ -2980,9 +3048,9 @@ test('proofDefend: falls back to full-board generation even after an earlier leg
     return positionAfterDefense.lastMove !== 20;
   };
 
-  expect(anyAI.proofDefend(pos, 2, 1)).toBe(false);
-  expect(orderedCalls).toBe(1);
-  expect(fullCalls).toBe(1);
+  expect(anyAI.proofDefend(pos, 2, 1)).toBe(true);
+  expect(orderedCalls).toBe(0);
+  expect(fullCalls).toBe(0);
 
   anyAI.generateOrderedMoves = realGen;
   anyAI.generateFullBoardMoves = realFullGen;

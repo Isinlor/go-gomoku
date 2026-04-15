@@ -1017,6 +1017,16 @@ export class GogoAI {
           }
         }
       }
+
+      // Sound immediate-threat shortcut: when the attacker has a legal open-four,
+      // only block/capture/win responses can avoid immediate loss. If every legal
+      // response fails, all remaining legal moves also fail and the attack is proven.
+      if (anyLegalCount > 0) {
+        this.storeProofTT(ttIdx, hash, depthLeft, 1);
+        return true;
+      }
+      // If all restricted responses were illegal (e.g. ko/suicide interactions),
+      // fall through to full generation for completeness.
     }
 
     // Full generation: generate ALL legal moves.
