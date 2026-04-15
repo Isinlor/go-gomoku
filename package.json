@@ -13,6 +13,7 @@
     "coverage": "vitest run --coverage --exclude tests/engine/puzzles.test.ts",
     "test:puzzles": "vitest run tests/engine/puzzles.test.ts",
     "check": "npm run coverage",
+    "stream:boards": "npx tsx scripts/stream-boards.ts",
     "archive": "git archive -o latest-code.zip HEAD",
     "patch": "git format-patch --root master --stdout > latest-code.patch",
     "latest-code": "npm run archive && npm run patch",
