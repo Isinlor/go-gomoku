@@ -19,6 +19,12 @@ export interface UseGameOptions {
   setLocationHash?: (hash: string) => void;
 }
 
+const AI_CONFIG = {
+  maxDepth: 12,
+  quiescenceDepth: 4,
+  maxPly: 96,
+} as const;
+
 export function useGame(options: UseGameOptions = {}) {
   const getLocationHash = options.getLocationHash ?? (() => window.location.hash);
   const getLocationHref = options.getLocationHref ?? (() => window.location.href);
@@ -79,9 +85,7 @@ export function useGame(options: UseGameOptions = {}) {
     }
   }
 
-  onUnmounted(() => {
-    terminateWorker();
-  });
+  onUnmounted(terminateWorker);
 
   function isCurrentPlayerHuman(): boolean {
     return !playerIsAI(game.value.toMove);
@@ -110,9 +114,7 @@ export function useGame(options: UseGameOptions = {}) {
     return `${playerLabel(g.toMove)} to move${suffix}`;
   });
 
-  const gameRecord = computed(() => {
-    return game.value.encodeGame();
-  });
+  const gameRecord = computed(() => game.value.encodeGame());
 
   const gameUrl = computed(() => {
     const base = getLocationHref().split('#')[0];
@@ -123,22 +125,10 @@ export function useGame(options: UseGameOptions = {}) {
     return aiThinking.value || !isCurrentPlayerHuman() || game.value.winner !== EMPTY;
   }
 
-  function makeAIConfig(): { maxDepth: number; quiescenceDepth: number; maxPly: number } {
-    return {
-      maxDepth: 12,
-      quiescenceDepth: 4,
-      maxPly: 96,
-    };
-  }
-
   function refreshGameState(updateHash = true, runAI = true): void {
     notifyBoardChange();
-    if (updateHash) {
-      updateLocationHash();
-    }
-    if (runAI) {
-      maybeRunAI();
-    }
+    if (updateHash) updateLocationHash();
+    if (runAI) maybeRunAI();
   }
 
   function clearStatusAndRefresh(updateHash = true, runAI = true): void {
@@ -154,13 +144,12 @@ export function useGame(options: UseGameOptions = {}) {
     statusExtra.value = 'AI searching';
     pendingGameId += 1;
     const g = game.value;
-    const config = makeAIConfig();
     const request: AIRequest = {
       encodedGame: g.encodeGame(),
       timeLimitMs: Math.max(1, playerTimeLimit(g.toMove)),
-      maxDepth: config.maxDepth,
-      quiescenceDepth: config.quiescenceDepth,
-      maxPly: config.maxPly,
+      maxDepth: AI_CONFIG.maxDepth,
+      quiescenceDepth: AI_CONFIG.quiescenceDepth,
+      maxPly: AI_CONFIG.maxPly,
       aiType: playerAIType(g.toMove),
     };
     const w = getWorker();

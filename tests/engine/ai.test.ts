@@ -1,6 +1,7 @@
 import { test, expect } from 'vitest';
 
 import { BLACK, EMPTY, GogoAI, GogoPosition, WHITE } from '../../src/engine';
+import { insertMoveDescending } from '../../src/engine/moveOrdering';
 
 const GENERATE_ORDERED_MOVES_TACTICAL_ONLY_INDEX = 4;
 
@@ -439,9 +440,9 @@ test('white-box AI helpers cover generation, evaluation, quiescence, search fall
 
   const moves = new Int16Array(4);
   const scores = new Int32Array(4);
-  anyAI.insertMove(moves, scores, 0, 10, 5);
-  anyAI.insertMove(moves, scores, 1, 12, 9);
-  anyAI.insertMove(moves, scores, 2, 14, 7);
+  insertMoveDescending(moves, scores, 0, 10, 5);
+  insertMoveDescending(moves, scores, 1, 12, 9);
+  insertMoveDescending(moves, scores, 2, 14, 7);
   expect(Array.from(moves.slice(0, 3))).toEqual([12, 14, 10]);
   expect(Array.from(scores.slice(0, 3))).toEqual([9, 7, 5]);
 

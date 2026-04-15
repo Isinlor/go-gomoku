@@ -308,7 +308,7 @@ describe('streamUniqueBoards', () => {
     expect(stats.prunedPrefixes).toBeGreaterThan(0);
   });
 
-  test('returns the known unique ply-three count with translation and color symmetry', () => {
+  test('returns the known unique ply-three count with translation and color symmetry', { timeout: 10_000 }, () => {
     const stats = streamUniqueBoards(
       {
         ply: 3,

@@ -9,6 +9,7 @@ export type Stone = readonly [number, number, Player];
 export type TransformFn = (x: number, y: number) => readonly [number, number];
 
 export interface CanonicalKeyOptions {
+  boardSize?: number;
   includeTranslationSymmetry?: boolean;
   includeColorSymmetry?: boolean;
 }
@@ -25,6 +26,15 @@ export const DIHEDRAL_TRANSFORMS: readonly TransformFn[] = [
 ];
 
 function sortPackedKeys(packed: Uint16Array, count: number): void {
+  if (count < 2) {
+    return;
+  }
+
+  if (count >= 16) {
+    packed.subarray(0, count).sort();
+    return;
+  }
+
   for (let i = 1; i < count; i += 1) {
     const value = packed[i];
     let j = i - 1;
@@ -44,6 +54,27 @@ function encodePackedKeys(packed: Uint16Array, count: number): string {
   return key;
 }
 
+export function transformPoint(
+  transformIndex: number,
+  x: number,
+  y: number,
+  boardSize: number | undefined,
+): readonly [number, number] {
+  if (boardSize === undefined) {
+    return DIHEDRAL_TRANSFORMS[transformIndex](x, y);
+  }
+  switch (transformIndex) {
+    case 0: return [x, y];
+    case 1: return [boardSize - 1 - y, x];
+    case 2: return [boardSize - 1 - x, boardSize - 1 - y];
+    case 3: return [y, boardSize - 1 - x];
+    case 4: return [boardSize - 1 - x, y];
+    case 5: return [x, boardSize - 1 - y];
+    case 6: return [y, x];
+    default: return [boardSize - 1 - y, boardSize - 1 - x];
+  }
+}
+
 /**
  * Compute the canonical key for a set of stones that is invariant under
  * all rotations, reflections, translations, and color swap.
@@ -61,16 +92,17 @@ export function computeCanonicalPackedKey(
   }
 
   const packed = packedScratch ?? new Uint16Array(count);
+  const boardSize = options.boardSize;
   const translate = options.includeTranslationSymmetry !== false;
   const colorVariants = options.includeColorSymmetry === false ? 1 : 2;
   let minKey = '';
-  for (const transform of DIHEDRAL_TRANSFORMS) {
+  for (let transformIndex = 0; transformIndex < DIHEDRAL_TRANSFORMS.length; transformIndex += 1) {
     for (let variant = 0; variant < colorVariants; variant += 1) {
       let minX = 0;
       let minY = 0;
       if (translate) {
         for (let i = 0; i < count; i += 1) {
-          const [x, y] = transform(xs[i], ys[i]);
+          const [x, y] = transformPoint(transformIndex, xs[i], ys[i], boardSize);
           if (i === 0 || x < minX) {
             minX = x;
           }
@@ -80,7 +112,7 @@ export function computeCanonicalPackedKey(
         }
       }
       for (let i = 0; i < count; i += 1) {
-        const [x, y] = transform(xs[i], ys[i]);
+        const [x, y] = transformPoint(transformIndex, xs[i], ys[i], boardSize);
         const color = variant === 0
           ? colors[i]
           : (colors[i] === BLACK ? WHITE : BLACK);

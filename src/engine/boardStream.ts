@@ -1,6 +1,6 @@
 import { BLACK, WHITE, EMPTY, GogoPosition, encodeMove, parseSupportedSize } from './gogomoku';
 import type { SupportedSize } from './gogomoku';
-import { DIHEDRAL_TRANSFORMS, computeCanonicalPackedKey } from './uniqueness';
+import { computeCanonicalPackedKey, transformPoint } from './uniqueness';
 interface SymmetryKeyScratch {
   readonly xs: Int16Array;
   readonly ys: Int16Array;
@@ -76,6 +76,7 @@ function computePositionSymmetryKeyFast(
   const { xs, ys, colors, packed } = scratch;
   const stoneCount = collectStoneData(position, xs, ys, colors);
   return computeCanonicalPackedKey(xs, ys, colors, stoneCount, {
+    boardSize: position.size,
     includeTranslationSymmetry: options.includeTranslationSymmetry,
     includeColorSymmetry: options.includeColorSymmetry,
   }, packed);
@@ -99,7 +100,7 @@ function encodeRepresentativeHistory(
   includeTranslationSymmetry: boolean,
   nextRandom: () => number,
 ): string {
-  const transform = DIHEDRAL_TRANSFORMS[nextRandom() % DIHEDRAL_TRANSFORMS.length];
+  const transformIndex = nextRandom() % 8;
   const transformedMoves: Array<readonly [number, number]> = new Array(position.ply);
   let minX = 0;
   let minY = 0;
@@ -108,7 +109,12 @@ function encodeRepresentativeHistory(
 
   for (let ply = 0; ply < position.ply; ply += 1) {
     const move = position.getMoveAt(ply);
-    const [x, y] = transform(position.meta.xs[move], position.meta.ys[move]);
+    const [x, y] = transformPoint(
+      transformIndex,
+      position.meta.xs[move],
+      position.meta.ys[move],
+      position.size,
+    );
     transformedMoves[ply] = [x, y];
     if (ply === 0 || x < minX) {
       minX = x;

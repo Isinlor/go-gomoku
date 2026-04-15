@@ -40,42 +40,6 @@ export interface CompareResult {
   results: GameResult[];
 }
 
-function invalidGameResult(
-  winner: 1 | 2,
-  moves: number,
-  ai1Color: 1 | 2,
-  ai: 1 | 2,
-  move: number,
-  reason: InvalidMoveInfo['reason'],
-): GameResult {
-  return {
-    winner,
-    moves,
-    ai1Color,
-    invalidMove: { ai, move, reason },
-  };
-}
-
-function tallyResult(result: CompareResult, gameResult: GameResult): void {
-  result.results.push(gameResult);
-  result.totalGames++;
-  if (gameResult.invalidMove) {
-    result.invalidMoves++;
-  }
-  if (gameResult.winner === 1) {
-    result.ai1Wins++;
-  } else if (gameResult.winner === 2) {
-    result.ai2Wins++;
-  } else {
-    result.draws++;
-  }
-}
-
-function parseIntArg(args: string[], index: number): number | undefined {
-  const value = readFlagValue(args, index);
-  return value === undefined ? undefined : Number.parseInt(value, 10);
-}
-
 export function playGame(
   ai1: AIPlayer,
   ai2: AIPlayer,
@@ -98,15 +62,30 @@ export function playGame(
     const elapsed = now() - start;
 
     if (elapsed > timeLimitMs) {
-      return invalidGameResult(opponent, moves, ai1Color, currentAINum, result.move, 'timeout');
+      return {
+        winner: opponent,
+        moves,
+        ai1Color,
+        invalidMove: { ai: currentAINum, move: result.move, reason: 'timeout' },
+      };
     }
 
     if (result.move === -1) {
-      return invalidGameResult(opponent, moves, ai1Color, currentAINum, -1, 'refused');
+      return {
+        winner: opponent,
+        moves,
+        ai1Color,
+        invalidMove: { ai: currentAINum, move: -1, reason: 'refused' },
+      };
     }
 
     if (!position.isLegal(result.move)) {
-      return invalidGameResult(opponent, moves, ai1Color, currentAINum, result.move, 'illegal');
+      return {
+        winner: opponent,
+        moves,
+        ai1Color,
+        invalidMove: { ai: currentAINum, move: result.move, reason: 'illegal' },
+      };
     }
 
     position.play(result.move);
@@ -144,7 +123,13 @@ export function compareAIs(
       const ai1 = factory();
       const ai2 = factory2();
       const position = positionFactory(options.boardSize);
-      tallyResult(result, playGame(ai1, ai2, options.timeLimitMs, ai1Color, position, now));
+      const gameResult = playGame(ai1, ai2, options.timeLimitMs, ai1Color, position, now);
+      result.results.push(gameResult);
+      result.totalGames++;
+      if (gameResult.invalidMove) result.invalidMoves++;
+      if (gameResult.winner === 1) result.ai1Wins++;
+      else if (gameResult.winner === 2) result.ai2Wins++;
+      else result.draws++;
     }
   }
 
@@ -160,24 +145,24 @@ export function parseArgs(args: string[]): CompareOptions {
   let seed = 1;
 
   for (let i = 0; i < args.length; i++) {
-    const value = parseIntArg(args, i);
+    const value = readFlagValue(args, i);
     if (args[i] === '--time' && value !== undefined) {
-      timeLimitMs = value;
+      timeLimitMs = Number.parseInt(value, 10);
       i += 1;
     } else if (args[i] === '--pairs' && value !== undefined) {
-      numPairs = value;
+      numPairs = Number.parseInt(value, 10);
       i += 1;
     } else if (args[i] === '--size' && value !== undefined) {
-      boardSize = value as SupportedSize;
+      boardSize = Number.parseInt(value, 10) as SupportedSize;
       i += 1;
-    } else if (args[i] === '--ai1' && readFlagValue(args, i) !== undefined) {
+    } else if (args[i] === '--ai1' && value !== undefined) {
       ai1 = 'classic';
       i += 1;
-    } else if (args[i] === '--ai2' && readFlagValue(args, i) !== undefined) {
+    } else if (args[i] === '--ai2' && value !== undefined) {
       ai2 = 'classic';
       i += 1;
     } else if (args[i] === '--seed' && value !== undefined) {
-      seed = value;
+      seed = Number.parseInt(value, 10);
       i += 1;
     }
   }
