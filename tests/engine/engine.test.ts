@@ -319,6 +319,7 @@ test('hash stays consistent through capture, ko updates, undo, and reconstructio
   expect(position.koPoint).toBe(position.index(2, 2));
   const afterCaptureHash = position.hash;
   const rebuiltAfterCapture = GogoPosition.fromAscii(boardRows(position), position.toMove);
+  expect(rebuiltAfterCapture.koPoint).toBe(-1);
   expect(rebuiltAfterCapture.hash).not.toBe(afterCaptureHash);
 
   expect(position.playXY(8, 8)).toBe(true);
