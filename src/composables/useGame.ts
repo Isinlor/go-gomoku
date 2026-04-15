@@ -248,11 +248,7 @@ export function useGame(options: UseGameOptions = {}) {
   function onSettingChange(runAI: boolean): void {
     if (!aiThinking.value) {
       statusExtra.value = '';
-      if (runAI) {
-        syncGame(false);
-      } else {
-        notifyBoardChange();
-      }
+      syncGame(false, runAI);
     }
   }
 

@@ -31,15 +31,14 @@ const players = [
   { key: 'black', stone: BLACK, label: 'Black' },
   { key: 'white', stone: WHITE, label: 'White' },
 ] as const;
+const emitUpdate = emit as (
+  event: 'update:blackIsAI' | 'update:whiteIsAI' | 'update:blackTimeLimit' |
+    'update:whiteTimeLimit' | 'update:blackAIType' | 'update:whiteAIType',
+  value: boolean | number | AIType,
+) => void;
 
 function emitPlayerUpdate(player: PlayerKey, field: 'IsAI' | 'TimeLimit' | 'AIType', value: boolean | number | AIType): void {
-  emit(`update:${player}${field}` as
-    | 'update:blackIsAI'
-    | 'update:whiteIsAI'
-    | 'update:blackTimeLimit'
-    | 'update:whiteTimeLimit'
-    | 'update:blackAIType'
-    | 'update:whiteAIType', value as never);
+  emitUpdate(`update:${player}${field}` as Parameters<typeof emitUpdate>[0], value);
 }
 
 function onModeChange(player: PlayerKey, event: Event): void {
