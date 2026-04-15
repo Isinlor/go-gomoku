@@ -42,6 +42,7 @@ const ABSOLUTE_TRANSFORMS: readonly AbsoluteTransform[] = [
   (x, y) => [y, x],
   (x, y, size) => [size - 1 - y, size - 1 - x],
 ];
+const DEFAULT_SEED_STATE = 0x6D2B79F5;
 const SYMMETRY_KEY_SCRATCH = new Map<number, SymmetryKeyScratch>();
 
 function getSymmetryKeyScratch(area: number): SymmetryKeyScratch {
@@ -192,11 +193,10 @@ function computePositionSymmetryKeyFast(
   return best;
 }
 
-
 function createSeededRandom(seed: number | undefined): () => number {
   let state = (seed ?? Date.now()) | 0;
   if (state === 0) {
-    state = 0x6D2B79F5;
+    state = DEFAULT_SEED_STATE;
   }
   return () => {
     state ^= state << 13;
