@@ -59,6 +59,32 @@ test('constructor, parser, coordinates, and helpers validate inputs', () => {
   expect(playerName(WHITE)).toBe('white');
 });
 
+test('clone preserves playable state and toAscii serialises empty and full boards', () => {
+  const empty = new GogoPosition(9);
+  expect(empty.toAscii()).toEqual(Array.from({ length: 9 }, () => '.........'));
+
+  const original = new GogoPosition(9);
+  expect(original.playXY(4, 4)).toBe(true);
+  expect(original.playXY(3, 4)).toBe(true);
+  const cloned = original.clone();
+
+  expect(cloned).not.toBe(original);
+  expect(cloned.toAscii()).toEqual(original.toAscii());
+  expect(cloned.toMove).toBe(original.toMove);
+  expect(cloned.hash).toBe(original.hash);
+  expect(cloned.getMoveAt(0)).toBe(original.getMoveAt(0));
+  expect(cloned.getMoveAt(1)).toBe(original.getMoveAt(1));
+
+  expect(cloned.undo()).toBe(true);
+  expect(cloned.at(3, 4)).toBe(EMPTY);
+  expect(original.at(3, 4)).toBe(WHITE);
+
+  const full = new GogoPosition(9);
+  full.board.fill(BLACK);
+  full.stoneCount = full.area;
+  expect(full.toAscii()).toEqual(Array.from({ length: 9 }, () => 'XXXXXXXXX'));
+});
+
 test('existing winner detection and played wins cover vertical and anti-diagonal lines', () => {
   const detected = GogoPosition.fromAscii([
     'XXXXX....',
