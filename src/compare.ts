@@ -146,12 +146,25 @@ export function parseArgs(args: string[]): CompareOptions {
 
   for (let i = 0; i < args.length; i++) {
     const value = readFlagValue(args, i);
-    if (args[i] === '--time' && value !== undefined) timeLimitMs = Number.parseInt(args[++i], 10);
-    else if (args[i] === '--pairs' && value !== undefined) numPairs = Number.parseInt(args[++i], 10);
-    else if (args[i] === '--size' && value !== undefined) boardSize = Number.parseInt(args[++i], 10) as SupportedSize;
-    else if (args[i] === '--ai1' && value !== undefined) ai1 = 'classic';
-    else if (args[i] === '--ai2' && value !== undefined) ai2 = 'classic';
-    else if (args[i] === '--seed' && value !== undefined) seed = Number.parseInt(args[++i], 10);
+    if (args[i] === '--time' && value !== undefined) {
+      timeLimitMs = Number.parseInt(value, 10);
+      i += 1;
+    } else if (args[i] === '--pairs' && value !== undefined) {
+      numPairs = Number.parseInt(value, 10);
+      i += 1;
+    } else if (args[i] === '--size' && value !== undefined) {
+      boardSize = Number.parseInt(value, 10) as SupportedSize;
+      i += 1;
+    } else if (args[i] === '--ai1' && value !== undefined) {
+      ai1 = 'classic';
+      i += 1;
+    } else if (args[i] === '--ai2' && value !== undefined) {
+      ai2 = 'classic';
+      i += 1;
+    } else if (args[i] === '--seed' && value !== undefined) {
+      seed = Number.parseInt(value, 10);
+      i += 1;
+    }
   }
 
   return { timeLimitMs, numPairs, boardSize, ai1, ai2, seed };
