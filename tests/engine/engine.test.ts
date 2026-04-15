@@ -187,6 +187,24 @@ test('existing winner detection and played wins cover vertical and anti-diagonal
   expect(antiDiagonal.winner).toBe(BLACK);
 });
 
+test('forming six in a row in a single move still counts as a win', () => {
+  const overline = GogoPosition.fromAscii([
+    'XXX.XX...',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+
+  expect(overline.winner).toBe(EMPTY);
+  expect(overline.playXY(3, 0)).toBe(true);
+  expect(overline.winner).toBe(BLACK);
+});
+
 test('captures handle single groups, multiple groups, duplicate adjacency, undo, and capacity growth', () => {
   const single = GogoPosition.fromAscii([
     '.X.......',
@@ -528,6 +546,32 @@ test('legal move probes return the exact legal set and leave position state unch
   expect(game.koPoint).toBe(koBefore);
   expect(game.lastMove).toBe(lastMoveBefore);
   expect(game.lastCapturedCount).toBe(lastCapturedBefore);
+});
+
+test('generateAllLegalMoves excludes ko recapture and only returns actually legal points', () => {
+  const ko = GogoPosition.fromAscii([
+    '..O......',
+    '.O.O.....',
+    '.XOX.....',
+    '..X......',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  expect(ko.playXY(2, 1)).toBe(true);
+  const illegalKoRecapture = ko.index(2, 2);
+  expect(ko.koPoint).toBe(illegalKoRecapture);
+
+  const legal = new Int16Array(ko.area);
+  const count = ko.generateAllLegalMoves(legal);
+  const legalMoves = Array.from(legal.slice(0, count));
+
+  expect(legalMoves).not.toContain(illegalKoRecapture);
+  for (const move of legalMoves) {
+    expect(ko.isLegal(move)).toBe(true);
+  }
 });
 
 test('scanGroup returns the full connected group and counts shared liberties once', () => {
