@@ -2,6 +2,33 @@ import { test, expect } from 'vitest';
 
 import { BLACK, EMPTY, GogoPosition, WHITE, playerName, encodeMove, decodeMove, decodeGame } from '../../src/engine';
 
+function snapshotPosition(position: GogoPosition) {
+  return {
+    board: Array.from(position.board),
+    toMove: position.toMove,
+    winner: position.winner,
+    koPoint: position.koPoint,
+    ply: position.ply,
+    stoneCount: position.stoneCount,
+    lastMove: position.lastMove,
+    lastCapturedCount: position.lastCapturedCount,
+    hash: position.hash,
+  };
+}
+
+function boardRows(position: GogoPosition): string[] {
+  const symbols = ['.', 'X', 'O'] as const;
+  const rows: string[] = [];
+  for (let y = 0; y < position.size; y += 1) {
+    let row = '';
+    for (let x = 0; x < position.size; x += 1) {
+      row += symbols[position.at(x, y)];
+    }
+    rows.push(row);
+  }
+  return rows;
+}
+
 test('constructor, parser, coordinates, and helpers validate inputs', () => {
   expect(() => new GogoPosition(10)).toThrow(/Unsupported board size/);
   expect(() => GogoPosition.fromAscii(['.........'], BLACK)).toThrow(/Unsupported board size/);
@@ -206,6 +233,44 @@ test('suicide is illegal, winning suicide is legal, and ko forbids immediate rec
   expect(ko.at(2, 1)).toBe(EMPTY);
 });
 
+test('isLegal checks do not mutate position state for legal moves, suicide, or ko recapture', () => {
+  const ko = GogoPosition.fromAscii([
+    '..O......',
+    '.O.O.....',
+    '.XOX.....',
+    '..X......',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  expect(ko.playXY(2, 1)).toBe(true);
+  const koSnapshot = snapshotPosition(ko);
+
+  expect(ko.isLegal(ko.index(2, 2))).toBe(false);
+  expect(snapshotPosition(ko)).toEqual(koSnapshot);
+
+  expect(ko.isLegal(ko.index(8, 8))).toBe(true);
+  expect(snapshotPosition(ko)).toEqual(koSnapshot);
+
+  const suicide = GogoPosition.fromAscii([
+    '.O.......',
+    'O.O......',
+    '.O.......',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  const suicideSnapshot = snapshotPosition(suicide);
+
+  expect(suicide.isLegal(suicide.index(1, 1))).toBe(false);
+  expect(snapshotPosition(suicide)).toEqual(suicideSnapshot);
+});
+
 test('legal move generation and group scanning reflect current state', () => {
   const game = GogoPosition.fromAscii([
     'XX.......',
@@ -260,6 +325,40 @@ test('legal move generation and group scanning reflect current state', () => {
   noLegal.stoneCount = noLegal.area;
   noLegal.winner = EMPTY;
   expect(noLegal.hasAnyLegalMove()).toBe(false);
+});
+
+test('hash stays consistent through capture, ko updates, undo, and reconstruction', () => {
+  const position = GogoPosition.fromAscii([
+    '..O......',
+    '.O.O.....',
+    '.XOX.....',
+    '..X......',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  const startSnapshot = snapshotPosition(position);
+
+  expect(position.playXY(2, 1)).toBe(true);
+  expect(position.koPoint).toBe(position.index(2, 2));
+  const afterCaptureHash = position.hash;
+  const rebuiltAfterCapture = GogoPosition.fromAscii(boardRows(position), position.toMove);
+  expect(rebuiltAfterCapture.hash).toBe(afterCaptureHash);
+
+  expect(position.playXY(8, 8)).toBe(true);
+  expect(position.playXY(7, 8)).toBe(true);
+  const rebuiltAfterKoExpires = GogoPosition.fromAscii(boardRows(position), position.toMove);
+  expect(rebuiltAfterKoExpires.hash).toBe(position.hash);
+
+  expect(position.undo()).toBe(true);
+  expect(position.undo()).toBe(true);
+  expect(position.hash).toBe(afterCaptureHash);
+  expect(position.koPoint).toBe(position.index(2, 2));
+
+  expect(position.undo()).toBe(true);
+  expect(snapshotPosition(position)).toEqual(startSnapshot);
 });
 
 test('white-box internals cover helper branches that are otherwise hard to trigger', () => {

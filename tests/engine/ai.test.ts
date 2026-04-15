@@ -4,6 +4,20 @@ import { BLACK, EMPTY, GogoAI, GogoPosition, WHITE } from '../../src/engine';
 
 const GENERATE_ORDERED_MOVES_TACTICAL_ONLY_INDEX = 4;
 
+function snapshotPosition(position: GogoPosition) {
+  return {
+    board: Array.from(position.board),
+    toMove: position.toMove,
+    winner: position.winner,
+    koPoint: position.koPoint,
+    ply: position.ply,
+    stoneCount: position.stoneCount,
+    lastMove: position.lastMove,
+    lastCapturedCount: position.lastCapturedCount,
+    hash: position.hash,
+  };
+}
+
 test('AI chooses the center on an empty board, handles immediate timeout, and handles terminal states', () => {
   const empty = new GogoPosition(9);
   const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2 });
@@ -1212,6 +1226,46 @@ test('verifyWinningMove proves trivial one-move win', () => {
   const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4, now: () => 0 });
   // Move 4 = (0,4) = completes five in a row
   expect(ai.verifyWinningMove(pos, 4, 1000)).toBe(true);
+});
+
+test('verifyWinningMove only proves the real winning move and restores state on success, failure, and timeout', () => {
+  const winning = GogoPosition.fromAscii([
+    'XXXX.....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  const winningSnapshot = snapshotPosition(winning);
+  const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4, now: () => 0 });
+
+  expect(ai.verifyWinningMove(winning, winning.index(4, 0), 1000)).toBe(true);
+  expect(snapshotPosition(winning)).toEqual(winningSnapshot);
+
+  expect(ai.verifyWinningMove(winning, winning.index(8, 8), 1000)).toBe(false);
+  expect(snapshotPosition(winning)).toEqual(winningSnapshot);
+
+  const timeoutPosition = GogoPosition.fromAscii([
+    'XXX......',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  const timeoutSnapshot = snapshotPosition(timeoutPosition);
+  let tick = 0;
+  const timeoutAI = new GogoAI({ maxDepth: 30, quiescenceDepth: 4, now: () => tick++ });
+
+  expect(timeoutAI.verifyWinningMove(timeoutPosition, timeoutPosition.index(3, 0), 0)).toBe(false);
+  expect(snapshotPosition(timeoutPosition)).toEqual(timeoutSnapshot);
 });
 
 test('verifyWinningMove returns false for illegal move', () => {
