@@ -59,13 +59,44 @@ test('constructor, parser, coordinates, and helpers validate inputs', () => {
   expect(playerName(WHITE)).toBe('white');
 });
 
-test('clone preserves playable state and toAscii serialises empty and full boards', () => {
+test('clone preserves playable state and toAscii serializes mixed, empty, and full boards', () => {
   const empty = new GogoPosition(9);
   expect(empty.toAscii()).toEqual(Array.from({ length: 9 }, () => '.........'));
   const emptyClone = empty.clone();
   expect(emptyClone).not.toBe(empty);
   expect(emptyClone.toAscii()).toEqual(empty.toAscii());
   expect(emptyClone.hash).toBe(empty.hash);
+
+  const mixed13 = GogoPosition.fromAscii([
+    'X.O..........',
+    '.............',
+    '.............',
+    '.............',
+    '.............',
+    '.............',
+    '.............',
+    '.............',
+    '.............',
+    '.............',
+    '.............',
+    '.............',
+    '.............',
+  ], WHITE);
+  expect(mixed13.toAscii()).toEqual([
+    'X.O..........',
+    '.............',
+    '.............',
+    '.............',
+    '.............',
+    '.............',
+    '.............',
+    '.............',
+    '.............',
+    '.............',
+    '.............',
+    '.............',
+    '.............',
+  ]);
 
   const original = new GogoPosition(9);
   expect(original.playXY(4, 4)).toBe(true);
@@ -89,6 +120,25 @@ test('clone preserves playable state and toAscii serialises empty and full board
   expect(fullClone).not.toBe(full);
   expect(fullClone.toAscii()).toEqual(full.toAscii());
   expect(fullClone.hash).toBe(full.hash);
+
+  const growth = GogoPosition.fromAscii([
+    '.XXX.....',
+    'XOOX.....',
+    'XO.......',
+    '.X.......',
+    'X........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK, { historyCapacity: 1, captureCapacity: 1 });
+  expect(growth.playXY(2, 2)).toBe(true);
+  const growthClone = growth.clone() as any;
+  expect(growthClone.historyMoves.length).toBe((growth as any).historyMoves.length);
+  expect(growthClone.capturePositions.length).toBe((growth as any).capturePositions.length);
+  expect(growthClone.undo()).toBe(true);
+  expect(growthClone.at(1, 1)).toBe(WHITE);
+  expect(growth.at(1, 1)).toBe(EMPTY);
 });
 
 test('existing winner detection and played wins cover vertical and anti-diagonal lines', () => {
