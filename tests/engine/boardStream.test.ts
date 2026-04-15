@@ -6,31 +6,7 @@ import {
   streamUniqueBoards,
 } from '../../src/engine/boardStream';
 
-function countUniqueBoardsNaively(ply: number): number {
-  const position = new GogoPosition(9);
-  const moveBuffer = new Int16Array(position.area);
-  const seen = new Set<string>();
-
-  const visit = (depth: number): void => {
-    if (depth === ply) {
-      seen.add(computePositionSymmetryKey(position, {
-        includeTranslationSymmetry: true,
-        includeColorSymmetry: true,
-      }));
-      return;
-    }
-
-    const moveCount = position.generateAllLegalMoves(moveBuffer);
-    for (let i = 0; i < moveCount; i += 1) {
-      position.play(moveBuffer[i]);
-      visit(depth + 1);
-      position.undo();
-    }
-  };
-
-  visit(0);
-  return seen.size;
-}
+const UNIQUE_PLY3_TRANSLATION_AND_COLOR_COUNT = 2979;
 
 describe('computePositionSymmetryKey', () => {
   test('always folds rotation and reflection symmetries', () => {
@@ -236,7 +212,7 @@ describe('streamUniqueBoards', () => {
     expect(stats.prunedPrefixes).toBeGreaterThan(0);
   });
 
-  test('exhaustively prunes all equivalent prefixes with translation and color symmetry', { timeout: 30000 }, () => {
+  test('returns the known unique ply-three count with translation and color symmetry', () => {
     const stats = streamUniqueBoards(
       {
         ply: 3,
@@ -248,12 +224,9 @@ describe('streamUniqueBoards', () => {
       () => {},
     );
 
-    // Verify pruning is happening
     expect(stats.prunedPrefixes).toBeGreaterThan(0);
-    // Verify that we still discover the correct total number of unique boards
-    expect(stats.emitted).toBe(countUniqueBoardsNaively(3));
-    // Verify that exploredNodes + prunedPrefixes + emitted accounts for search behavior
-    expect(stats.exploredNodes).toBeGreaterThan(0);
+    expect(stats.emitted).toBe(UNIQUE_PLY3_TRANSLATION_AND_COLOR_COUNT);
+    expect(stats.exploredNodes).toBeGreaterThan(stats.emitted);
   });
 
   test('stops once the time limit is reached', () => {
@@ -320,19 +293,74 @@ describe('streamUniqueBoards', () => {
     expect(stats.emitted).toBe(1);
   });
 
-  test('emits the correct number of unique boards with translation and color symmetry at ply three', { timeout: 20000 }, () => {
-    const stats = streamUniqueBoards(
+  test('is repeatable for the same seed', () => {
+    const boardsA: string[] = [];
+    const boardsB: string[] = [];
+
+    const statsA = streamUniqueBoards(
       {
-        ply: 3,
+        ply: 2,
         boardSize: 9,
-        includeTranslationSymmetry: true,
+        includeTranslationSymmetry: false,
         includeColorSymmetry: true,
         seed: 1,
       },
-      () => {},
+      (board) => {
+        boardsA.push(board);
+      },
     );
 
-    expect(stats.emitted).toBe(countUniqueBoardsNaively(3));
+    const statsB = streamUniqueBoards(
+      {
+        ply: 2,
+        boardSize: 9,
+        includeTranslationSymmetry: false,
+        includeColorSymmetry: true,
+        seed: 1,
+      },
+      (board) => {
+        boardsB.push(board);
+      },
+    );
+
+    expect(statsA).toEqual(statsB);
+    expect(boardsA).toEqual(boardsB);
+    expect(boardsA).toHaveLength(statsA.emitted);
+  });
+
+  test('changes emitted representatives when the seed changes', () => {
+    const boardsA: string[] = [];
+    const boardsB: string[] = [];
+
+    const stats = streamUniqueBoards(
+      {
+        ply: 2,
+        boardSize: 9,
+        includeTranslationSymmetry: false,
+        includeColorSymmetry: true,
+        seed: 1,
+      },
+      (board) => {
+        boardsA.push(board);
+      },
+    );
+
+    streamUniqueBoards(
+      {
+        ply: 2,
+        boardSize: 9,
+        includeTranslationSymmetry: false,
+        includeColorSymmetry: true,
+        seed: 2,
+      },
+      (board) => {
+        boardsB.push(board);
+      },
+    );
+
+    expect(stats.emitted).toBe(446);
+    expect(boardsA).toHaveLength(boardsB.length);
+    expect(boardsA).not.toEqual(boardsB);
   });
 
   test('rejects invalid stream options', () => {

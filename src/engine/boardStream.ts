@@ -3,6 +3,12 @@ import type { Player, SupportedSize } from './gogomoku';
 
 type Stone = readonly [number, number, Player];
 type AbsoluteTransform = (x: number, y: number, size: number) => readonly [number, number];
+interface SymmetryKeyScratch {
+  readonly xs: Int16Array;
+  readonly ys: Int16Array;
+  readonly colors: Uint8Array;
+  readonly packed: Uint16Array;
+}
 
 export interface PositionSymmetryOptions {
   includeTranslationSymmetry: boolean;
@@ -36,120 +42,156 @@ const ABSOLUTE_TRANSFORMS: readonly AbsoluteTransform[] = [
   (x, y) => [y, x],
   (x, y, size) => [size - 1 - y, size - 1 - x],
 ];
+const SYMMETRY_KEY_SCRATCH = new Map<number, SymmetryKeyScratch>();
 
-function normalizeStones(stones: Stone[], includeTranslationSymmetry: boolean): Stone[] {
-  if (!includeTranslationSymmetry || stones.length === 0) {
-    return stones;
+function getSymmetryKeyScratch(area: number): SymmetryKeyScratch {
+  const cached = SYMMETRY_KEY_SCRATCH.get(area);
+  if (cached !== undefined) {
+    return cached;
   }
 
-  let minX = stones[0][0];
-  let minY = stones[0][1];
-  for (let i = 1; i < stones.length; i += 1) {
-    if (stones[i][0] < minX) {
-      minX = stones[i][0];
-    }
-    if (stones[i][1] < minY) {
-      minY = stones[i][1];
-    }
-  }
-
-  for (let i = 0; i < stones.length; i += 1) {
-    stones[i] = [stones[i][0] - minX, stones[i][1] - minY, stones[i][2]];
-  }
-  return stones;
+  const created: SymmetryKeyScratch = {
+    xs: new Int16Array(area),
+    ys: new Int16Array(area),
+    colors: new Uint8Array(area),
+    packed: new Uint16Array(area),
+  };
+  SYMMETRY_KEY_SCRATCH.set(area, created);
+  return created;
 }
 
-function encodeStones(stones: readonly Stone[]): string {
-  let encoded = '';
-  for (let i = 0; i < stones.length; i += 1) {
-    if (i > 0) {
-      encoded += ';';
-    }
-    encoded += `${stones[i][0]},${stones[i][1]},${stones[i][2]}`;
-  }
-  return encoded;
-}
-
-function compareStones(a: Stone, b: Stone): number {
-  const deltaX = a[0] - b[0];
-  if (deltaX !== 0) {
-    return deltaX;
-  }
-  return a[1] - b[1];
-}
-
-function collectStones(position: GogoPosition): Stone[] {
-  const stones: Stone[] = [];
+function collectStoneData(
+  position: GogoPosition,
+  xs: Int16Array,
+  ys: Int16Array,
+  colors: Uint8Array,
+): number {
+  let count = 0;
   for (let index = 0; index < position.area; index += 1) {
     const cell = position.board[index];
     if (cell !== EMPTY) {
-      stones.push([position.meta.xs[index], position.meta.ys[index], cell as Player]);
+      xs[count] = position.meta.xs[index];
+      ys[count] = position.meta.ys[index];
+      colors[count] = cell;
+      count += 1;
     }
   }
-  return stones;
+  return count;
 }
 
-function transformStones(
-  stones: readonly Stone[],
-  size: number,
-  transform: AbsoluteTransform,
-  includeTranslationSymmetry: boolean,
-  swapColors: boolean,
-): Stone[] {
-  const transformed: Stone[] = new Array(stones.length);
-  for (let i = 0; i < stones.length; i += 1) {
-    const [x, y] = transform(stones[i][0], stones[i][1], size);
-    const color = swapColors
-      ? (stones[i][2] === BLACK ? WHITE : BLACK)
-      : stones[i][2];
-    transformed[i] = [x, y, color];
+function transformX(transformIndex: number, x: number, y: number, size: number): number {
+  switch (transformIndex) {
+    case 0:
+      return x;
+    case 1:
+      return size - 1 - y;
+    case 2:
+    case 4:
+      return size - 1 - x;
+    case 5:
+      return x;
+    case 3:
+    case 6:
+      return y;
+    default:
+      return size - 1 - y;
+  }
+}
+
+function transformY(transformIndex: number, x: number, y: number, size: number): number {
+  switch (transformIndex) {
+    case 0:
+    case 4:
+      return y;
+    case 1:
+    case 6:
+      return x;
+    case 2:
+    case 5:
+      return size - 1 - y;
+    default:
+      return size - 1 - x;
+  }
+}
+
+function sortPackedKeys(packed: Uint16Array, count: number): void {
+  if (count < 2) {
+    return;
   }
 
-  normalizeStones(transformed, includeTranslationSymmetry);
-  transformed.sort(compareStones);
-  return transformed;
+  if (count < 16) {
+    for (let i = 1; i < count; i += 1) {
+      const value = packed[i];
+      let j = i - 1;
+      while (j >= 0 && packed[j] > value) {
+        packed[j + 1] = packed[j];
+        j -= 1;
+      }
+      packed[j + 1] = value;
+    }
+    return;
+  }
+
+  packed.subarray(0, count).sort();
 }
 
-function computeStonesSymmetryKey(
-  stones: readonly Stone[],
-  size: number,
+function encodePackedKeys(packed: Uint16Array, count: number): string {
+  let key = '';
+  for (let i = 0; i < count; i += 1) {
+    key += String.fromCharCode(packed[i]);
+  }
+  return key;
+}
+
+function computePositionSymmetryKeyFast(
+  position: GogoPosition,
   options: PositionSymmetryOptions,
 ): string {
-  if (stones.length === 0) {
+  const scratch = getSymmetryKeyScratch(position.area);
+  const { xs, ys, colors, packed } = scratch;
+  const stoneCount = collectStoneData(position, xs, ys, colors);
+  if (stoneCount === 0) {
     return '';
   }
 
   let best = '';
+  const colorVariants = options.includeColorSymmetry ? 2 : 1;
   for (let transformIndex = 0; transformIndex < ABSOLUTE_TRANSFORMS.length; transformIndex += 1) {
-    const transformed = transformStones(
-      stones,
-      size,
-      ABSOLUTE_TRANSFORMS[transformIndex],
-      options.includeTranslationSymmetry,
-      false,
-    );
-    const encoded = encodeStones(transformed);
-    if (best === '' || encoded < best) {
-      best = encoded;
+    let minX = 0;
+    let minY = 0;
+    if (options.includeTranslationSymmetry) {
+      for (let i = 0; i < stoneCount; i += 1) {
+        const x = transformX(transformIndex, xs[i], ys[i], position.size);
+        const y = transformY(transformIndex, xs[i], ys[i], position.size);
+        if (i === 0 || x < minX) {
+          minX = x;
+        }
+        if (i === 0 || y < minY) {
+          minY = y;
+        }
+      }
     }
 
-    if (options.includeColorSymmetry) {
-      const swapped = transformStones(
-        stones,
-        size,
-        ABSOLUTE_TRANSFORMS[transformIndex],
-        options.includeTranslationSymmetry,
-        true,
-      );
-      const swappedEncoded = encodeStones(swapped);
-      if (swappedEncoded < best) {
-        best = swappedEncoded;
+    for (let variant = 0; variant < colorVariants; variant += 1) {
+      for (let i = 0; i < stoneCount; i += 1) {
+        const x = transformX(transformIndex, xs[i], ys[i], position.size) - minX;
+        const y = transformY(transformIndex, xs[i], ys[i], position.size) - minY;
+        const color = variant === 0
+          ? colors[i]
+          : (colors[i] === BLACK ? WHITE : BLACK);
+        packed[i] = (((x << 4) | y) << 2) | color;
+      }
+      sortPackedKeys(packed, stoneCount);
+      const candidate = encodePackedKeys(packed, stoneCount);
+      if (best === '' || candidate < best) {
+        best = candidate;
       }
     }
   }
 
   return best;
 }
+
 
 function createSeededRandom(seed: number | undefined): () => number {
   let state = (seed ?? Date.now()) | 0;
@@ -221,7 +263,7 @@ export function computePositionSymmetryKey(
   position: GogoPosition,
   options: PositionSymmetryOptions,
 ): string {
-  return computeStonesSymmetryKey(collectStones(position), position.size, options);
+  return computePositionSymmetryKeyFast(position, options);
 }
 
 export function streamUniqueBoards(
