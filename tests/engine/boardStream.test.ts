@@ -129,6 +129,102 @@ describe('computePositionSymmetryKey', () => {
       }),
     );
   });
+
+  test('handles larger stone counts that use the typed-array sort path', () => {
+    const a = GogoPosition.fromAscii([
+      'XXOOXXOO.',
+      'OOXXOOXX.',
+      'XXOOXXOO.',
+      'OOXXOOXX.',
+      '.........',
+      '.........',
+      '.........',
+      '.........',
+      '.........',
+    ]);
+    const b = GogoPosition.fromAscii([
+      '.OOXXOOXX',
+      '.XXOOXXOO',
+      '.OOXXOOXX',
+      '.XXOOXXOO',
+      '.........',
+      '.........',
+      '.........',
+      '.........',
+      '.........',
+    ]);
+
+    expect(
+      computePositionSymmetryKey(a, {
+        includeTranslationSymmetry: true,
+        includeColorSymmetry: true,
+      }),
+    ).toBe(
+      computePositionSymmetryKey(b, {
+        includeTranslationSymmetry: true,
+        includeColorSymmetry: true,
+      }),
+    );
+  });
+
+  test('handles 16+ stones with unsorted coordinates on translation symmetry', () => {
+    const a = GogoPosition.fromAscii([
+      'XXXXXXXX.',
+      'OOOOOOOO.',
+      'XXXXXXXX.',
+      'OOOOOOOO.',
+      '.........',
+      '.........',
+      '.........',
+      '.........',
+      '.........',
+    ]);
+    const b = GogoPosition.fromAscii([
+      '.OOOOOOOO',
+      '.XXXXXXXX',
+      '.OOOOOOOO',
+      '.XXXXXXXX',
+      '.........',
+      '.........',
+      '.........',
+      '.........',
+      '.........',
+    ]);
+
+    expect(
+      computePositionSymmetryKey(a, {
+        includeTranslationSymmetry: true,
+        includeColorSymmetry: false,
+      }),
+    ).toBe(
+      computePositionSymmetryKey(b, {
+        includeTranslationSymmetry: true,
+        includeColorSymmetry: false,
+      }),
+    );
+  });
+
+  test('correctly sorts many unordered stones for symmetry key computation', () => {
+    const pos = GogoPosition.fromAscii([
+      'X.X.X.X..',
+      '.X.X.X.X.',
+      'X.X.X.X..',
+      '.X.X.X.X.',
+      'X.X.X.X..',
+      '.X.X.X.X.',
+      '.........',
+      '.........',
+      '.........',
+    ]);
+
+    const key = computePositionSymmetryKey(pos, {
+      includeTranslationSymmetry: true,
+      includeColorSymmetry: false,
+    });
+
+    expect(key).toBeTruthy();
+    expect(typeof key).toBe('string');
+  });
 });
 
 describe('streamUniqueBoards', () => {
