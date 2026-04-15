@@ -32,6 +32,17 @@ export interface BoardMeta {
 
 const SUPPORTED_SIZES = new Set<number>([9, 11, 13]);
 const META_CACHE = new Map<number, BoardMeta>();
+const LINE_DIRECTIONS = [
+  [1, 0],
+  [0, 1],
+  [1, 1],
+  [1, -1],
+] as const;
+
+type GrowableTypedArray = Int16Array | Uint8Array | Int32Array;
+type GrowableTypedArrayConstructor<T extends GrowableTypedArray> = {
+  new(length: number): T;
+};
 
 function otherPlayer(player: Player): Player {
   return player === BLACK ? WHITE : BLACK;
@@ -80,18 +91,11 @@ function createBoardMeta(size: SupportedSize): BoardMeta {
     }
   }
 
-  const directions = [
-    [1, 0],
-    [0, 1],
-    [1, 1],
-    [1, -1],
-  ] as const;
-
   for (let y = 0; y < size; y += 1) {
     for (let x = 0; x < size; x += 1) {
-      for (let dir = 0; dir < directions.length; dir += 1) {
-        const dx = directions[dir][0];
-        const dy = directions[dir][1];
+      for (let dir = 0; dir < LINE_DIRECTIONS.length; dir += 1) {
+        const dx = LINE_DIRECTIONS[dir][0];
+        const dy = LINE_DIRECTIONS[dir][1];
         const endX = x + dx * 4;
         const endY = y + dy * 4;
         if (endX < 0 || endX >= size || endY < 0 || endY >= size) {
@@ -173,32 +177,16 @@ function getBoardMeta(size: SupportedSize): BoardMeta {
   return created;
 }
 
-function growInt16Array(current: Int16Array, minimumLength: number): Int16Array {
+function growTypedArray<T extends GrowableTypedArray>(
+  current: T,
+  minimumLength: number,
+  ctor: GrowableTypedArrayConstructor<T>,
+): T {
   let nextLength = current.length === 0 ? 4 : current.length;
   while (nextLength < minimumLength) {
     nextLength <<= 1;
   }
-  const next = new Int16Array(nextLength);
-  next.set(current);
-  return next;
-}
-
-function growUint8Array(current: Uint8Array, minimumLength: number): Uint8Array {
-  let nextLength = current.length === 0 ? 4 : current.length;
-  while (nextLength < minimumLength) {
-    nextLength <<= 1;
-  }
-  const next = new Uint8Array(nextLength);
-  next.set(current);
-  return next;
-}
-
-function growInt32Array(current: Int32Array, minimumLength: number): Int32Array {
-  let nextLength = current.length === 0 ? 4 : current.length;
-  while (nextLength < minimumLength) {
-    nextLength <<= 1;
-  }
-  const next = new Int32Array(nextLength);
+  const next = new ctor(nextLength);
   next.set(current);
   return next;
 }
@@ -558,20 +546,20 @@ export class GogoPosition {
     if (minimumLength <= this.historyMoves.length) {
       return;
     }
-    this.historyMoves = growInt16Array(this.historyMoves, minimumLength);
-    this.historyPlayers = growUint8Array(this.historyPlayers, minimumLength);
-    this.historyKo = growInt16Array(this.historyKo, minimumLength);
-    this.historyWinner = growUint8Array(this.historyWinner, minimumLength);
-    this.historyCaptureStart = growInt32Array(this.historyCaptureStart, minimumLength);
-    this.historyCaptureCount = growInt16Array(this.historyCaptureCount, minimumLength);
-    this.historyHash = growInt32Array(this.historyHash, minimumLength);
+    this.historyMoves = growTypedArray(this.historyMoves, minimumLength, Int16Array);
+    this.historyPlayers = growTypedArray(this.historyPlayers, minimumLength, Uint8Array);
+    this.historyKo = growTypedArray(this.historyKo, minimumLength, Int16Array);
+    this.historyWinner = growTypedArray(this.historyWinner, minimumLength, Uint8Array);
+    this.historyCaptureStart = growTypedArray(this.historyCaptureStart, minimumLength, Int32Array);
+    this.historyCaptureCount = growTypedArray(this.historyCaptureCount, minimumLength, Int16Array);
+    this.historyHash = growTypedArray(this.historyHash, minimumLength, Int32Array);
   }
 
   private ensureCaptureCapacity(minimumLength: number): void {
     if (minimumLength <= this.capturePositions.length) {
       return;
     }
-    this.capturePositions = growInt16Array(this.capturePositions, minimumLength);
+    this.capturePositions = growTypedArray(this.capturePositions, minimumLength, Int16Array);
   }
 
   private rollbackIllegalMove(index: number, opponent: Player, captureStart: number, capturedCount: number): void {
@@ -605,16 +593,9 @@ export class GogoPosition {
     const y = this.meta.ys[index];
     const size = this.size;
 
-    const directions = [
-      [1, 0],
-      [0, 1],
-      [1, 1],
-      [1, -1],
-    ] as const;
-
-    for (let directionIndex = 0; directionIndex < directions.length; directionIndex += 1) {
-      const dx = directions[directionIndex][0];
-      const dy = directions[directionIndex][1];
+    for (let directionIndex = 0; directionIndex < LINE_DIRECTIONS.length; directionIndex += 1) {
+      const dx = LINE_DIRECTIONS[directionIndex][0];
+      const dy = LINE_DIRECTIONS[directionIndex][1];
       let count = 1;
 
       let nx = x + dx;
