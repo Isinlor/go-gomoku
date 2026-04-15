@@ -3,6 +3,7 @@ import type {
   StreamUniqueBoardsOptions,
   StreamUniqueBoardsStats,
 } from './engine/boardStream';
+import { parseIntegerFlag } from './cliArgs';
 import type { SupportedSize } from './engine/gogomoku';
 
 declare const process: { argv: string[]; exit(code: number): never };
@@ -10,17 +11,6 @@ declare const process: { argv: string[]; exit(code: number): never };
 export interface StreamBoardsMainOptions {
   writeStdout?: (line: string) => void;
   writeStderr?: (line: string) => void;
-}
-
-function parseIntegerFlag(args: string[], index: number, flag: string): number {
-  if (index + 1 >= args.length || args[index + 1].startsWith('--')) {
-    throw new Error(`Missing value for ${flag}`);
-  }
-  const value = Number.parseInt(args[index + 1], 10);
-  if (!Number.isFinite(value)) {
-    throw new Error(`Invalid value for ${flag}: ${args[index + 1]}`);
-  }
-  return value;
 }
 
 function parseSize(size: number): SupportedSize {

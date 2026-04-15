@@ -2,23 +2,13 @@ import { test, expect } from 'vitest';
 
 import { BLACK, EMPTY, GogoPosition, WHITE, playerName, encodeMove, decodeMove, decodeGame } from '../../src/engine';
 
-function position(rows: string[], toMove = BLACK, options = {}) {
-  return GogoPosition.fromAscii(rows, toMove, options);
-}
-
-function rawPosition(rows: string[], toMove = BLACK, options = {}) {
-  const game = position(rows, toMove, options);
-  game.winner = EMPTY;
-  return game;
-}
-
 test('constructor, parser, coordinates, and helpers validate inputs', () => {
   expect(() => new GogoPosition(10)).toThrow(/Unsupported board size/);
-  expect(() => position(['.........'], BLACK)).toThrow(/Unsupported board size/);
-  expect(() => position(['.........', '........', '.........', '.........', '.........', '.........', '.........', '.........', '.........'])).toThrow(/invalid width/);
-  expect(() => position(['?........', '.........', '.........', '.........', '.........', '.........', '.........', '.........', '.........'])).toThrow(/Unsupported board symbol/);
+  expect(() => GogoPosition.fromAscii(['.........'], BLACK)).toThrow(/Unsupported board size/);
+  expect(() => GogoPosition.fromAscii(['.........', '........', '.........', '.........', '.........', '.........', '.........', '.........', '.........'])).toThrow(/invalid width/);
+  expect(() => GogoPosition.fromAscii(['?........', '.........', '.........', '.........', '.........', '.........', '.........', '.........', '.........'])).toThrow(/Unsupported board symbol/);
 
-  const symbolGame = position([
+  const symbolGame = GogoPosition.fromAscii([
     '+bxoW....',
     '.........',
     '.........',
@@ -51,7 +41,7 @@ test('constructor, parser, coordinates, and helpers validate inputs', () => {
 });
 
 test('existing winner detection and played wins cover vertical and anti-diagonal lines', () => {
-  const detected = position([
+  const detected = GogoPosition.fromAscii([
     'XXXXX....',
     '.........',
     '.........',
@@ -78,7 +68,7 @@ test('existing winner detection and played wins cover vertical and anti-diagonal
   expect(vertical.playXY(8, 8)).toBe(false);
   expect(vertical.hasAnyLegalMove()).toBe(false);
 
-  const antiDiagonal = rawPosition([
+  const antiDiagonal = GogoPosition.fromAscii([
     '.........',
     '...X.....',
     '..X......',
@@ -94,7 +84,7 @@ test('existing winner detection and played wins cover vertical and anti-diagonal
 });
 
 test('captures handle single groups, multiple groups, duplicate adjacency, undo, and capacity growth', () => {
-  const single = position([
+  const single = GogoPosition.fromAscii([
     '.X.......',
     'XOX......',
     '.........',
@@ -113,7 +103,7 @@ test('captures handle single groups, multiple groups, duplicate adjacency, undo,
   expect(single.lastMove).toBe(-1);
   expect(single.lastCapturedCount).toBe(0);
 
-  const multi = position([
+  const multi = GogoPosition.fromAscii([
     '.X.X.....',
     'XO.OX....',
     '.X.X.....',
@@ -129,7 +119,7 @@ test('captures handle single groups, multiple groups, duplicate adjacency, undo,
   expect(multi.at(1, 1)).toBe(EMPTY);
   expect(multi.at(3, 1)).toBe(EMPTY);
 
-  const growth = position([
+  const growth = GogoPosition.fromAscii([
     '.XXX.....',
     'XOOX.....',
     'XO.......',
@@ -157,7 +147,7 @@ test('captures handle single groups, multiple groups, duplicate adjacency, undo,
 });
 
 test('suicide is illegal, winning suicide is legal, and ko forbids immediate recapture only', () => {
-  const suicide = position([
+  const suicide = GogoPosition.fromAscii([
     '.O.......',
     'O.O......',
     '.O.......',
@@ -173,7 +163,7 @@ test('suicide is illegal, winning suicide is legal, and ko forbids immediate rec
   expect(suicide.play(suicidePoint)).toBe(false);
   expect(suicide.at(1, 1)).toBe(EMPTY);
 
-  const winningSuicide = rawPosition([
+  const winningSuicide = GogoPosition.fromAscii([
     '.XXXXO...',
     'OOOOO....',
     '.........',
@@ -184,12 +174,16 @@ test('suicide is illegal, winning suicide is legal, and ko forbids immediate rec
     '.........',
     '.........',
   ], BLACK);
+  expect(winningSuicide.winner).toBe(WHITE);
+  // This test needs a playable board where BLACK can demonstrate the winning-suicide rule
+  // even though fromAscii() correctly detects an existing WHITE five-in-a-row.
+  winningSuicide.winner = EMPTY;
   const winPoint = winningSuicide.index(0, 0);
   expect(winningSuicide.isLegal(winPoint)).toBe(true);
   expect(winningSuicide.play(winPoint)).toBe(true);
   expect(winningSuicide.winner).toBe(BLACK);
 
-  const ko = position([
+  const ko = GogoPosition.fromAscii([
     '..O......',
     '.O.O.....',
     '.XOX.....',
@@ -213,7 +207,7 @@ test('suicide is illegal, winning suicide is legal, and ko forbids immediate rec
 });
 
 test('legal move generation and group scanning reflect current state', () => {
-  const game = position([
+  const game = GogoPosition.fromAscii([
     'XX.......',
     'XOO......',
     '.........',
@@ -232,7 +226,7 @@ test('legal move generation and group scanning reflect current state', () => {
   expect(game.scanGroup(game.index(1, 1), WHITE)).toBe(4);
   expect(game.scanGroupSize).toBe(2);
 
-  const won = position([
+  const won = GogoPosition.fromAscii([
     'XXXXX....',
     '.........',
     '.........',
@@ -245,7 +239,7 @@ test('legal move generation and group scanning reflect current state', () => {
   ], BLACK);
   expect(won.generateAllLegalMoves(new Int16Array(won.area))).toBe(0);
 
-  const mixedLegality = position([
+  const mixedLegality = GogoPosition.fromAscii([
     '.O.......',
     'O.O......',
     '.O.......',

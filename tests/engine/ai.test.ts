@@ -2,16 +2,6 @@ import { test, expect } from 'vitest';
 
 import { BLACK, EMPTY, GogoAI, GogoPosition, WHITE } from '../../src/engine';
 
-function position(rows: string[], toMove = BLACK) {
-  return GogoPosition.fromAscii(rows, toMove);
-}
-
-function rawPosition(rows: string[], toMove = BLACK) {
-  const game = position(rows, toMove);
-  game.winner = EMPTY;
-  return game;
-}
-
 const GENERATE_ORDERED_MOVES_TACTICAL_ONLY_INDEX = 4;
 
 test('AI chooses the center on an empty board, handles immediate timeout, and handles terminal states', () => {
@@ -29,7 +19,7 @@ test('AI chooses the center on an empty board, handles immediate timeout, and ha
   expect(timeoutResult.depth).toBe(0);
   expect(timeoutResult.timedOut).toBe(true);
 
-  const terminal = position([
+  const terminal = GogoPosition.fromAscii([
     'XXXXX....',
     '.........',
     '.........',
@@ -46,7 +36,7 @@ test('AI chooses the center on an empty board, handles immediate timeout, and ha
 });
 
 test('AI finds immediate wins, blocks forced replies at depth one, and returns best-so-far after a later timeout', () => {
-  const winning = rawPosition([
+  const winning = GogoPosition.fromAscii([
     'XXXX.....',
     '.........',
     '.........',
@@ -62,7 +52,7 @@ test('AI finds immediate wins, blocks forced replies at depth one, and returns b
   expect(win.move).toBe(winning.index(4, 0));
   expect(win.score > 100000).toBeTruthy();
 
-  const blocking = rawPosition([
+  const blocking = GogoPosition.fromAscii([
     '.........',
     '.........',
     '.........',
@@ -93,7 +83,7 @@ test('AI finds immediate wins, blocks forced replies at depth one, and returns b
 });
 
 test('AI iterative deepening exits early once a forced win is proven at the root', () => {
-  const winning = rawPosition([
+  const winning = GogoPosition.fromAscii([
     'XXXX.....',
     '.........',
     '.........',
@@ -118,7 +108,7 @@ test('AI iterative deepening exits early once a forced win is proven at the root
 });
 
 test('AI marks forced loss and still returns one of the best delaying losing moves', () => {
-  const losing = rawPosition([
+  const losing = GogoPosition.fromAscii([
     '.........',
     '.........',
     '.........',
@@ -279,7 +269,7 @@ test('white-box AI helpers cover generation, evaluation, quiescence, search fall
   expect(emptyMoves[0]).toBe(empty.index(4, 4));
   expect(anyAI.generateOrderedMoves(empty, emptyMoves, emptyScores, -1, true)).toBe(0);
 
-  const quiet = rawPosition([
+  const quiet = GogoPosition.fromAscii([
     '.........',
     '.........',
     '.........',
@@ -292,7 +282,7 @@ test('white-box AI helpers cover generation, evaluation, quiescence, search fall
   ], BLACK);
   anyAI.ensureBuffers(quiet.area);
   expect(anyAI.scoreMove(quiet, quiet.index(0, 0), -1, true)).toBe(Number.NEGATIVE_INFINITY);
-  const tactical = rawPosition([
+  const tactical = GogoPosition.fromAscii([
     'XXXX.....',
     '.........',
     '.........',
@@ -306,7 +296,7 @@ test('white-box AI helpers cover generation, evaluation, quiescence, search fall
   anyAI.ensureBuffers(tactical.area);
   expect(anyAI.scoreMove(tactical, tactical.index(4, 0), -1, true)).not.toBe(Number.NEGATIVE_INFINITY);
 
-  const evalPosition = rawPosition([
+  const evalPosition = GogoPosition.fromAscii([
     '.........',
     '.........',
     '.........',
@@ -341,7 +331,7 @@ test('white-box AI helpers cover generation, evaluation, quiescence, search fall
   expect(root.score).toBe(0);
   expect(anyAI.search(full, 1, -100, 100, 0)).toBe(0);
 
-  const won = position([
+  const won = GogoPosition.fromAscii([
     'XXXXX....',
     '.........',
     '.........',
@@ -355,7 +345,7 @@ test('white-box AI helpers cover generation, evaluation, quiescence, search fall
   expect(anyAI.generateOrderedMoves(won, anyAI.moveBuffers[0], anyAI.scoreBuffers[0], -1, false)).toBe(0);
   won.winner = EMPTY;
   expect(anyAI.generateFullBoardMoves(won, anyAI.moveBuffers[0], anyAI.scoreBuffers[0], -1, false) > 0).toBeTruthy();
-  const quietFull = rawPosition([
+  const quietFull = GogoPosition.fromAscii([
     '.........',
     '.........',
     '.........',
@@ -369,7 +359,7 @@ test('white-box AI helpers cover generation, evaluation, quiescence, search fall
   quietFull.koPoint = quietFull.index(0, 0);
   expect(anyAI.generateFullBoardMoves(quietFull, anyAI.moveBuffers[0], anyAI.scoreBuffers[0], -1, true)).toBe(0);
 
-  const terminalQ = position([
+  const terminalQ = GogoPosition.fromAscii([
     'XXXXX....',
     '.........',
     '.........',
@@ -471,7 +461,7 @@ test('scoreMove deduplicates adjacent groups that wrap around the candidate from
   // candidate (3,2).  The group is adjacent from both left and above, so without
   // dedup the capturePressure of 5900 (CAPTURE_BONUS + 3*300) would be counted
   // twice.  Expected score with correct dedup: 7318.
-  const oppDedup = rawPosition([
+  const oppDedup = GogoPosition.fromAscii([
     'XXXXX....',
     'XXOOX....',
     'XXO......',
@@ -482,6 +472,10 @@ test('scoreMove deduplicates adjacent groups that wrap around the candidate from
     '.........',
     '.........',
   ], BLACK);
+  expect(oppDedup.winner).toBe(BLACK);
+  // scoreMove() is being tested on this stone layout, so clear the pre-existing winner
+  // that fromAscii() correctly detects from the finished five-in-a-row on the top edge.
+  oppDedup.winner = EMPTY;
   anyAI.ensureBuffers(oppDedup.area);
   expect(anyAI.scoreMove(oppDedup, oppDedup.index(3, 2), -1, false)).toBe(7318);
 
@@ -489,7 +483,7 @@ test('scoreMove deduplicates adjacent groups that wrap around the candidate from
   // candidate (3,2).  The group is adjacent from both left and above, so without
   // dedup the escapePressure of 4250 (ESCAPE_BONUS + 3*250) would be counted
   // twice.  Expected score with correct dedup: 6080.
-  const playerDedup = rawPosition([
+  const playerDedup = GogoPosition.fromAscii([
     '..OO.....',
     'OOXXO....',
     'OOX......',
@@ -510,7 +504,7 @@ test('null move pruning prunes when the position is strongly in favor of the sid
   // for BLACK, so NMP returns beta and prunes the search tree.
   const ai = new GogoAI({ maxDepth: 4, quiescenceDepth: 2, now: () => 0 });
   const anyAI = ai as any;
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     '.........',
     '.........',
     '.........',
@@ -548,7 +542,7 @@ test('null move pruning prunes when the position is strongly in favor of the sid
 test('killer moves are stored on beta cutoffs and boost scores in scoreMove', () => {
   const ai = new GogoAI({ maxDepth: 4, quiescenceDepth: 2, now: () => 0 });
   const anyAI = ai as any;
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     '.........',
     '.........',
     '.........',
@@ -587,7 +581,7 @@ test('transposition table stores entries during search and produces cutoffs on r
   const anyAI = ai as any;
   // Use a position with few near-2 candidates (< MAX_CANDIDATES) so nodes
   // are not capped and TT entries are stored normally.
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     '.........',
     '.........',
     '.........',
@@ -655,7 +649,7 @@ test('LMR reduces later moves at depth >= 3 and re-searches on improvement', () 
   const anyAI = ai as any;
   // Position with many legal moves and balanced evaluation so moves don't
   // immediately cause beta cutoffs, allowing legalCount to exceed 3.
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     '.........',
     '.........',
     '.X..O....',
@@ -714,7 +708,7 @@ test('adaptive null move pruning uses R=3 at depth >= 6', () => {
   const ai = new GogoAI({ maxDepth: 8, quiescenceDepth: 2, now: () => 0 });
   const anyAI = ai as any;
   // Strong position for BLACK to trigger NMP cutoff with R=3
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     '.........',
     '.........',
     '.........',
@@ -740,7 +734,7 @@ test('MAX_CANDIDATES caps the number of moves explored per node', () => {
   const ai = new GogoAI({ maxDepth: 3, quiescenceDepth: 2, now: () => 0 });
   const anyAI = ai as any;
   // Position with many stones creating many near-2 candidates (> 15)
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     'X.O.X.O.X',
     '.........', 
     'O.X.O.X.O',
@@ -788,7 +782,7 @@ test('Zobrist hash is consistent after play/undo sequences', () => {
 });
 
 test('proof mode: non-forced positions report no heuristic or forced outcome', () => {
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     '.........',
     '.........',
     '.........',
@@ -808,7 +802,7 @@ test('proof mode: non-forced positions report no heuristic or forced outcome', (
 });
 
 test('proof mode: terminal position returns heuristicLoss', () => {
-  const terminal = position([
+  const terminal = GogoPosition.fromAscii([
     'XXXXX....',
     '.........',
     '.........',
@@ -842,7 +836,7 @@ test('proof mode: fallback move returns no forced outcome', () => {
 
 test('proof mode: proof timeout still reports heuristic win but not forced win', () => {
   // XXXX position: discovery at depth 1 finds win. Proof phase starts but times out.
-  const winning = rawPosition([
+  const winning = GogoPosition.fromAscii([
     'XXXX.....',
     '.........',
     '.........',
@@ -871,7 +865,7 @@ test('proof mode: proof timeout still reports heuristic win but not forced win',
 });
 
 test('proof mode: proof collapse triggers fallback to heuristic discovery', () => {
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     '.........',
     '.........',
     '.X..O....',
@@ -918,7 +912,7 @@ test('proof mode: proof collapse triggers fallback to heuristic discovery', () =
 });
 
 test('proof mode: resume heuristic after proof collapse can timeout', () => {
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     '.........',
     '.........',
     '.X..O....',
@@ -962,7 +956,7 @@ test('proof mode: resume heuristic after proof collapse can timeout', () => {
 });
 
 test('proof mode: resume heuristic finds forced outcome after proof collapse', () => {
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     '.........',
     '.........',
     '.X..O....',
@@ -1008,7 +1002,7 @@ test('proof mode: resume heuristic finds forced outcome after proof collapse', (
 });
 
 test('proof mode: proof collapse with no remaining time skips resume', () => {
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     '.........',
     '.........',
     '.X..O....',
@@ -1051,7 +1045,7 @@ test('proof mode: proof collapse with no remaining time skips resume', () => {
 });
 
 test('proof mode: no time for proof skips proof phase entirely', () => {
-  const winning = rawPosition([
+  const winning = GogoPosition.fromAscii([
     'XXXX.....',
     '.........',
     '.........',
@@ -1089,7 +1083,7 @@ test('proof mode: no time for proof skips proof phase entirely', () => {
 test('proof mode: search skips NMP and LMR in proof mode', () => {
   const ai = new GogoAI({ maxDepth: 4, quiescenceDepth: 2, now: () => 0 });
   const anyAI = ai as any;
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     'X.O.X.O.X',
     '.........',
     'O.X.O.X.O',
@@ -1114,7 +1108,7 @@ test('proof mode: search skips NMP and LMR in proof mode', () => {
 });
 
 test('proof mode: proof confirms forced loss at depth 2', () => {
-  const losing = rawPosition([
+  const losing = GogoPosition.fromAscii([
     '.........',
     '.........',
     '.........',
@@ -1135,7 +1129,7 @@ test('proof mode: proof confirms forced loss at depth 2', () => {
 });
 
 test('proof mode: non-timeout error in proof phase is rethrown', () => {
-  const winning = rawPosition([
+  const winning = GogoPosition.fromAscii([
     'XXXX.....',
     '.........',
     '.........',
@@ -1160,7 +1154,7 @@ test('proof mode: non-timeout error in proof phase is rethrown', () => {
 });
 
 test('proof mode: non-timeout error in resume phase is rethrown', () => {
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     '.........',
     '.........',
     '.X..O....',
@@ -1204,7 +1198,7 @@ test('proof mode: non-timeout error in resume phase is rethrown', () => {
 // === AND/OR Prover Tests ===
 
 test('verifyWinningMove proves trivial one-move win', () => {
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     'XXXX.....',
     '.........',
     '.........',
@@ -1221,7 +1215,7 @@ test('verifyWinningMove proves trivial one-move win', () => {
 });
 
 test('verifyWinningMove returns false for illegal move', () => {
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     'XXXX.....',
     '.........',
     '.........',
@@ -1238,7 +1232,7 @@ test('verifyWinningMove returns false for illegal move', () => {
 });
 
 test('verifyWinningMove returns false when win cannot be proven', () => {
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     '.........',
     '.........',
     '.........',
@@ -1255,7 +1249,7 @@ test('verifyWinningMove returns false when win cannot be proven', () => {
 });
 
 test('verifyWinningMove returns false on timeout', () => {
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     'XXX......',
     '.........',
     '.........',
@@ -1275,7 +1269,7 @@ test('verifyWinningMove returns false on timeout', () => {
 test('verifyWinningMove proves deeper forced win with iterative deepening', () => {
   // White has OOOO on edge, black to move but white wins
   // Actually use a position where black has near-win on edge
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     'XXX......',
     'O........',
     'O........',
@@ -1289,7 +1283,7 @@ test('verifyWinningMove proves deeper forced win with iterative deepening', () =
   const ai = new GogoAI({ maxDepth: 30, quiescenceDepth: 4, now: () => 0 });
   // Move 3 = (0,3): extends XXX to XXXX, then need one more
   // This won't be a forced win from move 3 alone. Let's use XXXX position
-  const pos2 = rawPosition([
+  const pos2 = GogoPosition.fromAscii([
     'XXXX.....',
     'OOO......',
     '.........',
@@ -1306,7 +1300,7 @@ test('verifyWinningMove proves deeper forced win with iterative deepening', () =
 
 test('proofAttack: returns false when position has a winner (defender won)', () => {
   // Create a position where white already won (five in a row)
-  const pos = position([
+  const pos = GogoPosition.fromAscii([
     'OOOOO....',
     '.........',
     '.........',
@@ -1332,7 +1326,7 @@ test('proofAttack: returns false when position has a winner (defender won)', () 
 });
 
 test('proofAttack: returns false at depth 0', () => {
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     '.........',
     '.........',
     '.........',
@@ -1355,7 +1349,7 @@ test('proofAttack: returns false at depth 0', () => {
 });
 
 test('proofAttack: TT hit returns cached result', () => {
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     'XXXX.....',
     'OOO......',
     '.........',
@@ -1385,7 +1379,7 @@ test('proofAttack: TT hit returns cached result', () => {
 });
 
 test('proofDefend: returns true when attacker already won', () => {
-  const pos = position([
+  const pos = GogoPosition.fromAscii([
     'XXXXX....',
     '.........',
     '.........',
@@ -1411,7 +1405,7 @@ test('proofDefend: returns true when attacker already won', () => {
 });
 
 test('proofDefend: returns false at depth 0', () => {
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     '.........',
     '.........',
     '.........',
@@ -1435,7 +1429,7 @@ test('proofDefend: returns false at depth 0', () => {
 });
 
 test('proofDefend: TT hit returns cached result', () => {
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     '.........',
     '.........',
     '.........',
@@ -1467,7 +1461,7 @@ test('proofDefend: TT hit returns cached result', () => {
 test('proofDefend: defender makes five and refutes attack', () => {
   // White has OOOO, it's white's turn (defender in this context)
   // If defender can make five, attacker loses
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     'XXXX.....',
     'OOOO.....',
     '.........',
@@ -1493,7 +1487,7 @@ test('proofDefend: defender makes five and refutes attack', () => {
 
 test('loss proof: collapse triggers resume', () => {
   // Create a position where black is losing
-  const losing = rawPosition([
+  const losing = GogoPosition.fromAscii([
     '.........',
     '.........',
     '.........',
@@ -1534,7 +1528,7 @@ test('loss proof: collapse triggers resume', () => {
 });
 
 test('loss proof: timeout during proof reports heuristic loss but not forced loss', () => {
-  const losing = rawPosition([
+  const losing = GogoPosition.fromAscii([
     '.........',
     '.........',
     '.........',
@@ -1574,7 +1568,7 @@ test('loss proof: timeout during proof reports heuristic loss but not forced los
 });
 
 test('loss proof: non-timeout error in proof is rethrown', () => {
-  const losing = rawPosition([
+  const losing = GogoPosition.fromAscii([
     '.........',
     '.........',
     '.........',
@@ -1613,7 +1607,7 @@ test('proofSearchRoot: returns 0 when no legal moves', () => {
   // Create a position where all squares are occupied and no winner
   // This is hard to create, so use a near-full board with ko everywhere
   // Actually, use a position with winner set (returns 0 from no legal moves)
-  const pos = position([
+  const pos = GogoPosition.fromAscii([
     'XXXXX....',
     '.........',
     '.........',
@@ -1644,7 +1638,7 @@ test('capped node TT: lowerbound stored from capped node, exact/upper suppressed
   const ai = new GogoAI({ maxDepth: 4, quiescenceDepth: 2, now: () => 0 });
   const anyAI = ai as any;
   // Use a position with many near-2 candidates (> MAX_CANDIDATES) to trigger capping
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     'XOXOXOXOX',
     '.........', 
     'OXOXOXOXO',
@@ -1670,7 +1664,7 @@ test('capped node TT: lowerbound stored from capped node, exact/upper suppressed
 });
 
 test('recompute heuristic flags after resume: flags update when score changes', () => {
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     '.........',
     '.........',
     '.X..O....',
@@ -1711,7 +1705,7 @@ test('recompute heuristic flags after resume: flags update when score changes', 
 });
 
 test('verifyWinningMove returns false when maxPly exhausted', () => {
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     'XXX......',
     'OO.......',
     '.........',
@@ -1728,7 +1722,7 @@ test('verifyWinningMove returns false when maxPly exhausted', () => {
 });
 
 test('proofAttack: TT hit returns -1 (proven not winning)', () => {
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     '.........',
     '.........',
     '.........',
@@ -1759,7 +1753,7 @@ test('proofAttack: TT hit returns -1 (proven not winning)', () => {
 });
 
 test('proofAttack: TT hash match but result=0 falls through to search', () => {
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     'XXXX.....',
     '.........',
     '.........',
@@ -1793,7 +1787,7 @@ test('proofAttack: TT hash match but result=0 falls through to search', () => {
 test('proofDefend: all defenses fail → attacker proven to win', () => {
   // Double threat: XXXX at top row AND XXXX at bottom row.
   // Defender can only block one of them, so attacker wins.
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     'XXXX.....',
     '.........',
     '.........',
@@ -1826,7 +1820,7 @@ test('proofDefend: fullboard fallback when near-2 generates nothing', () => {
   // Actually, the simplest approach: position with 0 stones → near-2 returns 0
   // But 0 stones means generateOrderedMoves returns center immediately for non-tactical.
   // Let's mock to test the fallback path directly.
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     '.........',
     '.........',
     '.........',
@@ -1867,7 +1861,7 @@ test('TT exact and upperbound cutoffs work in proof mode (uncapped nodes)', () =
   // Use proof mode where nodes are never capped, so EXACT/UPPERBOUND entries get stored
   const ai = new GogoAI({ maxDepth: 4, quiescenceDepth: 2, now: () => 0 });
   const anyAI = ai as any;
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     '....X....',
     '...OXO...',
     '....X....',
@@ -1915,7 +1909,7 @@ test('null move pruning with active ko point', () => {
   // Create a position with an active ko point
   const ai = new GogoAI({ maxDepth: 6, quiescenceDepth: 2, now: () => 0 });
   const anyAI = ai as any;
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     '.........',
     '.........',
     '.........',
@@ -1944,7 +1938,7 @@ test('null move pruning with active ko point', () => {
 
 test('proofAttack: illegal move is skipped', () => {
   // Create a position where some near-2 candidates overlap with ko point
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     '.........',
     '.........',
     '.........',
@@ -1972,7 +1966,7 @@ test('proofAttack: illegal move is skipped', () => {
 });
 
 test('proofDefend: TT hit with proven winning result', () => {
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     'XXXX.....',
     '.........',
     '.........',
@@ -2003,7 +1997,7 @@ test('proofDefend: TT hit with proven winning result', () => {
 });
 
 test('proofDefend: TT hit with proven not-winning result', () => {
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     '.........',
     '.........',
     '.........',
@@ -2034,7 +2028,7 @@ test('proofDefend: TT hit with proven not-winning result', () => {
 });
 
 test('proofDefend: TT hash match but result=0 falls through to search', () => {
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     'XXXX.....',
     '.........',
     '.........',
@@ -2071,7 +2065,7 @@ test('capped node: fullboard fallback with capping applied', () => {
   const anyAI = ai as any;
   // Use a large board position where near-2 generates 0 legal moves
   // but full board has many
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     '.........',
     '.........',
     '.........',
@@ -2114,7 +2108,7 @@ test('proofAttack: play() failure is handled (suicide move skipped)', () => {
   const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4, now: () => 0 });
   const anyAI = ai as any;
   // Position with a stone surrounded by opponent stones - near suicide
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     '.........',
     '.........',
     '....O....',
@@ -2165,7 +2159,7 @@ test('proofDefend: play() failure is handled', () => {
   // so that the first generateOrderedMoves call is proofDefend's own full-gen call.
   // The mock injects an illegal (occupied) move so that play() returns false in
   // the full generation loop.
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     'XX.......',
     'OO.......',
     '.........',
@@ -2212,7 +2206,7 @@ test('proofDefend: play() failure is handled', () => {
 test('proofDefend: fullboard fallback explores all candidates (no cap)', () => {
   const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4, now: () => 0 });
   const anyAI = ai as any;
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     '.........',
     '.........',
     '.........',
@@ -2250,7 +2244,7 @@ test('proofDefend: fullboard fallback with few candidates (no cap needed)', () =
   const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4, now: () => 0 });
   const anyAI = ai as any;
   // Nearly full board: only a few empty cells
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     'XOXOXOXOX',
     'OXOXOXOXO',
     'XOXOXOXOX',
@@ -2287,7 +2281,7 @@ test('proofDefend: fullboard fallback with few candidates (no cap needed)', () =
 test('verifyWinningMove rethrows non-timeout errors', () => {
   const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4, now: () => 0 });
   const anyAI = ai as any;
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     'XXXX.....',
     'OOO......',
     '.........',
@@ -2313,7 +2307,7 @@ test('verifyWinningMove rethrows non-timeout errors', () => {
 test('proofDefend: returns false (not proven) when no legal moves exist', () => {
   const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4, now: () => 0 });
   const anyAI = ai as any;
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     '.........',
     '.........',
     '.........',
@@ -2347,7 +2341,7 @@ test('proofAttack: hash-move-first succeeds from seeded TT best move', () => {
   const ai = new GogoAI({ maxDepth: 10 });
   const anyAI = ai as any;
   // BLACK has 4 in a row, move 4 completes five
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     'XXXX.....',
     '.........',
     '.........',
@@ -2405,7 +2399,7 @@ test('proofAttack: hash-move-first wins via proofDefend (non-immediate)', () => 
   // BLACK has 3 in a row with open ends. After playing move 3 (extend to 4),
   // WHITE must respond, but BLACK has a double threat.
   // Row 0: .XXX. → playing index 4 gives .XXXX → next move 0 or 5 wins
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     '.XXX.....',
     '.........',
     '.........',
@@ -2442,7 +2436,7 @@ test('proofDefend: hash-move-first with defender making five', () => {
   const ai = new GogoAI({ maxDepth: 10 });
   const anyAI = ai as any;
   // WHITE to move, WHITE has 4 in a row on row 1, move 13 completes five
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     'XX.......',
     'OOOO.....',
     '.........',
@@ -2495,7 +2489,7 @@ test('proofDefend: full generation finds defender five (winner check)', () => {
   const ai = new GogoAI({ maxDepth: 10 });
   const anyAI = ai as any;
   // WHITE to move, no BLACK four (no threat), WHITE has 4 in a row
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     'XXX......',
     'OOOO.....',
     '.........',
@@ -2533,7 +2527,7 @@ test('findThreatResponses: capture move for group with single liberty', () => {
   // Row 4: ...O..... → WHITE at 39 (col3), blocks 30 below.
   // Group {30} has 1 liberty at 21 (distinct from blocking cell 4) → newly marked liberty added.
   // Group {13} has 1 liberty at 4 (already marked as blocking) → duplicate liberty skipped.
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     'XXXX.....',
     'OOOXOOOO.',
     '....O....',
@@ -2566,7 +2560,7 @@ test('findThreatResponses: capture move for group with single liberty', () => {
 test('proofAttack: illegal TT move is attempted before move generation and skipped safely', () => {
   const ai = new GogoAI({ maxDepth: 10 });
   const anyAI = ai as any;
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     '.........',
     '.........',
     '.........',
@@ -2617,7 +2611,7 @@ test('proofAttack: hash move creates non-winning position; killer move skip in t
   // By setting it as a killer move at ply=1, its tactical score is boosted so it appears
   // first in the ordered list → m=5=ttBest → the skip is taken.
   // Then move 4 (which completes XXXXX) is found and the function returns true.
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     'XXXX.....',
     '.........',
     '.........',
@@ -2659,7 +2653,7 @@ test('proofAttack: hash move creates non-winning position; killer move skip in t
 test('proofDefend: illegal TT move is attempted before ordered generation and skipped safely', () => {
   const ai = new GogoAI({ maxDepth: 10 });
   const anyAI = ai as any;
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     '.........',
     '.........',
     '.........',
@@ -2717,7 +2711,7 @@ test('proofDefend: hash move does not refute double threat; ttBest skipped in th
   //                m=76 → attackerWins=true → falls through
   //   Full gen: m=4=ttBest → skip (already tried above)
   //   All defenses fail → returns true
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     'XXXX.....',
     '.........',
     '.........',
@@ -2760,7 +2754,7 @@ test('findThreatResponses: defender winning cell in overlapping horizontal and v
   //     → candidateMarks[0] === epoch (already marked!) → skip adding duplicate
   //
   // WHITE to move (defender).  attacker=BLACK.
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     '.XXXX....',  // (0,0)=EMPTY; (0,1..4)=BLACK
     'O........',  // (1,0)=WHITE
     'O........',  // (2,0)=WHITE
@@ -2789,7 +2783,7 @@ test('findThreatResponses: defender winning cell in overlapping horizontal and v
 test('proofDefend: restricted move play failure is handled without coverage suppression', () => {
   const ai = new GogoAI({ maxDepth: 10 });
   const anyAI = ai as any;
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     'X........',
     '.........',
     '.........',
@@ -2830,7 +2824,7 @@ test('proofDefend: restricted move play failure is handled without coverage supp
 test('proofDefend: falls back to full-board generation even after an earlier legal restricted move', () => {
   const ai = new GogoAI({ maxDepth: 10 });
   const anyAI = ai as any;
-  const pos = rawPosition([
+  const pos = GogoPosition.fromAscii([
     'XXXX.....',
     '.........',
     '.........',
