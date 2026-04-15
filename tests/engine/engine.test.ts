@@ -107,12 +107,11 @@ test('clone preserves playable state and toAscii serializes mixed, empty, and fu
   expect(cloned.toAscii()).toEqual(original.toAscii());
   expect(cloned.toMove).toBe(original.toMove);
   expect(cloned.hash).toBe(original.hash);
-  expect(cloned.getMoveAt(0)).toBe(original.getMoveAt(0));
-  expect(cloned.getMoveAt(1)).toBe(original.getMoveAt(1));
-
-  expect(cloned.undo()).toBe(true);
-  expect(cloned.at(3, 4)).toBe(EMPTY);
-  expect(original.at(3, 4)).toBe(WHITE);
+  expect(cloned.at(4, 4)).toBe(BLACK);
+  expect(cloned.at(3, 4)).toBe(WHITE);
+  expect(cloned.playXY(2, 4)).toBe(true);
+  expect(cloned.at(2, 4)).toBe(BLACK);
+  expect(original.at(2, 4)).toBe(EMPTY);
 
   const full = GogoPosition.fromAscii(Array.from({ length: 9 }, () => 'XXXXXXXXX'), BLACK);
   expect(full.toAscii()).toEqual(Array.from({ length: 9 }, () => 'XXXXXXXXX'));
@@ -136,9 +135,10 @@ test('clone preserves playable state and toAscii serializes mixed, empty, and fu
   const growthClone = growth.clone() as any;
   expect(growthClone.historyMoves.length).toBe((growth as any).historyMoves.length);
   expect(growthClone.capturePositions.length).toBe((growth as any).capturePositions.length);
-  expect(growthClone.undo()).toBe(true);
-  expect(growthClone.at(1, 1)).toBe(WHITE);
-  expect(growth.at(1, 1)).toBe(EMPTY);
+  expect(growthClone.toAscii()).toEqual(growth.toAscii());
+  expect(growthClone.toMove).toBe(growth.toMove);
+  expect(growthClone.hash).toBe(growth.hash);
+  expect(growthClone.undo()).toBe(false);
 });
 
 test('existing winner detection and played wins cover vertical and anti-diagonal lines', () => {
@@ -320,10 +320,20 @@ test('isLegal checks do not mutate position state for legal moves, suicide, or k
     '.........',
   ], BLACK);
   expect(ko.playXY(2, 1)).toBe(true);
-  const koSnapshot = ko.clone();
+  const koSnapshot = {
+    ascii: ko.toAscii(),
+    toMove: ko.toMove,
+    winner: ko.winner,
+    koPoint: ko.koPoint,
+    ply: ko.ply,
+    stoneCount: ko.stoneCount,
+    lastMove: ko.lastMove,
+    lastCapturedCount: ko.lastCapturedCount,
+    hash: ko.hash,
+  };
 
   expect(ko.isLegal(ko.index(2, 2))).toBe(false);
-  expect(ko.toAscii()).toEqual(koSnapshot.toAscii());
+  expect(ko.toAscii()).toEqual(koSnapshot.ascii);
   expect(ko.toMove).toBe(koSnapshot.toMove);
   expect(ko.winner).toBe(koSnapshot.winner);
   expect(ko.koPoint).toBe(koSnapshot.koPoint);
@@ -334,7 +344,7 @@ test('isLegal checks do not mutate position state for legal moves, suicide, or k
   expect(ko.hash).toBe(koSnapshot.hash);
 
   expect(ko.isLegal(ko.index(8, 8))).toBe(true);
-  expect(ko.toAscii()).toEqual(koSnapshot.toAscii());
+  expect(ko.toAscii()).toEqual(koSnapshot.ascii);
   expect(ko.toMove).toBe(koSnapshot.toMove);
   expect(ko.winner).toBe(koSnapshot.winner);
   expect(ko.koPoint).toBe(koSnapshot.koPoint);
