@@ -40,25 +40,35 @@ export function parseArgs(args: string[]): StreamUniqueBoardsOptions {
   let seed: number | undefined;
 
   for (let i = 0; i < args.length; i += 1) {
-    if (args[i] === '--ply') {
-      ply = parseIntegerFlag(args, i, '--ply');
-      i += 1;
-    } else if (args[i] === '--size') {
-      boardSize = parseSize(parseIntegerFlag(args, i, '--size'));
-      i += 1;
-    } else if (args[i] === '--limit') {
-      maxBoards = parseIntegerFlag(args, i, '--limit');
-      i += 1;
-    } else if (args[i] === '--time-ms') {
-      timeLimitMs = parseIntegerFlag(args, i, '--time-ms');
-      i += 1;
-    } else if (args[i] === '--translation-symmetry') {
-      includeTranslationSymmetry = true;
-    } else if (args[i] === '--color-symmetry') {
-      includeColorSymmetry = true;
-    } else if (args[i] === '--seed') {
-      seed = parseIntegerFlag(args, i, '--seed');
-      i += 1;
+    switch (args[i]) {
+      case '--ply':
+        ply = parseIntegerFlag(args, i, '--ply');
+        i += 1;
+        break;
+      case '--size':
+        boardSize = parseSize(parseIntegerFlag(args, i, '--size'));
+        i += 1;
+        break;
+      case '--limit':
+        maxBoards = parseIntegerFlag(args, i, '--limit');
+        i += 1;
+        break;
+      case '--time-ms':
+        timeLimitMs = parseIntegerFlag(args, i, '--time-ms');
+        i += 1;
+        break;
+      case '--translation-symmetry':
+        includeTranslationSymmetry = true;
+        break;
+      case '--color-symmetry':
+        includeColorSymmetry = true;
+        break;
+      case '--seed':
+        seed = parseIntegerFlag(args, i, '--seed');
+        i += 1;
+        break;
+      default:
+        break;
     }
   }
 

@@ -71,13 +71,11 @@ function encodeStones(stones: readonly Stone[]): string {
 }
 
 function compareStones(a: Stone, b: Stone): number {
-  if (a[0] !== b[0]) {
-    return a[0] - b[0];
+  const deltaX = a[0] - b[0];
+  if (deltaX !== 0) {
+    return deltaX;
   }
-  if (a[1] !== b[1]) {
-    return a[1] - b[1];
-  }
-  return a[2] - b[2];
+  return a[1] - b[1];
 }
 
 function collectStones(position: GogoPosition): Stone[] {
@@ -302,7 +300,7 @@ export function streamUniqueBoards(
 
       if (depth + 1 < options.ply) {
         const prefixKey = computePositionSymmetryKey(position, {
-          includeTranslationSymmetry: options.includeTranslationSymmetry,
+          includeTranslationSymmetry: false,
           includeColorSymmetry: false,
         });
         const seenAtDepth = prefixSeen[depth];
