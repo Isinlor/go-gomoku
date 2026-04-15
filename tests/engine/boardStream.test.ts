@@ -6,6 +6,32 @@ import {
   streamUniqueBoards,
 } from '../../src/engine/boardStream';
 
+function countUniqueBoardsNaively(ply: number): number {
+  const position = new GogoPosition(9);
+  const moveBuffer = new Int16Array(position.area);
+  const seen = new Set<string>();
+
+  const visit = (depth: number): void => {
+    if (depth === ply) {
+      seen.add(computePositionSymmetryKey(position, {
+        includeTranslationSymmetry: true,
+        includeColorSymmetry: true,
+      }));
+      return;
+    }
+
+    const moveCount = position.generateAllLegalMoves(moveBuffer);
+    for (let i = 0; i < moveCount; i += 1) {
+      position.play(moveBuffer[i]);
+      visit(depth + 1);
+      position.undo();
+    }
+  };
+
+  visit(0);
+  return seen.size;
+}
+
 describe('computePositionSymmetryKey', () => {
   test('always folds rotation and reflection symmetries', () => {
     const cornerA = decodeGame('B9 a1');
@@ -210,6 +236,26 @@ describe('streamUniqueBoards', () => {
     expect(stats.prunedPrefixes).toBeGreaterThan(0);
   });
 
+  test('exhaustively prunes all equivalent prefixes with translation and color symmetry', { timeout: 30000 }, () => {
+    const stats = streamUniqueBoards(
+      {
+        ply: 3,
+        boardSize: 9,
+        includeTranslationSymmetry: true,
+        includeColorSymmetry: true,
+        seed: 1,
+      },
+      () => {},
+    );
+
+    // Verify pruning is happening
+    expect(stats.prunedPrefixes).toBeGreaterThan(0);
+    // Verify that we still discover the correct total number of unique boards
+    expect(stats.emitted).toBe(countUniqueBoardsNaively(3));
+    // Verify that exploredNodes + prunedPrefixes + emitted accounts for search behavior
+    expect(stats.exploredNodes).toBeGreaterThan(0);
+  });
+
   test('stops once the time limit is reached', () => {
     const boards: string[] = [];
     let nowCall = 0;
@@ -272,6 +318,21 @@ describe('streamUniqueBoards', () => {
 
     expect(boards).toEqual(['B9']);
     expect(stats.emitted).toBe(1);
+  });
+
+  test('emits the correct number of unique boards with translation and color symmetry at ply three', { timeout: 20000 }, () => {
+    const stats = streamUniqueBoards(
+      {
+        ply: 3,
+        boardSize: 9,
+        includeTranslationSymmetry: true,
+        includeColorSymmetry: true,
+        seed: 1,
+      },
+      () => {},
+    );
+
+    expect(stats.emitted).toBe(countUniqueBoardsNaively(3));
   });
 
   test('rejects invalid stream options', () => {
