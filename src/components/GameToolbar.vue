@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import { BLACK, WHITE, type SupportedSize } from '../engine';
 import type { AIType } from '../worker/ai-worker';
 
@@ -25,34 +26,51 @@ const emit = defineEmits<{
   undo: [];
 }>();
 
-function onBlackModeChange(event: Event): void {
+const players = computed(() => [
+  {
+    color: BLACK,
+    legend: '● Black',
+    modeName: 'black-mode',
+    isAI: props.blackIsAI,
+    timeLimit: props.blackTimeLimit,
+    aiType: props.blackAIType,
+  },
+  {
+    color: WHITE,
+    legend: '○ White',
+    modeName: 'white-mode',
+    isAI: props.whiteIsAI,
+    timeLimit: props.whiteTimeLimit,
+    aiType: props.whiteAIType,
+  },
+]);
+
+function onModeChange(player: typeof BLACK | typeof WHITE, event: Event): void {
   const target = event.target as HTMLInputElement;
-  emit('update:blackIsAI', target.value === 'ai');
+  if (player === BLACK) {
+    emit('update:blackIsAI', target.value === 'ai');
+  } else {
+    emit('update:whiteIsAI', target.value === 'ai');
+  }
 }
 
-function onWhiteModeChange(event: Event): void {
+function onTimeLimitChange(player: typeof BLACK | typeof WHITE, event: Event): void {
   const target = event.target as HTMLInputElement;
-  emit('update:whiteIsAI', target.value === 'ai');
+  const value = Math.max(1, Number(target.value) || 75);
+  if (player === BLACK) {
+    emit('update:blackTimeLimit', value);
+  } else {
+    emit('update:whiteTimeLimit', value);
+  }
 }
 
-function onBlackTimeLimitChange(event: Event): void {
-  const target = event.target as HTMLInputElement;
-  emit('update:blackTimeLimit', Math.max(1, Number(target.value) || 75));
-}
-
-function onWhiteTimeLimitChange(event: Event): void {
-  const target = event.target as HTMLInputElement;
-  emit('update:whiteTimeLimit', Math.max(1, Number(target.value) || 75));
-}
-
-function onBlackAITypeChange(event: Event): void {
+function onAITypeChange(player: typeof BLACK | typeof WHITE, event: Event): void {
   const target = event.target as HTMLSelectElement;
-  emit('update:blackAIType', target.value as AIType);
-}
-
-function onWhiteAITypeChange(event: Event): void {
-  const target = event.target as HTMLSelectElement;
-  emit('update:whiteAIType', target.value as AIType);
+  if (player === BLACK) {
+    emit('update:blackAIType', target.value as AIType);
+  } else {
+    emit('update:whiteAIType', target.value as AIType);
+  }
 }
 
 function onBoardSizeChange(event: Event): void {
@@ -63,31 +81,35 @@ function onBoardSizeChange(event: Event): void {
 
 <template>
   <div class="toolbar">
-    <fieldset class="player-fieldset">
-      <legend>● Black</legend>
+    <fieldset
+      v-for="player in players"
+      :key="player.color"
+      class="player-fieldset"
+    >
+      <legend>{{ player.legend }}</legend>
       <label>
         <input
           type="radio"
-          name="black-mode"
+          :name="player.modeName"
           value="human"
-          :checked="!props.blackIsAI"
-          @change="onBlackModeChange"
+          :checked="!player.isAI"
+          @change="onModeChange(player.color, $event)"
         />
         Human
       </label>
       <label>
         <input
           type="radio"
-          name="black-mode"
+          :name="player.modeName"
           value="ai"
-          :checked="props.blackIsAI"
-          @change="onBlackModeChange"
+          :checked="player.isAI"
+          @change="onModeChange(player.color, $event)"
         />
         AI
       </label>
-      <label v-if="props.blackIsAI">
+      <label v-if="player.isAI">
         AI type
-        <select :value="props.blackAIType" @change="onBlackAITypeChange">
+        <select :value="player.aiType" @change="onAITypeChange(player.color, $event)">
           <option value="classic">Classic</option>
         </select>
       </label>
@@ -97,48 +119,8 @@ function onBoardSizeChange(event: Event): void {
           type="number"
           min="1"
           step="1"
-          :value="props.blackTimeLimit"
-          @change="onBlackTimeLimitChange"
-        />
-      </label>
-    </fieldset>
-
-    <fieldset class="player-fieldset">
-      <legend>○ White</legend>
-      <label>
-        <input
-          type="radio"
-          name="white-mode"
-          value="human"
-          :checked="!props.whiteIsAI"
-          @change="onWhiteModeChange"
-        />
-        Human
-      </label>
-      <label>
-        <input
-          type="radio"
-          name="white-mode"
-          value="ai"
-          :checked="props.whiteIsAI"
-          @change="onWhiteModeChange"
-        />
-        AI
-      </label>
-      <label v-if="props.whiteIsAI">
-        AI type
-        <select :value="props.whiteAIType" @change="onWhiteAITypeChange">
-          <option value="classic">Classic</option>
-        </select>
-      </label>
-      <label>
-        AI time (ms)
-        <input
-          type="number"
-          min="1"
-          step="1"
-          :value="props.whiteTimeLimit"
-          @change="onWhiteTimeLimitChange"
+          :value="player.timeLimit"
+          @change="onTimeLimitChange(player.color, $event)"
         />
       </label>
     </fieldset>

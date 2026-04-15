@@ -2,13 +2,18 @@ import { EMPTY, BLACK, WHITE, GogoPosition } from './gogomoku';
 import type { Player } from './gogomoku';
 
 // A stone: (x, y, color)
-type Stone = readonly [number, number, Player];
+export type Stone = readonly [number, number, Player];
 
 // The 8 symmetries of the dihedral group D4 acting on 2-D coordinates.
 // After each transform the result is translated so that minX = 0 and minY = 0.
-type TransformFn = (x: number, y: number) => readonly [number, number];
+export type TransformFn = (x: number, y: number) => readonly [number, number];
 
-const DIHEDRAL_TRANSFORMS: readonly TransformFn[] = [
+export interface CanonicalKeyOptions {
+  includeTranslationSymmetry?: boolean;
+  includeColorSymmetry?: boolean;
+}
+
+export const DIHEDRAL_TRANSFORMS: readonly TransformFn[] = [
   (x, y) => [x, y],     // identity
   (x, y) => [-y, x],    // rotate 90° CCW
   (x, y) => [-x, -y],   // rotate 180°
@@ -19,48 +24,22 @@ const DIHEDRAL_TRANSFORMS: readonly TransformFn[] = [
   (x, y) => [-y, -x],   // reflect about anti-diagonal
 ];
 
-function applyTransformAndNormalize(
-  stones: readonly Stone[],
-  transform: TransformFn,
-  swapColors: boolean,
-): Stone[] {
-  const result: Stone[] = new Array(stones.length);
-  let minX = 0;
-  let minY = 0;
-
-  for (let i = 0; i < stones.length; i += 1) {
-    const [tx, ty] = transform(stones[i][0], stones[i][1]);
-    const tc: Player = swapColors ? (stones[i][2] === BLACK ? WHITE : BLACK) : stones[i][2];
-    result[i] = [tx, ty, tc];
-    if (i === 0 || tx < minX) {
-      minX = tx;
+function sortPackedKeys(packed: Uint16Array, count: number): void {
+  for (let i = 1; i < count; i += 1) {
+    const value = packed[i];
+    let j = i - 1;
+    while (j >= 0 && packed[j] > value) {
+      packed[j + 1] = packed[j];
+      j -= 1;
     }
-    if (i === 0 || ty < minY) {
-      minY = ty;
-    }
+    packed[j + 1] = value;
   }
-
-  for (let i = 0; i < result.length; i += 1) {
-    result[i] = [result[i][0] - minX, result[i][1] - minY, result[i][2]];
-  }
-
-  result.sort((a, b) => {
-    if (a[0] !== b[0]) {
-      return a[0] - b[0];
-    }
-    return a[1] - b[1];
-  });
-
-  return result;
 }
 
-function encodeStonesKey(stones: readonly Stone[]): string {
+function encodePackedKeys(packed: Uint16Array, count: number): string {
   let key = '';
-  for (let i = 0; i < stones.length; i += 1) {
-    if (i > 0) {
-      key += ';';
-    }
-    key += `${stones[i][0]},${stones[i][1]},${stones[i][2]}`;
+  for (let i = 0; i < count; i += 1) {
+    key += String.fromCharCode(packed[i]);
   }
   return key;
 }
@@ -69,16 +48,46 @@ function encodeStonesKey(stones: readonly Stone[]): string {
  * Compute the canonical key for a set of stones that is invariant under
  * all rotations, reflections, translations, and color swap.
  */
-export function computeCanonicalKey(stones: readonly Stone[]): string {
-  if (stones.length === 0) {
+export function computeCanonicalPackedKey(
+  xs: ArrayLike<number>,
+  ys: ArrayLike<number>,
+  colors: ArrayLike<number>,
+  count: number,
+  options: CanonicalKeyOptions = {},
+  packedScratch?: Uint16Array,
+): string {
+  if (count === 0) {
     return '';
   }
 
+  const packed = packedScratch ?? new Uint16Array(count);
+  const translate = options.includeTranslationSymmetry !== false;
+  const colorVariants = options.includeColorSymmetry === false ? 1 : 2;
   let minKey = '';
   for (const transform of DIHEDRAL_TRANSFORMS) {
-    for (const swapColors of [false, true]) {
-      const normalized = applyTransformAndNormalize(stones, transform, swapColors);
-      const key = encodeStonesKey(normalized);
+    for (let variant = 0; variant < colorVariants; variant += 1) {
+      let minX = 0;
+      let minY = 0;
+      if (translate) {
+        for (let i = 0; i < count; i += 1) {
+          const [x, y] = transform(xs[i], ys[i]);
+          if (i === 0 || x < minX) {
+            minX = x;
+          }
+          if (i === 0 || y < minY) {
+            minY = y;
+          }
+        }
+      }
+      for (let i = 0; i < count; i += 1) {
+        const [x, y] = transform(xs[i], ys[i]);
+        const color = variant === 0
+          ? colors[i]
+          : (colors[i] === BLACK ? WHITE : BLACK);
+        packed[i] = ((((x - minX) << 4) | (y - minY)) << 2) | color;
+      }
+      sortPackedKeys(packed, count);
+      const key = encodePackedKeys(packed, count);
       if (minKey === '' || key < minKey) {
         minKey = key;
       }
@@ -86,6 +95,25 @@ export function computeCanonicalKey(stones: readonly Stone[]): string {
   }
 
   return minKey;
+}
+
+export function computeCanonicalKey(
+  stones: readonly Stone[],
+  options: CanonicalKeyOptions = {},
+): string {
+  if (stones.length === 0) {
+    return '';
+  }
+
+  const xs = new Int16Array(stones.length);
+  const ys = new Int16Array(stones.length);
+  const colors = new Uint8Array(stones.length);
+  for (let i = 0; i < stones.length; i += 1) {
+    xs[i] = stones[i][0];
+    ys[i] = stones[i][1];
+    colors[i] = stones[i][2];
+  }
+  return computeCanonicalPackedKey(xs, ys, colors, stones.length, options);
 }
 
 /**

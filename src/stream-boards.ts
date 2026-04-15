@@ -4,6 +4,7 @@ import type {
   StreamUniqueBoardsStats,
 } from './engine/boardStream';
 import { parseIntegerFlag } from './cliArgs';
+import { parseSupportedSize } from './engine/gogomoku';
 import type { SupportedSize } from './engine/gogomoku';
 
 declare const process: { argv: string[]; exit(code: number): never };
@@ -11,13 +12,6 @@ declare const process: { argv: string[]; exit(code: number): never };
 export interface StreamBoardsMainOptions {
   writeStdout?: (line: string) => void;
   writeStderr?: (line: string) => void;
-}
-
-function parseSize(size: number): SupportedSize {
-  if (size !== 9 && size !== 11 && size !== 13) {
-    throw new Error(`Unsupported board size: ${size}`);
-  }
-  return size;
 }
 
 export function parseArgs(args: string[]): StreamUniqueBoardsOptions {
@@ -36,7 +30,7 @@ export function parseArgs(args: string[]): StreamUniqueBoardsOptions {
         i += 1;
         break;
       case '--size':
-        boardSize = parseSize(parseIntegerFlag(args, i, '--size'));
+        boardSize = parseSupportedSize(parseIntegerFlag(args, i, '--size'));
         i += 1;
         break;
       case '--limit':

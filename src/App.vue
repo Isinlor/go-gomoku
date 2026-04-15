@@ -5,8 +5,7 @@ import BoardGrid from './components/BoardGrid.vue';
 import GameRecord from './components/GameRecord.vue';
 import LoadGame from './components/LoadGame.vue';
 import PuzzleSelect from './components/PuzzleSelect.vue';
-import type { SupportedSize } from './engine';
-import type { Puzzle } from './engine';
+import { BLACK, WHITE } from './engine';
 import type { AIType } from './worker/ai-worker';
 
 const {
@@ -35,28 +34,14 @@ const {
   gameUrl,
 } = useGame();
 
-function onUpdateBlackIsAI(value: boolean): void {
-  blackIsAI.value = value;
+function updatePlayerMode(player: typeof BLACK | typeof WHITE, value: boolean): void {
+  (player === BLACK ? blackIsAI : whiteIsAI).value = value;
   onModeChange();
 }
 
-function onUpdateWhiteIsAI(value: boolean): void {
-  whiteIsAI.value = value;
-  onModeChange();
-}
-
-function onUpdateBlackAIType(value: AIType): void {
-  blackAIType.value = value;
+function updatePlayerAIType(player: typeof BLACK | typeof WHITE, value: AIType): void {
+  (player === BLACK ? blackAIType : whiteAIType).value = value;
   onAITypeChange();
-}
-
-function onUpdateWhiteAIType(value: AIType): void {
-  whiteAIType.value = value;
-  onAITypeChange();
-}
-
-function onUpdateBoardSize(value: SupportedSize): void {
-  setSize(value);
 }
 
 function onCopyUrl(): void {
@@ -65,9 +50,6 @@ function onCopyUrl(): void {
   });
 }
 
-function onLoadPuzzle(puzzle: Puzzle): void {
-  loadPuzzle(puzzle);
-}
 </script>
 
 <template>
@@ -80,13 +62,13 @@ function onLoadPuzzle(puzzle: Puzzle): void {
     :white-a-i-type="whiteAIType"
     :board-size="size"
     :ai-thinking="aiThinking"
-    @update:black-is-a-i="onUpdateBlackIsAI"
-    @update:white-is-a-i="onUpdateWhiteIsAI"
+    @update:black-is-a-i="updatePlayerMode(BLACK, $event)"
+    @update:white-is-a-i="updatePlayerMode(WHITE, $event)"
     @update:black-time-limit="blackTimeLimit = $event"
     @update:white-time-limit="whiteTimeLimit = $event"
-    @update:black-a-i-type="onUpdateBlackAIType"
-    @update:white-a-i-type="onUpdateWhiteAIType"
-    @update:board-size="onUpdateBoardSize"
+    @update:black-a-i-type="updatePlayerAIType(BLACK, $event)"
+    @update:white-a-i-type="updatePlayerAIType(WHITE, $event)"
+    @update:board-size="setSize"
     @new-game="newGame"
     @undo="undo"
   />
@@ -106,7 +88,7 @@ function onLoadPuzzle(puzzle: Puzzle): void {
     @copy-url="onCopyUrl"
   />
 
-  <PuzzleSelect @load-puzzle="onLoadPuzzle" />
+  <PuzzleSelect @load-puzzle="loadPuzzle" />
 
   <LoadGame
     :error="loadError"
