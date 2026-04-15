@@ -138,7 +138,10 @@ test('clone preserves playable state and toAscii serializes mixed, empty, and fu
   expect(growthClone.toAscii()).toEqual(growth.toAscii());
   expect(growthClone.toMove).toBe(growth.toMove);
   expect(growthClone.hash).toBe(growth.hash);
-  expect(growthClone.undo()).toBe(false);
+  const nextPlayer = growthClone.toMove;
+  expect(growthClone.playXY(8, 8)).toBe(true);
+  expect(growthClone.at(8, 8)).toBe(nextPlayer);
+  expect(growth.at(8, 8)).toBe(EMPTY);
 });
 
 test('existing winner detection and played wins cover vertical and anti-diagonal lines', () => {
