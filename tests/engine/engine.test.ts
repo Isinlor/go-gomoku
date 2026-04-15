@@ -139,6 +139,7 @@ test('clone preserves playable state and toAscii serializes mixed, empty, and fu
   expect(growthClone.hash).toBe(growth.hash);
   const nextPlayer = growthClone.toMove;
   expect(growthClone.playXY(8, 8)).toBe(true);
+  expect(growthClone.getMoveAt(0)).toBe(growthClone.index(8, 8));
   expect(growthClone.at(8, 8)).toBe(nextPlayer);
   expect(growth.at(8, 8)).toBe(EMPTY);
 });
