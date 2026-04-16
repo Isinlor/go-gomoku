@@ -20,7 +20,7 @@ export interface UseGameOptions {
 }
 
 const AI_CONFIG = {
-  maxDepth: 12,
+  maxDepth: 14,
   quiescenceDepth: 4,
   maxPly: 96,
 } as const;
