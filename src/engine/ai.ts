@@ -829,16 +829,16 @@ export class GogoAI {
   private proofTTResult = new Int8Array(TT_SIZE);
   private proofTTDepth = new Int8Array(TT_SIZE);
   private proofTTBestMove = new Int16Array(TT_SIZE);
+  private proofTTEpoch = new Uint16Array(TT_SIZE);
+  private currentProofEpoch = 1;
 
   private resetProofSearch(): void {
-    // Reset proof TT and search heuristics so the main iterative-deepening
-    // heuristic phase does not leak move-ordering state (history/killers) into
-    // proof search, which can amplify TT collision patterns and make proofs incomplete.
-    this.resetSearchHeuristics();
-    this.proofTTHash.fill(0n);
-    this.proofTTResult.fill(0);
-    this.proofTTDepth.fill(0);
-    this.proofTTBestMove.fill(-1);
+    // Epoch-based TT reset avoids clearing large arrays on every proof attempt.
+    this.currentProofEpoch += 1;
+    if (this.currentProofEpoch === 0) {
+      this.proofTTEpoch.fill(0);
+      this.currentProofEpoch = 1;
+    }
   }
 
   private storeProofTT(ttIdx: number, hash: bigint, depthLeft: number, result: 1 | -1, bestMove?: number): void {
@@ -846,6 +846,7 @@ export class GogoAI {
     this.proofTTResult[ttIdx] = result;
     this.proofTTDepth[ttIdx] = depthLeft;
     this.proofTTBestMove[ttIdx] = bestMove ?? -1;
+    this.proofTTEpoch[ttIdx] = this.currentProofEpoch;
   }
 
   /**
@@ -862,10 +863,9 @@ export class GogoAI {
 
     if (!position.play(move)) return false;
     try {
-      // Iterative deepening: start shallow and deepen. Earlier iterations
-      // populate the proof TT, which acts as a powerful pruning mechanism
-      // for deeper iterations.
-      for (let maxDepth = 1; maxDepth <= this.maxPly; maxDepth += 2) {
+      // Iterative deepening starts at depth 3: depth 1 only confirms immediate
+      // wins, while practical puzzle proofs require at least one reply ply.
+      for (let maxDepth = 3; maxDepth <= this.maxPly; maxDepth += 2) {
         try {
           const result = this.proofDefend(position, maxDepth, 1);
           if (result) return true;
@@ -899,7 +899,7 @@ export class GogoAI {
     const hash = position.hash;
     const ttIdx = Number(hash & TT_MASK);
     let ttBest = -1;
-    if (this.proofTTHash[ttIdx] === hash) {
+    if ((this.proofTTEpoch[ttIdx] === 0 || this.proofTTEpoch[ttIdx] === this.currentProofEpoch) && this.proofTTHash[ttIdx] === hash) {
       if (this.proofTTDepth[ttIdx] >= depthLeft) {
         if (this.proofTTResult[ttIdx] === 1) return true;
         if (this.proofTTResult[ttIdx] === -1) return false;
@@ -962,7 +962,7 @@ export class GogoAI {
     const hash = position.hash;
     const ttIdx = Number(hash & TT_MASK);
     let ttBest = -1;
-    if (this.proofTTHash[ttIdx] === hash) {
+    if ((this.proofTTEpoch[ttIdx] === 0 || this.proofTTEpoch[ttIdx] === this.currentProofEpoch) && this.proofTTHash[ttIdx] === hash) {
       if (this.proofTTDepth[ttIdx] >= depthLeft) {
         if (this.proofTTResult[ttIdx] === 1) return true;
         if (this.proofTTResult[ttIdx] === -1) return false;
@@ -1016,6 +1016,14 @@ export class GogoAI {
             position.undo();
           }
         }
+      }
+
+      // Without a ko restriction, the restricted response set is complete:
+      // any non-response move loses immediately to the attacker's open-four threat.
+      // Skip full-board defense generation for substantial speedup in puzzle proofs.
+      if (position.koPoint === -1 && anyLegalCount > 0) {
+        this.storeProofTT(ttIdx, hash, depthLeft, 1);
+        return true;
       }
     }
 

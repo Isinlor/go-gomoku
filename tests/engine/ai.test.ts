@@ -2936,7 +2936,7 @@ test('proofDefend: restricted move play failure is handled without coverage supp
   anyAI.generateFullBoardMoves = realFullGen;
 });
 
-test('proofDefend: falls back to full-board generation even after an earlier legal restricted move', () => {
+test('proofDefend: skips full-board generation after restricted responses when no ko point exists', () => {
   const ai = new GogoAI({ maxDepth: 10 });
   const anyAI = ai as any;
   const pos = GogoPosition.fromAscii([
@@ -2980,9 +2980,9 @@ test('proofDefend: falls back to full-board generation even after an earlier leg
     return positionAfterDefense.lastMove !== 20;
   };
 
-  expect(anyAI.proofDefend(pos, 2, 1)).toBe(false);
-  expect(orderedCalls).toBe(1);
-  expect(fullCalls).toBe(1);
+  expect(anyAI.proofDefend(pos, 2, 1)).toBe(true);
+  expect(orderedCalls).toBe(0);
+  expect(fullCalls).toBe(0);
 
   anyAI.generateOrderedMoves = realGen;
   anyAI.generateFullBoardMoves = realFullGen;
@@ -3011,4 +3011,51 @@ test('insertOrPromoteMove promotes higher scores and tolerates stale marks witho
 
   anyAI.candidateMarks[30] = anyAI.candidateEpoch;
   expect(anyAI.insertOrPromoteMove(moves, scores, count, 30, 50)).toBe(count);
+});
+
+
+test('resetProofSearch wraps epoch counter and clears epoch table on overflow', () => {
+  const ai = new GogoAI({ maxDepth: 2 });
+  const anyAI = ai as any;
+  anyAI.ensureBuffers(81);
+  anyAI.currentProofEpoch = -1;
+  anyAI.proofTTEpoch.fill(7);
+
+  anyAI.resetProofSearch();
+
+  expect(anyAI.currentProofEpoch).toBe(1);
+  expect(anyAI.proofTTEpoch[0]).toBe(0);
+  expect(anyAI.proofTTEpoch[100]).toBe(0);
+});
+
+test('proofDefend stores a proven-win TT entry after full defense generation when ko exists', () => {
+  const ai = new GogoAI({ maxDepth: 10 });
+  const anyAI = ai as any;
+  const pos = GogoPosition.fromAscii([
+    'XXXX.....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    'OOO......',
+    'XXXX.....',
+  ], WHITE);
+  // Force proofDefend to skip the restricted-response early return path.
+  pos.koPoint = 40;
+
+  anyAI.ensureBuffers(pos.area);
+  anyAI.deadline = 1e15;
+  anyAI.proofTTHash.fill(0n);
+  anyAI.proofTTResult.fill(0);
+  anyAI.proofTTDepth.fill(0);
+  anyAI.proofTTBestMove.fill(-1);
+
+  const hash = pos.hash;
+  const ttIdx = Number(hash & 0x3FFFFn);
+
+  expect(anyAI.proofDefend(pos, 2, 1)).toBe(true);
+  expect(anyAI.proofTTHash[ttIdx]).toBe(hash);
+  expect(anyAI.proofTTResult[ttIdx]).toBe(1);
 });
