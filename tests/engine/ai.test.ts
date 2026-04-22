@@ -77,6 +77,7 @@ test('AI finds immediate wins, blocks forced replies at depth one, and returns b
       return calls < 4 ? 0 : 100;
     },
   });
+  (laterTimeoutAI as any).preSearchVCF = () => null;
   const timeout = laterTimeoutAI.findBestMove(new GogoPosition(9), 1);
   expect(timeout.move).toBe(40);
   expect(timeout.timedOut).toBe(true);
@@ -156,6 +157,124 @@ test('AI iterative deepening exits early once a forced win is proven at the root
   expect(result.forcedLoss).toBe(false);
   expect(result.heuristicWin).toBe(true);
   expect(result.heuristicLoss).toBe(false);
+});
+
+test('AI VCF pre-search returns immediately when a tactical winning move is proven', () => {
+  const winning = GogoPosition.fromAscii([
+    'XXXX.....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  const winningMove = winning.index(4, 0);
+
+  const ai = new GogoAI({ maxDepth: 6, quiescenceDepth: 4, now: () => 0 });
+  const anyAI = ai as any;
+  let searchDepthsCalled = false;
+  anyAI.searchDepths = () => {
+    searchDepthsCalled = true;
+  };
+
+  anyAI.verifyWinningMove = (_position: GogoPosition, move: number) => move === winningMove;
+
+  const result = ai.findBestMove(winning, 100);
+  expect(result.move).toBe(winningMove);
+  expect(result.forcedWin).toBe(true);
+  expect(result.heuristicWin).toBe(true);
+  expect(result.timedOut).toBe(false);
+  expect(searchDepthsCalled).toBe(false);
+});
+
+test('AI VCF pre-search falls back to heuristic search when no tactical proof is found', () => {
+  const position = new GogoPosition(9);
+  position.playXY(4, 4);
+
+  const ai = new GogoAI({ maxDepth: 6, quiescenceDepth: 4, now: () => 0 });
+  const anyAI = ai as any;
+  let searchDepthsCalled = false;
+  anyAI.searchDepths = (_position: GogoPosition, _startDepth: number, state: any) => {
+    searchDepthsCalled = true;
+    state.bestMove = position.index(3, 3);
+    state.bestScore = 42;
+    state.completedDepth = 2;
+    state.hintMove = state.bestMove;
+  };
+  anyAI.verifyWinningMove = () => false;
+
+  const result = ai.findBestMove(position, 100);
+  expect(searchDepthsCalled).toBe(true);
+  expect(result.move).toBe(position.index(3, 3));
+  expect(result.score).toBe(42);
+  expect(result.depth).toBe(2);
+  expect(result.forcedWin).toBe(false);
+  expect(result.heuristicWin).toBe(false);
+});
+
+test('AI proof phase still marks forcedWin when VCF pre-search is bypassed', () => {
+  const position = new GogoPosition(9);
+  const ai = new GogoAI({ maxDepth: 4, now: () => 0 });
+  const anyAI = ai as any;
+
+  anyAI.preSearchVCF = () => null;
+  anyAI.searchDepths = (_position: GogoPosition, _startDepth: number, state: any) => {
+    state.bestMove = 40;
+    state.bestScore = 1_000_000_000 - 2;
+    state.completedDepth = 2;
+    state.hintMove = 40;
+  };
+  anyAI.verifyWinningMove = () => true;
+
+  const result = ai.findBestMove(position, 100);
+  expect(result.forcedWin).toBe(true);
+  expect(result.heuristicWin).toBe(true);
+});
+
+test('VCF pre-search returns null on initial deadline miss, per-move deadline miss, and timeout', () => {
+  const position = GogoPosition.fromAscii([
+    'XXXX.....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+
+  const ai = new GogoAI({ maxDepth: 4, now: () => 0 });
+  const anyAI = ai as any;
+  anyAI.ensureBuffers(position.area);
+
+  // Initial deadline miss -> line 244
+  anyAI.deadline = 0;
+  expect(anyAI.preSearchVCF(position)).toBeNull();
+
+  // Per-move deadline miss -> line 259
+  anyAI.deadline = 100;
+  anyAI.now = (() => {
+    let calls = 0;
+    return () => {
+      calls += 1;
+      return calls >= 2 ? 200 : 0;
+    };
+  })();
+  expect(anyAI.preSearchVCF(position)).toBeNull();
+
+  // Timed-out verification -> line 265
+  anyAI.now = () => 0;
+  anyAI.verifyWinningMove = function () {
+    this.timedOut = true;
+    return false;
+  };
+  anyAI.timedOut = false;
+  expect(anyAI.preSearchVCF(position)).toBeNull();
+  expect(anyAI.timedOut).toBe(true);
 });
 
 test('AI marks forced loss and still returns one of the best delaying losing moves', () => {
@@ -902,6 +1021,7 @@ test('proof mode: proof timeout still reports heuristic win but not forced win',
   const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 0, now: () => 0 });
   const anyAI = ai as any;
   anyAI.ensureBuffers(winning.area);
+  anyAI.preSearchVCF = () => null;
 
   // Mock verifyWinningMove to simulate proof timeout
   anyAI.verifyWinningMove = function () {
@@ -1095,7 +1215,7 @@ test('proof mode: proof collapse with no remaining time skips resume', () => {
   expect(result.depth).toBe(2);
 });
 
-test('proof mode: no time for proof skips proof phase entirely', () => {
+test('VCF pre-search can prove wins before proof mode time expires', () => {
   const winning = GogoPosition.fromAscii([
     'XXXX.....',
     '.........',
@@ -1127,7 +1247,7 @@ test('proof mode: no time for proof skips proof phase entirely', () => {
 
   const result = ai.findBestMove(winning, 100);
   expect(result.heuristicWin).toBe(true);
-  expect(result.forcedWin).toBe(false);
+  expect(result.forcedWin).toBe(true);
   expect(result.timedOut).toBe(false);
 });
 
