@@ -49,7 +49,7 @@ const MAX_CANDIDATES = 12;
 // Transposition table constants
 const TT_SIZE_BITS = 18;
 const TT_SIZE = 1 << TT_SIZE_BITS;
-const TT_MASK = TT_SIZE - 1;
+const TT_MASK = BigInt(TT_SIZE - 1);
 const TT_NONE = 0;
 const TT_EXACT = 1;
 const TT_LOWERBOUND = 2;
@@ -79,7 +79,7 @@ export class GogoAI {
   private proofMode = false;
 
   // Transposition table
-  private ttHash = new Int32Array(TT_SIZE);
+  private ttHash = new BigUint64Array(TT_SIZE);
   private ttScore = new Int32Array(TT_SIZE);
   private ttDepth = new Int8Array(TT_SIZE);
   private ttFlag = new Uint8Array(TT_SIZE);
@@ -374,7 +374,7 @@ export class GogoAI {
 
     // Transposition table probe
     const hash = position.hash;
-    const ttIndex = hash & TT_MASK;
+    const ttIndex = Number(hash & TT_MASK);
     let ttBest = -1;
     // Always extract bestMove hint for ordering (even when flags are cleared)
     if (this.ttHash[ttIndex] === hash) {
@@ -402,7 +402,7 @@ export class GogoAI {
       // Update hash: toggle side-to-move + change ko from savedKo to -1
       const oldKoIdx = savedKo === -1 ? position.area : savedKo;
       const noKoIdx = position.area;
-      position.hash ^= position.meta.zobristBlackToMove ^ position.meta.zobristKo[oldKoIdx] ^ position.meta.zobristKo[noKoIdx];
+      position.hash ^= position.meta.zobristBlackToMove64 ^ position.meta.zobristKo64[oldKoIdx] ^ position.meta.zobristKo64[noKoIdx];
       let nullScore: number;
       try {
         nullScore = -this.search(position, depth - 1 - R, -beta, -beta + 1, ply + 1, false);
@@ -824,7 +824,7 @@ export class GogoAI {
   // Dedicated prover for forced-win verification using attacker/defender recursion.
   // Attacker generates only forcing threats; defender generates all legal refutations.
   // This is much faster than full negamax for proving tactical wins.
-  private proofTTHash = new Int32Array(TT_SIZE);
+  private proofTTHash = new BigUint64Array(TT_SIZE);
   // 1 = proven win, -1 = proven loss, 0 = unknown
   private proofTTResult = new Int8Array(TT_SIZE);
   private proofTTDepth = new Int8Array(TT_SIZE);
@@ -835,13 +835,13 @@ export class GogoAI {
     // heuristic phase does not leak move-ordering state (history/killers) into
     // proof search, which can amplify TT collision patterns and make proofs incomplete.
     this.resetSearchHeuristics();
-    this.proofTTHash.fill(0);
+    this.proofTTHash.fill(0n);
     this.proofTTResult.fill(0);
     this.proofTTDepth.fill(0);
     this.proofTTBestMove.fill(-1);
   }
 
-  private storeProofTT(ttIdx: number, hash: number, depthLeft: number, result: 1 | -1, bestMove?: number): void {
+  private storeProofTT(ttIdx: number, hash: bigint, depthLeft: number, result: 1 | -1, bestMove?: number): void {
     this.proofTTHash[ttIdx] = hash;
     this.proofTTResult[ttIdx] = result;
     this.proofTTDepth[ttIdx] = depthLeft;
@@ -897,7 +897,7 @@ export class GogoAI {
 
     // Proof TT probe
     const hash = position.hash;
-    const ttIdx = hash & TT_MASK;
+    const ttIdx = Number(hash & TT_MASK);
     let ttBest = -1;
     if (this.proofTTHash[ttIdx] === hash) {
       if (this.proofTTDepth[ttIdx] >= depthLeft) {
@@ -960,7 +960,7 @@ export class GogoAI {
 
     // Proof TT probe
     const hash = position.hash;
-    const ttIdx = hash & TT_MASK;
+    const ttIdx = Number(hash & TT_MASK);
     let ttBest = -1;
     if (this.proofTTHash[ttIdx] === hash) {
       if (this.proofTTDepth[ttIdx] >= depthLeft) {

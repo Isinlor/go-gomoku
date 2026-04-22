@@ -1,6 +1,6 @@
 import { test, expect } from 'vitest';
 
-import { BLACK, EMPTY, GogoPosition, WHITE, playerName, encodeMove, decodeMove, decodeGame } from '../../src/engine';
+import { BLACK, EMPTY, GogoPosition, WHITE, playerName, encodeMove, decodeMove, decodeGame, computeZobristHashes } from '../../src/engine';
 
 test('constructor, parser, coordinates, and helpers validate inputs', () => {
   expect(() => new GogoPosition(10)).toThrow(/Unsupported board size/);
@@ -683,6 +683,45 @@ test('hash tracks ko state and matches reconstructed positions after ko clears',
     '.......XO',
   ], WHITE);
   expect(game.hash).toBe(rebuiltAfterKoClears.hash);
+});
+
+test('32-bit zobrist collides for distinct states while 64-bit stays distinct', () => {
+  const targetA = 53_300;
+  const targetB = 162_005;
+  let rng = 123_456_789 >>> 0;
+  const nextRandom = (): number => {
+    rng = (Math.imul(rng, 1_664_525) + 1_013_904_223) >>> 0;
+    return rng;
+  };
+
+  const position = new GogoPosition(9);
+  let hashA32 = 0;
+  let hashB32 = 0;
+  let hashA64 = 0n;
+  let hashB64 = 0n;
+
+  for (let state = 0; state <= targetB; state += 1) {
+    for (let idx = 0; idx < position.area; idx += 1) {
+      const cell = nextRandom() % 3;
+      position.board[idx] = cell === 0 ? EMPTY : cell === 1 ? BLACK : WHITE;
+    }
+    position.toMove = (nextRandom() & 1) === 0 ? BLACK : WHITE;
+    position.koPoint = (nextRandom() % (position.area + 1)) - 1;
+    const { hash32, hash64 } = computeZobristHashes(position);
+
+    if (state === targetA) {
+      hashA32 = hash32;
+      hashA64 = hash64;
+    }
+    if (state === targetB) {
+      hashB32 = hash32;
+      hashB64 = hash64;
+    }
+  }
+
+  expect(targetA).not.toBe(targetB);
+  expect(hashA32).toBe(hashB32);
+  expect(hashA64).not.toBe(hashB64);
 });
 
 test('encodeMove converts a board index to column-letter + row-number notation', () => {
