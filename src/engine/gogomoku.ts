@@ -24,12 +24,9 @@ export interface BoardMeta {
   readonly windowsByPointOffsets: Uint16Array;
   readonly windowsByPoint: Int16Array;
   readonly centerBias: Int16Array;
-  readonly zobristStones32: Uint32Array;
-  readonly zobristBlackToMove32: number;
-  /** Zobrist keys for ko point: index 0..area-1 for each square, index area for "no ko". */
-  readonly zobristKo32: Uint32Array;
   readonly zobristStones64: BigUint64Array;
   readonly zobristBlackToMove64: bigint;
+  /** Zobrist keys for ko point: index 0..area-1 for each square, index area for "no ko". */
   readonly zobristKo64: BigUint64Array;
 }
 
@@ -58,13 +55,6 @@ export function parseSupportedSize(size: number): SupportedSize {
   return size as SupportedSize;
 }
 
-function xorshift32(state: number): number {
-  state ^= state << 13;
-  state ^= state >>> 17;
-  state ^= state << 5;
-  return state;
-}
-
 const UINT64_MASK = (1n << 64n) - 1n;
 
 function xorshift64(state: bigint): bigint {
@@ -74,31 +64,24 @@ function xorshift64(state: bigint): bigint {
   return state & UINT64_MASK;
 }
 
-function computePositionHashes(position: Pick<GogoPosition, 'area' | 'board' | 'meta' | 'toMove' | 'koPoint'>): {
-  hash32: number;
-  hash64: bigint;
-} {
-  let hash32 = 0;
+function computePositionHashes(position: Pick<GogoPosition, 'area' | 'board' | 'meta' | 'toMove' | 'koPoint'>): bigint {
   let hash64 = 0n;
   if (position.toMove === BLACK) {
-    hash32 ^= position.meta.zobristBlackToMove32;
     hash64 ^= position.meta.zobristBlackToMove64;
   }
   const koIdx = position.koPoint === -1 ? position.area : position.koPoint;
-  hash32 ^= position.meta.zobristKo32[koIdx];
   hash64 ^= position.meta.zobristKo64[koIdx];
   for (let idx = 0; idx < position.area; idx += 1) {
     const cell = position.board[idx];
     if (cell !== EMPTY) {
       const keyIndex = idx * 2 + (cell - 1);
-      hash32 ^= position.meta.zobristStones32[keyIndex];
       hash64 ^= position.meta.zobristStones64[keyIndex];
     }
   }
-  return { hash32, hash64 };
+  return hash64;
 }
 
-export function computeZobristHashes(position: GogoPosition): { hash32: number; hash64: bigint } {
+export function computeZobristHashes(position: GogoPosition): bigint {
   return computePositionHashes(position);
 }
 
@@ -179,22 +162,6 @@ function createBoardMeta(size: SupportedSize): BoardMeta {
     windowsByPoint.set(windowsBucket[i], windowsByPointOffsets[i]);
   }
 
-  let rngState = 0x9E3779B9 ^ (size * 0x12345);
-  const zobristStones32 = new Uint32Array(area * 2);
-  for (let i = 0; i < area * 2; i += 1) {
-    rngState = xorshift32(rngState);
-    zobristStones32[i] = rngState >>> 0;
-  }
-  rngState = xorshift32(rngState);
-  const zobristBlackToMove32 = rngState >>> 0;
-
-  // Generate zobrist keys for ko: area slots for each square + 1 for "no ko" (-1 maps to index area)
-  const zobristKo32 = new Uint32Array(area + 1);
-  for (let i = 0; i < area + 1; i += 1) {
-    rngState = xorshift32(rngState);
-    zobristKo32[i] = rngState >>> 0;
-  }
-
   let rngState64 = (0x9E3779B97F4A7C15n ^ BigInt(size * 0x12345)) & UINT64_MASK;
   const zobristStones64 = new BigUint64Array(area * 2);
   for (let i = 0; i < area * 2; i += 1) {
@@ -222,9 +189,6 @@ function createBoardMeta(size: SupportedSize): BoardMeta {
     windowsByPointOffsets,
     windowsByPoint,
     centerBias,
-    zobristStones32,
-    zobristBlackToMove32,
-    zobristKo32,
     zobristStones64,
     zobristBlackToMove64,
     zobristKo64,
@@ -350,7 +314,7 @@ export class GogoPosition {
 
     position.winner = position.detectExistingWinner();
 
-    position.hash = computePositionHashes(position).hash64;
+    position.hash = computePositionHashes(position);
 
     return position;
   }
