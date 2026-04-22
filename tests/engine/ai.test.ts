@@ -1,6 +1,6 @@
 import { test, expect } from 'vitest';
 
-import { BLACK, EMPTY, GogoAI, GogoPosition, WHITE } from '../../src/engine';
+import { BLACK, EMPTY, GogoAI, GogoPosition, WHITE, decodeGame, decodeMove } from '../../src/engine';
 import { insertMoveDescending } from '../../src/engine/moveOrdering';
 
 const GENERATE_ORDERED_MOVES_TACTICAL_ONLY_INDEX = 4;
@@ -156,6 +156,95 @@ test('AI iterative deepening exits early once a forced win is proven at the root
   expect(result.forcedLoss).toBe(false);
   expect(result.heuristicWin).toBe(true);
   expect(result.heuristicLoss).toBe(false);
+});
+
+test('VCF pre-search identifies puzzle starter and preserves solving correctness', () => {
+  const position = decodeGame('B9 c5 e3 d5 e4 f5 e6');
+  const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4, now: () => 0 });
+  const anyAI = ai as any;
+  anyAI.ensureBuffers(position.area);
+  anyAI.deadline = Number.POSITIVE_INFINITY;
+  expect(anyAI.runVCFPreSearch(position, -1)).toBe(decodeMove('e5', 9));
+
+  const result = ai.findBestMove(position, 1000);
+  expect(result.move).toBe(decodeMove('e5', 9));
+});
+
+test('VCF pre-search exits cleanly when deadline is already reached', () => {
+  const position = GogoPosition.fromAscii([
+    'XXX......',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  const ai = new GogoAI({ maxDepth: 8, quiescenceDepth: 2, now: () => 1 });
+  const anyAI = ai as any;
+  anyAI.ensureBuffers(position.area);
+  anyAI.deadline = 0;
+  expect(anyAI.runVCFPreSearch(position, -1)).toBe(-1);
+});
+
+test('VCF pre-search exits when remaining candidate budget is exhausted mid-loop', () => {
+  const position = GogoPosition.fromAscii([
+    'XXX......',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  let tick = 0;
+  const ai = new GogoAI({
+    maxDepth: 8,
+    quiescenceDepth: 2,
+    now: () => {
+      tick += 1;
+      return tick === 1 ? 4 : 6;
+    },
+  });
+  const anyAI = ai as any;
+  anyAI.ensureBuffers(position.area);
+  anyAI.deadline = 5;
+  expect(anyAI.runVCFPreSearch(position, -1)).toBe(-1);
+});
+
+test('VCF immediate-four detector rejects occupied and ko-point moves', () => {
+  const occupied = GogoPosition.fromAscii([
+    'X........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  const ai = new GogoAI({ maxDepth: 6, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+  expect(anyAI.createsImmediateFourThreat(occupied, occupied.index(0, 0))).toBe(false);
+
+  const ko = GogoPosition.fromAscii([
+    '..O......',
+    '.O.O.....',
+    '.XOX.....',
+    '..X......',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  expect(ko.playXY(2, 1)).toBe(true);
+  expect(anyAI.createsImmediateFourThreat(ko, ko.koPoint)).toBe(false);
 });
 
 test('AI marks forced loss and still returns one of the best delaying losing moves', () => {
