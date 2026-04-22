@@ -31,11 +31,27 @@ interface SearchState {
   hintMove: number;
 }
 
+interface PatternCounts {
+  openFour: number;
+  closedFour: number;
+  openThree: number;
+  closedThree: number;
+  brokenThree: number;
+}
+
 const WIN_SCORE = 1_000_000_000;
 const ATTACK_WEIGHTS = [0, 12, 72, 540, 100_000, 500_000] as const;
 const DEFENSE_WEIGHTS = [0, 16, 96, 720, 100_000, 500_000] as const;
 const EVAL_WEIGHTS = [0, 6, 32, 240, 500_000, WIN_SCORE >> 2] as const;
 const LOCAL_LIBERTY_WEIGHTS = [-200, -80, 20, 60, 80] as const;
+const OPEN_FOUR_WEIGHT = 220_000;
+const CLOSED_FOUR_WEIGHT = 80_000;
+const OPEN_THREE_WEIGHT = 11_000;
+const CLOSED_THREE_WEIGHT = 2_800;
+const BROKEN_THREE_WEIGHT = 5_600;
+const FORK_WEIGHT = 25_000;
+const SIDE_TO_MOVE_PATTERN_BONUS_NUM = 6;
+const SIDE_TO_MOVE_PATTERN_BONUS_DEN = 5;
 const TACTICAL_PATTERN_THRESHOLD = ATTACK_WEIGHTS[4];
 const CENTER_MULTIPLIER = 3;
 const HINT_BONUS = 10_000_000;
@@ -576,6 +592,10 @@ export class GogoAI {
     const board = position.board;
     const meta = position.meta;
     const windows = meta.windows;
+    const windowLeft = meta.windowLeft;
+    const windowRight = meta.windowRight;
+    const blackPatterns: PatternCounts = { openFour: 0, closedFour: 0, openThree: 0, closedThree: 0, brokenThree: 0 };
+    const whitePatterns: PatternCounts = { openFour: 0, closedFour: 0, openThree: 0, closedThree: 0, brokenThree: 0 };
 
     for (let windowIndex = 0; windowIndex < meta.windowCount; windowIndex += 1) {
       const base = windowIndex * 5;
@@ -589,9 +609,21 @@ export class GogoAI {
       const white = (c0 >> 1) + (c1 >> 1) + (c2 >> 1) + (c3 >> 1) + (c4 >> 1);
       if (black === 0 && white !== 0) {
         score -= EVAL_WEIGHTS[white];
+        this.accumulatePatternCounts(whitePatterns, white, c0, c1, c2, c3, c4, windowLeft[windowIndex], windowRight[windowIndex], board);
       } else if (white === 0 && black !== 0) {
         score += EVAL_WEIGHTS[black];
+        this.accumulatePatternCounts(blackPatterns, black, c0, c1, c2, c3, c4, windowLeft[windowIndex], windowRight[windowIndex], board);
       }
+    }
+
+    score += this.patternScore(blackPatterns);
+    score -= this.patternScore(whitePatterns);
+    if (position.toMove === BLACK) {
+      score += this.patternTempo(blackPatterns);
+      score -= this.patternTempo(whitePatterns);
+    } else {
+      score += this.patternTempo(whitePatterns);
+      score -= this.patternTempo(blackPatterns);
     }
 
     const neighbors = meta.neighbors4;
@@ -612,6 +644,79 @@ export class GogoAI {
     }
 
     return position.toMove === BLACK ? score : -score;
+  }
+
+  private accumulatePatternCounts(
+    patterns: PatternCounts,
+    stones: number,
+    c0: Cell,
+    c1: Cell,
+    c2: Cell,
+    c3: Cell,
+    c4: Cell,
+    left: number,
+    right: number,
+    board: Uint8Array,
+  ): void {
+    const e0 = c0 === EMPTY ? 1 : 0;
+    const e1 = c1 === EMPTY ? 1 : 0;
+    const e2 = c2 === EMPTY ? 1 : 0;
+    const e3 = c3 === EMPTY ? 1 : 0;
+    const e4 = c4 === EMPTY ? 1 : 0;
+    const leftOpen = left !== -1 && board[left] === EMPTY;
+    const rightOpen = right !== -1 && board[right] === EMPTY;
+    const mask = ((e0 ^ 1) << 4) | ((e1 ^ 1) << 3) | ((e2 ^ 1) << 2) | ((e3 ^ 1) << 1) | (e4 ^ 1);
+
+    if (stones === 4) {
+      if (e0 === 1) {
+        if (leftOpen) patterns.openFour += 1;
+        else patterns.closedFour += 1;
+      } else if (e4 === 1) {
+        if (rightOpen) patterns.openFour += 1;
+        else patterns.closedFour += 1;
+      } else {
+        patterns.openFour += 1;
+      }
+      return;
+    }
+    if (stones !== 3) return;
+
+    if (mask === 0b01110) {
+      patterns.openThree += 1;
+      return;
+    }
+    if (mask === 0b11100) {
+      if (rightOpen) patterns.openThree += 1;
+      else patterns.closedThree += 1;
+      return;
+    }
+    if (mask === 0b00111) {
+      if (leftOpen) patterns.openThree += 1;
+      else patterns.closedThree += 1;
+      return;
+    }
+    if (mask === 0b11010 || mask === 0b10110 || mask === 0b01101 || mask === 0b01011 || mask === 0b10011) {
+      patterns.brokenThree += 1;
+      return;
+    }
+    patterns.closedThree += 1;
+  }
+
+  private patternScore(patterns: PatternCounts): number {
+    const forks = Math.floor((patterns.openFour + patterns.openThree + patterns.brokenThree) / 2);
+    return (patterns.openFour * OPEN_FOUR_WEIGHT)
+      + (patterns.closedFour * CLOSED_FOUR_WEIGHT)
+      + (patterns.openThree * OPEN_THREE_WEIGHT)
+      + (patterns.closedThree * CLOSED_THREE_WEIGHT)
+      + (patterns.brokenThree * BROKEN_THREE_WEIGHT)
+      + (forks * FORK_WEIGHT);
+  }
+
+  private patternTempo(patterns: PatternCounts): number {
+    const base = (patterns.openFour * OPEN_FOUR_WEIGHT)
+      + (patterns.openThree * OPEN_THREE_WEIGHT)
+      + (patterns.brokenThree * BROKEN_THREE_WEIGHT);
+    return Math.floor((base * SIDE_TO_MOVE_PATTERN_BONUS_NUM) / SIDE_TO_MOVE_PATTERN_BONUS_DEN) - base;
   }
 
   private generateOrderedMoves(

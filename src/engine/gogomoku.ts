@@ -21,6 +21,8 @@ export interface BoardMeta {
   readonly near2: Int16Array;
   readonly windows: Int16Array;
   readonly windowCount: number;
+  readonly windowLeft: Int16Array;
+  readonly windowRight: Int16Array;
   readonly windowsByPointOffsets: Uint16Array;
   readonly windowsByPoint: Int16Array;
   readonly centerBias: Int16Array;
@@ -97,6 +99,8 @@ function createBoardMeta(size: SupportedSize): BoardMeta {
   const near2Buckets: number[][] = Array.from({ length: area }, () => []);
   const windowsBucket: number[][] = Array.from({ length: area }, () => []);
   const windows: number[] = [];
+  const windowLeft: number[] = [];
+  const windowRight: number[] = [];
   let windowCount = 0;
 
   for (let y = 0; y < size; y += 1) {
@@ -131,6 +135,12 @@ function createBoardMeta(size: SupportedSize): BoardMeta {
         if (endX < 0 || endX >= size || endY < 0 || endY >= size) {
           continue;
         }
+        const leftX = x - dx;
+        const leftY = y - dy;
+        const rightX = x + dx * 5;
+        const rightY = y + dy * 5;
+        windowLeft.push(leftX >= 0 && leftX < size && leftY >= 0 && leftY < size ? (leftY * size) + leftX : -1);
+        windowRight.push(rightX >= 0 && rightX < size && rightY >= 0 && rightY < size ? (rightY * size) + rightX : -1);
         const windowIndex = windowCount;
         for (let step = 0; step < 5; step += 1) {
           const point = (y + dy * step) * size + (x + dx * step);
@@ -186,6 +196,8 @@ function createBoardMeta(size: SupportedSize): BoardMeta {
     near2,
     windows: Int16Array.from(windows),
     windowCount,
+    windowLeft: Int16Array.from(windowLeft),
+    windowRight: Int16Array.from(windowRight),
     windowsByPointOffsets,
     windowsByPoint,
     centerBias,

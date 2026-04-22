@@ -549,6 +549,68 @@ test('scoreMove deduplicates adjacent groups that wrap around the candidate from
   expect(anyAI.scoreMove(playerDedup, playerDedup.index(3, 2), -1, false)).toBe(6080);
 });
 
+test('evaluation prefers open four shape over edge-closed four shape', () => {
+  const ai = new GogoAI({ maxDepth: 1, quiescenceDepth: 1, now: () => 0 });
+  const anyAI = ai as any;
+  const position = GogoPosition.fromAscii([
+    '.XXX.....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+
+  const openFourMove = position.index(4, 0);
+  const edgeFourMove = position.index(0, 0);
+
+  expect(position.play(openFourMove)).toBe(true);
+  position.toMove = BLACK;
+  const openScore = anyAI.evaluate(position);
+  position.undo();
+
+  expect(position.play(edgeFourMove)).toBe(true);
+  position.toMove = BLACK;
+  const closedScore = anyAI.evaluate(position);
+  position.undo();
+
+  expect(openScore).toBeGreaterThan(closedScore);
+});
+
+test('evaluation rewards split-threat fork creation over a single-side extension', () => {
+  const ai = new GogoAI({ maxDepth: 1, quiescenceDepth: 1, now: () => 0 });
+  const anyAI = ai as any;
+  const position = GogoPosition.fromAscii([
+    '.........',
+    '.........',
+    '....X....',
+    '...X.X...',
+    '....X....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+
+  const forkMove = position.index(4, 3);
+  const sideMove = position.index(2, 3);
+
+  expect(position.play(forkMove)).toBe(true);
+  position.toMove = BLACK;
+  const forkScore = anyAI.evaluate(position);
+  position.undo();
+
+  expect(position.play(sideMove)).toBe(true);
+  position.toMove = BLACK;
+  const sideScore = anyAI.evaluate(position);
+  position.undo();
+
+  expect(forkScore).toBeGreaterThan(sideScore);
+});
+
 test('null move pruning prunes when the position is strongly in favor of the side to move', () => {
   // Position where BLACK has a strong 3-in-a-row pattern.
   // The null move (giving WHITE a free move) still evaluates strongly
