@@ -251,7 +251,7 @@ function growTypedArray<T extends GrowableTypedArray>(
     nextLength <<= 1;
   }
   const next = new ctor(nextLength);
-  next.set(current);
+  next.set(current as never);
   return next;
 }
 
