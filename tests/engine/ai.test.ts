@@ -183,6 +183,95 @@ test('AI marks forced loss and still returns one of the best delaying losing mov
   expect(result.heuristicLoss).toBe(true);
 });
 
+test('evaluation prefers open-four shape over closed-four shape for the side to move', () => {
+  const position = GogoPosition.fromAscii([
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.XXX.....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  const ai = new GogoAI({ maxDepth: 1, quiescenceDepth: 1, now: () => 0 });
+  const anyAI = ai as any;
+
+  const openFour = position.index(4, 4);
+  const closedFour = position.index(0, 4);
+
+  const openEval = (() => {
+    expect(position.play(openFour)).toBe(true);
+    const score = -anyAI.evaluate(position);
+    position.undo();
+    return score;
+  })();
+  const closedEval = (() => {
+    expect(position.play(closedFour)).toBe(true);
+    const score = -anyAI.evaluate(position);
+    position.undo();
+    return score;
+  })();
+
+  expect(openEval).toBeGreaterThan(closedEval);
+});
+
+test('evaluation prefers fork-creating move over a single open-three move', () => {
+  const position = GogoPosition.fromAscii([
+    '.........',
+    '.........',
+    '....X....',
+    '....X....',
+    '..XX.....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  const ai = new GogoAI({ maxDepth: 1, quiescenceDepth: 1, now: () => 0 });
+  const anyAI = ai as any;
+
+  const forkMove = position.index(4, 4);
+  const singleThreatMove = position.index(1, 4);
+
+  const forkEval = (() => {
+    expect(position.play(forkMove)).toBe(true);
+    const score = -anyAI.evaluate(position);
+    position.undo();
+    return score;
+  })();
+  const singleEval = (() => {
+    expect(position.play(singleThreatMove)).toBe(true);
+    const score = -anyAI.evaluate(position);
+    position.undo();
+    return score;
+  })();
+
+  expect(forkEval).toBeGreaterThan(singleEval);
+});
+
+test('window pattern detector counts broken-three split threats', () => {
+  const ai = new GogoAI({ maxDepth: 1, quiescenceDepth: 1, now: () => 0 });
+  const anyAI = ai as any;
+  const counts = new Int16Array(6);
+
+  const forcing = anyAI.accumulateWindowPatternShape(
+    1, // stone
+    1, // stone
+    0, // gap
+    1, // stone
+    0, // empty
+    3,
+    true,
+    true,
+    counts,
+  );
+
+  expect(forcing).toBe(1);
+  expect(counts[4]).toBe(1);
+});
+
 test('AI restores position state after a mid-search timeout so the board is not corrupted', () => {
   // One stone gives the search real candidates to explore but keeps depth-1 well under 128 nodes,
   // so the non-forced timeout (fires every 128 nodes) hits inside the depth-2 subtree with
