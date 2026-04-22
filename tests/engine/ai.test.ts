@@ -653,7 +653,7 @@ test('transposition table stores entries during search and produces cutoffs on r
 
   // Verify TT was populated for this position - bestMove is stored
   const hash = pos.hash;
-  const ttIndex = hash & 0x3FFFF;
+  const ttIndex = Number(hash & 0x3FFFFn);
   expect(anyAI.ttHash[ttIndex]).toBe(hash);
   expect(anyAI.ttBestMove[ttIndex]).not.toBe(-1);
 
@@ -1432,7 +1432,7 @@ test('proofAttack: returns false when position has a winner (defender won)', () 
   const anyAI = ai as any;
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new Int32Array(1 << 18);
+  anyAI.proofTTHash = new BigUint64Array(1 << 18);
   anyAI.proofTTResult = new Int8Array(1 << 18);
   anyAI.proofTTDepth = new Int8Array(1 << 18);
 
@@ -1456,7 +1456,7 @@ test('proofAttack: returns false at depth 0', () => {
   const anyAI = ai as any;
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new Int32Array(1 << 18);
+  anyAI.proofTTHash = new BigUint64Array(1 << 18);
   anyAI.proofTTResult = new Int8Array(1 << 18);
   anyAI.proofTTDepth = new Int8Array(1 << 18);
 
@@ -1480,7 +1480,7 @@ test('proofAttack: TT hit returns cached result', () => {
   const anyAI = ai as any;
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new Int32Array(1 << 18);
+  anyAI.proofTTHash = new BigUint64Array(1 << 18);
   anyAI.proofTTResult = new Int8Array(1 << 18);
   anyAI.proofTTDepth = new Int8Array(1 << 18);
 
@@ -1511,7 +1511,7 @@ test('proofDefend: returns true when attacker already won', () => {
   const anyAI = ai as any;
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new Int32Array(1 << 18);
+  anyAI.proofTTHash = new BigUint64Array(1 << 18);
   anyAI.proofTTResult = new Int8Array(1 << 18);
   anyAI.proofTTDepth = new Int8Array(1 << 18);
 
@@ -1536,7 +1536,7 @@ test('proofDefend: returns false at depth 0', () => {
   const anyAI = ai as any;
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new Int32Array(1 << 18);
+  anyAI.proofTTHash = new BigUint64Array(1 << 18);
   anyAI.proofTTResult = new Int8Array(1 << 18);
   anyAI.proofTTDepth = new Int8Array(1 << 18);
 
@@ -1560,7 +1560,7 @@ test('proofDefend: TT hit returns cached result', () => {
   const anyAI = ai as any;
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new Int32Array(1 << 18);
+  anyAI.proofTTHash = new BigUint64Array(1 << 18);
   anyAI.proofTTResult = new Int8Array(1 << 18);
   anyAI.proofTTDepth = new Int8Array(1 << 18);
 
@@ -1592,7 +1592,7 @@ test('proofDefend: defender makes five and refutes attack', () => {
   const anyAI = ai as any;
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new Int32Array(1 << 18);
+  anyAI.proofTTHash = new BigUint64Array(1 << 18);
   anyAI.proofTTResult = new Int8Array(1 << 18);
   anyAI.proofTTDepth = new Int8Array(1 << 18);
 
@@ -1853,13 +1853,13 @@ test('proofAttack: TT hit returns -1 (proven not winning)', () => {
   const anyAI = ai as any;
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new Int32Array(1 << 18);
+  anyAI.proofTTHash = new BigUint64Array(1 << 18);
   anyAI.proofTTResult = new Int8Array(1 << 18);
   anyAI.proofTTDepth = new Int8Array(1 << 18);
 
   // Pre-populate TT with "not winning" result
   const hash = pos.hash;
-  const ttIdx = hash & 0x3FFFF;
+  const ttIdx = Number(hash & 0x3FFFFn);
   anyAI.proofTTHash[ttIdx] = hash;
   anyAI.proofTTResult[ttIdx] = -1;
   anyAI.proofTTDepth[ttIdx] = 10;
@@ -1884,13 +1884,13 @@ test('proofAttack: TT hash match but result=0 falls through to search', () => {
   const anyAI = ai as any;
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new Int32Array(1 << 18);
+  anyAI.proofTTHash = new BigUint64Array(1 << 18);
   anyAI.proofTTResult = new Int8Array(1 << 18);
   anyAI.proofTTDepth = new Int8Array(1 << 18);
 
   // Seed TT with hash match but result=0 (unknown) - should fall through
   const hash = pos.hash;
-  const ttIdx = hash & 0x3FFFF;
+  const ttIdx = Number(hash & 0x3FFFFn);
   anyAI.proofTTHash[ttIdx] = hash;
   anyAI.proofTTResult[ttIdx] = 0; // unknown
   anyAI.proofTTDepth[ttIdx] = 10;
@@ -1918,7 +1918,7 @@ test('proofDefend: all defenses fail → attacker proven to win', () => {
   const anyAI = ai as any;
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new Int32Array(1 << 18);
+  anyAI.proofTTHash = new BigUint64Array(1 << 18);
   anyAI.proofTTResult = new Int8Array(1 << 18);
   anyAI.proofTTDepth = new Int8Array(1 << 18);
 
@@ -1951,7 +1951,7 @@ test('proofDefend: fullboard fallback when near-2 generates nothing', () => {
   const anyAI = ai as any;
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new Int32Array(1 << 18);
+  anyAI.proofTTHash = new BigUint64Array(1 << 18);
   anyAI.proofTTResult = new Int8Array(1 << 18);
   anyAI.proofTTDepth = new Int8Array(1 << 18);
 
@@ -1998,7 +1998,7 @@ test('TT exact and upperbound cutoffs work in proof mode (uncapped nodes)', () =
   const score1 = anyAI.search(pos, 3, -1_000_000, 1_000_000, 1);
 
   const hash = pos.hash;
-  const ttIndex = hash & 0x3FFFF;
+  const ttIndex = Number(hash & 0x3FFFFn);
   // Verify TT was populated with a valid flag
   expect(anyAI.ttFlag[ttIndex]).not.toBe(0);
 
@@ -2071,7 +2071,7 @@ test('proofAttack: illegal move is skipped', () => {
   const anyAI = ai as any;
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new Int32Array(1 << 18);
+  anyAI.proofTTHash = new BigUint64Array(1 << 18);
   anyAI.proofTTResult = new Int8Array(1 << 18);
   anyAI.proofTTDepth = new Int8Array(1 << 18);
 
@@ -2097,13 +2097,13 @@ test('proofDefend: TT hit with proven winning result', () => {
   const anyAI = ai as any;
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new Int32Array(1 << 18);
+  anyAI.proofTTHash = new BigUint64Array(1 << 18);
   anyAI.proofTTResult = new Int8Array(1 << 18);
   anyAI.proofTTDepth = new Int8Array(1 << 18);
 
   // Pre-populate TT with "attacker wins" result
   const hash = pos.hash;
-  const ttIdx = hash & 0x3FFFF;
+  const ttIdx = Number(hash & 0x3FFFFn);
   anyAI.proofTTHash[ttIdx] = hash;
   anyAI.proofTTResult[ttIdx] = 1;
   anyAI.proofTTDepth[ttIdx] = 10;
@@ -2128,13 +2128,13 @@ test('proofDefend: TT hit with proven not-winning result', () => {
   const anyAI = ai as any;
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new Int32Array(1 << 18);
+  anyAI.proofTTHash = new BigUint64Array(1 << 18);
   anyAI.proofTTResult = new Int8Array(1 << 18);
   anyAI.proofTTDepth = new Int8Array(1 << 18);
 
   // Pre-populate TT with "not winning" result
   const hash = pos.hash;
-  const ttIdx = hash & 0x3FFFF;
+  const ttIdx = Number(hash & 0x3FFFFn);
   anyAI.proofTTHash[ttIdx] = hash;
   anyAI.proofTTResult[ttIdx] = -1;
   anyAI.proofTTDepth[ttIdx] = 10;
@@ -2159,13 +2159,13 @@ test('proofDefend: TT hash match but result=0 falls through to search', () => {
   const anyAI = ai as any;
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new Int32Array(1 << 18);
+  anyAI.proofTTHash = new BigUint64Array(1 << 18);
   anyAI.proofTTResult = new Int8Array(1 << 18);
   anyAI.proofTTDepth = new Int8Array(1 << 18);
 
   // Seed TT with hash match but result=0 (unknown) - should fall through
   const hash = pos.hash;
-  const ttIdx = hash & 0x3FFFF;
+  const ttIdx = Number(hash & 0x3FFFFn);
   anyAI.proofTTHash[ttIdx] = hash;
   anyAI.proofTTResult[ttIdx] = 0; // unknown
   anyAI.proofTTDepth[ttIdx] = 10;
@@ -2236,7 +2236,7 @@ test('proofAttack: play() failure is handled (suicide move skipped)', () => {
   ], BLACK);
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new Int32Array(1 << 18);
+  anyAI.proofTTHash = new BigUint64Array(1 << 18);
   anyAI.proofTTResult = new Int8Array(1 << 18);
   anyAI.proofTTDepth = new Int8Array(1 << 18);
 
@@ -2287,7 +2287,7 @@ test('proofDefend: play() failure is handled', () => {
   ], WHITE);
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new Int32Array(1 << 18);
+  anyAI.proofTTHash = new BigUint64Array(1 << 18);
   anyAI.proofTTResult = new Int8Array(1 << 18);
   anyAI.proofTTDepth = new Int8Array(1 << 18);
 
@@ -2334,7 +2334,7 @@ test('proofDefend: fullboard fallback explores all candidates (no cap)', () => {
   ], WHITE);
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new Int32Array(1 << 18);
+  anyAI.proofTTHash = new BigUint64Array(1 << 18);
   anyAI.proofTTResult = new Int8Array(1 << 18);
   anyAI.proofTTDepth = new Int8Array(1 << 18);
 
@@ -2372,7 +2372,7 @@ test('proofDefend: fullboard fallback with few candidates (no cap needed)', () =
   ], WHITE);
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new Int32Array(1 << 18);
+  anyAI.proofTTHash = new BigUint64Array(1 << 18);
   anyAI.proofTTResult = new Int8Array(1 << 18);
   anyAI.proofTTDepth = new Int8Array(1 << 18);
 
@@ -2435,7 +2435,7 @@ test('proofDefend: returns false (not proven) when no legal moves exist', () => 
   ], WHITE);
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new Int32Array(1 << 18);
+  anyAI.proofTTHash = new BigUint64Array(1 << 18);
   anyAI.proofTTResult = new Int8Array(1 << 18);
   anyAI.proofTTDepth = new Int8Array(1 << 18);
 
@@ -2471,14 +2471,14 @@ test('proofAttack: hash-move-first succeeds from seeded TT best move', () => {
   anyAI.deadline = 1e15;
   anyAI.killerMoves.fill(-1);
   anyAI.history.fill(0);
-  anyAI.proofTTHash.fill(0);
+  anyAI.proofTTHash.fill(0n);
   anyAI.proofTTResult.fill(0);
   anyAI.proofTTDepth.fill(0);
   anyAI.proofTTBestMove.fill(-1);
 
   // Seed TT: hash matches, depth too shallow for cutoff, but bestMove is set
   const hash = pos.hash;
-  const ttIdx = hash & 0x3FFFF;
+  const ttIdx = Number(hash & 0x3FFFFn);
   anyAI.proofTTHash[ttIdx] = hash;
   anyAI.proofTTResult[ttIdx] = 0; // no cutoff
   anyAI.proofTTDepth[ttIdx] = 0;
@@ -2529,14 +2529,14 @@ test('proofAttack: hash-move-first wins via proofDefend (non-immediate)', () => 
   anyAI.deadline = 1e15;
   anyAI.killerMoves.fill(-1);
   anyAI.history.fill(0);
-  anyAI.proofTTHash.fill(0);
+  anyAI.proofTTHash.fill(0n);
   anyAI.proofTTResult.fill(0);
   anyAI.proofTTDepth.fill(0);
   anyAI.proofTTBestMove.fill(-1);
 
   // Seed TT with move 4 as best move (extends the line but doesn't immediately win)
   const hash = pos.hash;
-  const ttIdx = hash & 0x3FFFF;
+  const ttIdx = Number(hash & 0x3FFFFn);
   anyAI.proofTTHash[ttIdx] = hash;
   anyAI.proofTTResult[ttIdx] = 0;
   anyAI.proofTTDepth[ttIdx] = 0;
@@ -2566,14 +2566,14 @@ test('proofDefend: hash-move-first with defender making five', () => {
   anyAI.deadline = 1e15;
   anyAI.killerMoves.fill(-1);
   anyAI.history.fill(0);
-  anyAI.proofTTHash.fill(0);
+  anyAI.proofTTHash.fill(0n);
   anyAI.proofTTResult.fill(0);
   anyAI.proofTTDepth.fill(0);
   anyAI.proofTTBestMove.fill(-1);
 
   // Seed TT with the five-completing move as best move
   const hash = pos.hash;
-  const ttIdx = hash & 0x3FFFF;
+  const ttIdx = Number(hash & 0x3FFFFn);
   anyAI.proofTTHash[ttIdx] = hash;
   anyAI.proofTTResult[ttIdx] = 0;
   anyAI.proofTTDepth[ttIdx] = 0;
@@ -2619,7 +2619,7 @@ test('proofDefend: full generation finds defender five (winner check)', () => {
   anyAI.deadline = 1e15;
   anyAI.killerMoves.fill(-1);
   anyAI.history.fill(0);
-  anyAI.proofTTHash.fill(0);
+  anyAI.proofTTHash.fill(0n);
   anyAI.proofTTResult.fill(0);
   anyAI.proofTTDepth.fill(0);
   anyAI.proofTTBestMove.fill(-1);
@@ -2688,13 +2688,13 @@ test('proofAttack: illegal TT move is attempted before move generation and skipp
   ], BLACK);
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
-  anyAI.proofTTHash.fill(0);
+  anyAI.proofTTHash.fill(0n);
   anyAI.proofTTResult.fill(0);
   anyAI.proofTTDepth.fill(0);
   anyAI.proofTTBestMove.fill(-1);
 
   const hash = pos.hash;
-  const ttIdx = hash & 0x3FFFF;
+  const ttIdx = Number(hash & 0x3FFFFn);
   anyAI.proofTTHash[ttIdx] = hash;
   anyAI.proofTTBestMove[ttIdx] = 40;
 
@@ -2742,14 +2742,14 @@ test('proofAttack: hash move creates non-winning position; killer move skip in t
   const anyAI = ai as any;
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
-  anyAI.proofTTHash.fill(0);
+  anyAI.proofTTHash.fill(0n);
   anyAI.proofTTResult.fill(0);
   anyAI.proofTTDepth.fill(0);
   anyAI.proofTTBestMove.fill(-1);
 
   // Seed TT: hash matches, bestMove = 5 (a non-winning empty cell)
   const hash = pos.hash;
-  const ttIdx = hash & 0x3FFFF;
+  const ttIdx = Number(hash & 0x3FFFFn);
   anyAI.proofTTHash[ttIdx] = hash;
   anyAI.proofTTResult[ttIdx] = 0; // no cutoff
   anyAI.proofTTDepth[ttIdx] = 0;
@@ -2781,13 +2781,13 @@ test('proofDefend: illegal TT move is attempted before ordered generation and sk
   ], WHITE);
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
-  anyAI.proofTTHash.fill(0);
+  anyAI.proofTTHash.fill(0n);
   anyAI.proofTTResult.fill(0);
   anyAI.proofTTDepth.fill(0);
   anyAI.proofTTBestMove.fill(-1);
 
   const hash = pos.hash;
-  const ttIdx = hash & 0x3FFFF;
+  const ttIdx = Number(hash & 0x3FFFFn);
   anyAI.proofTTHash[ttIdx] = hash;
   anyAI.proofTTBestMove[ttIdx] = 40;
 
@@ -2842,14 +2842,14 @@ test('proofDefend: hash move does not refute double threat; ttBest skipped in th
   const anyAI = ai as any;
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
-  anyAI.proofTTHash.fill(0);
+  anyAI.proofTTHash.fill(0n);
   anyAI.proofTTResult.fill(0);
   anyAI.proofTTDepth.fill(0);
   anyAI.proofTTBestMove.fill(-1);
 
   // Seed TT with ttBest=4 (blocking row 0's four)
   const hash = pos.hash;
-  const ttIdx = hash & 0x3FFFF;
+  const ttIdx = Number(hash & 0x3FFFFn);
   anyAI.proofTTHash[ttIdx] = hash;
   anyAI.proofTTResult[ttIdx] = 0; // no cutoff
   anyAI.proofTTDepth[ttIdx] = 0;
@@ -2911,7 +2911,7 @@ test('proofDefend: restricted move play failure is handled without coverage supp
   ], WHITE);
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
-  anyAI.proofTTHash.fill(0);
+  anyAI.proofTTHash.fill(0n);
   anyAI.proofTTResult.fill(0);
   anyAI.proofTTDepth.fill(0);
   anyAI.proofTTBestMove.fill(-1);
@@ -2952,7 +2952,7 @@ test('proofDefend: falls back to full-board generation even after an earlier leg
   ], WHITE);
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
-  anyAI.proofTTHash.fill(0);
+  anyAI.proofTTHash.fill(0n);
   anyAI.proofTTResult.fill(0);
   anyAI.proofTTDepth.fill(0);
   anyAI.proofTTBestMove.fill(-1);

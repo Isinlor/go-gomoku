@@ -24,10 +24,13 @@ export interface BoardMeta {
   readonly windowsByPointOffsets: Uint16Array;
   readonly windowsByPoint: Int16Array;
   readonly centerBias: Int16Array;
-  readonly zobristStones: Int32Array;
-  readonly zobristBlackToMove: number;
+  readonly zobristStones32: Uint32Array;
+  readonly zobristBlackToMove32: number;
   /** Zobrist keys for ko point: index 0..area-1 for each square, index area for "no ko". */
-  readonly zobristKo: Int32Array;
+  readonly zobristKo32: Uint32Array;
+  readonly zobristStones64: BigUint64Array;
+  readonly zobristBlackToMove64: bigint;
+  readonly zobristKo64: BigUint64Array;
 }
 
 const SUPPORTED_SIZES = new Set<number>([9, 11, 13]);
@@ -39,7 +42,7 @@ const LINE_DIRECTIONS = [
   [1, -1],
 ] as const;
 
-type GrowableTypedArray = Int16Array | Uint8Array | Int32Array;
+type GrowableTypedArray = Int16Array | Uint8Array | Int32Array | BigUint64Array;
 type GrowableTypedArrayConstructor<T extends GrowableTypedArray> = {
   new(length: number): T;
 };
@@ -60,6 +63,43 @@ function xorshift32(state: number): number {
   state ^= state >>> 17;
   state ^= state << 5;
   return state;
+}
+
+const UINT64_MASK = (1n << 64n) - 1n;
+
+function xorshift64(state: bigint): bigint {
+  state ^= (state << 13n) & UINT64_MASK;
+  state ^= state >> 7n;
+  state ^= (state << 17n) & UINT64_MASK;
+  return state & UINT64_MASK;
+}
+
+function computePositionHashes(position: Pick<GogoPosition, 'area' | 'board' | 'meta' | 'toMove' | 'koPoint'>): {
+  hash32: number;
+  hash64: bigint;
+} {
+  let hash32 = 0;
+  let hash64 = 0n;
+  if (position.toMove === BLACK) {
+    hash32 ^= position.meta.zobristBlackToMove32;
+    hash64 ^= position.meta.zobristBlackToMove64;
+  }
+  const koIdx = position.koPoint === -1 ? position.area : position.koPoint;
+  hash32 ^= position.meta.zobristKo32[koIdx];
+  hash64 ^= position.meta.zobristKo64[koIdx];
+  for (let idx = 0; idx < position.area; idx += 1) {
+    const cell = position.board[idx];
+    if (cell !== EMPTY) {
+      const keyIndex = idx * 2 + (cell - 1);
+      hash32 ^= position.meta.zobristStones32[keyIndex];
+      hash64 ^= position.meta.zobristStones64[keyIndex];
+    }
+  }
+  return { hash32, hash64 };
+}
+
+export function computeZobristHashes(position: GogoPosition): { hash32: number; hash64: bigint } {
+  return computePositionHashes(position);
 }
 
 function createBoardMeta(size: SupportedSize): BoardMeta {
@@ -140,19 +180,33 @@ function createBoardMeta(size: SupportedSize): BoardMeta {
   }
 
   let rngState = 0x9E3779B9 ^ (size * 0x12345);
-  const zobristStones = new Int32Array(area * 2);
+  const zobristStones32 = new Uint32Array(area * 2);
   for (let i = 0; i < area * 2; i += 1) {
     rngState = xorshift32(rngState);
-    zobristStones[i] = rngState;
+    zobristStones32[i] = rngState >>> 0;
   }
   rngState = xorshift32(rngState);
-  const zobristBlackToMove = rngState;
+  const zobristBlackToMove32 = rngState >>> 0;
 
   // Generate zobrist keys for ko: area slots for each square + 1 for "no ko" (-1 maps to index area)
-  const zobristKo = new Int32Array(area + 1);
+  const zobristKo32 = new Uint32Array(area + 1);
   for (let i = 0; i < area + 1; i += 1) {
     rngState = xorshift32(rngState);
-    zobristKo[i] = rngState;
+    zobristKo32[i] = rngState >>> 0;
+  }
+
+  let rngState64 = (0x9E3779B97F4A7C15n ^ BigInt(size * 0x12345)) & UINT64_MASK;
+  const zobristStones64 = new BigUint64Array(area * 2);
+  for (let i = 0; i < area * 2; i += 1) {
+    rngState64 = xorshift64(rngState64);
+    zobristStones64[i] = rngState64;
+  }
+  rngState64 = xorshift64(rngState64);
+  const zobristBlackToMove64 = rngState64;
+  const zobristKo64 = new BigUint64Array(area + 1);
+  for (let i = 0; i < area + 1; i += 1) {
+    rngState64 = xorshift64(rngState64);
+    zobristKo64[i] = rngState64;
   }
 
   return {
@@ -168,9 +222,12 @@ function createBoardMeta(size: SupportedSize): BoardMeta {
     windowsByPointOffsets,
     windowsByPoint,
     centerBias,
-    zobristStones,
-    zobristBlackToMove,
-    zobristKo,
+    zobristStones32,
+    zobristBlackToMove32,
+    zobristKo32,
+    zobristStones64,
+    zobristBlackToMove64,
+    zobristKo64,
   };
 }
 
@@ -194,7 +251,7 @@ function growTypedArray<T extends GrowableTypedArray>(
     nextLength <<= 1;
   }
   const next = new ctor(nextLength);
-  next.set(current);
+  next.set(current as never);
   return next;
 }
 
@@ -211,7 +268,7 @@ export class GogoPosition {
   stoneCount = 0;
   lastMove = -1;
   lastCapturedCount = 0;
-  hash = 0;
+  hash = 0n;
 
   private historyMoves: Int16Array;
   private historyPlayers: Uint8Array;
@@ -219,7 +276,7 @@ export class GogoPosition {
   private historyWinner: Uint8Array;
   private historyCaptureStart: Int32Array;
   private historyCaptureCount: Int16Array;
-  private historyHash: Int32Array;
+  private historyHash: BigUint64Array;
   private capturePositions: Int16Array;
   private captureTop = 0;
 
@@ -249,10 +306,10 @@ export class GogoPosition {
     this.historyWinner = new Uint8Array(historyCapacity);
     this.historyCaptureStart = new Int32Array(historyCapacity);
     this.historyCaptureCount = new Int16Array(historyCapacity);
-    this.historyHash = new Int32Array(historyCapacity);
+    this.historyHash = new BigUint64Array(historyCapacity);
     this.capturePositions = new Int16Array(captureCapacity);
 
-    this.hash = this.meta.zobristBlackToMove ^ this.meta.zobristKo[this.area];
+    this.hash = this.meta.zobristBlackToMove64 ^ this.meta.zobristKo64[this.area];
 
     this.groupVisitMarks = new Uint32Array(this.area);
     this.libertyMarks = new Uint32Array(this.area);
@@ -293,19 +350,7 @@ export class GogoPosition {
 
     position.winner = position.detectExistingWinner();
 
-    let computedHash = 0;
-    if (toMove === BLACK) {
-      computedHash ^= position.meta.zobristBlackToMove;
-    }
-    // Include ko state in hash (koPoint is -1 → index area)
-    computedHash ^= position.meta.zobristKo[position.area]; // no-ko key
-    for (let idx = 0; idx < position.area; idx += 1) {
-      const cell = position.board[idx];
-      if (cell !== EMPTY) {
-        computedHash ^= position.meta.zobristStones[idx * 2 + (cell - 1)];
-      }
-    }
-    position.hash = computedHash;
+    position.hash = computePositionHashes(position).hash64;
 
     return position;
   }
@@ -402,7 +447,7 @@ export class GogoPosition {
 
     this.board[index] = player;
     this.stoneCount += 1;
-    this.hash ^= this.meta.zobristStones[index * 2 + (player - 1)];
+    this.hash ^= this.meta.zobristStones64[index * 2 + (player - 1)];
 
     const neighbors = this.meta.neighbors4;
     const neighborBase = index * 4;
@@ -426,7 +471,7 @@ export class GogoPosition {
         this.capturePositions[this.captureTop] = point;
         this.captureTop += 1;
         this.board[point] = EMPTY;
-        this.hash ^= this.meta.zobristStones[point * 2 + (opponent - 1)];
+        this.hash ^= this.meta.zobristStones64[point * 2 + (opponent - 1)];
       }
       capturedCount += this.scanGroupSize;
       this.stoneCount -= this.scanGroupSize;
@@ -454,11 +499,11 @@ export class GogoPosition {
     this.historyCaptureCount[this.ply] = capturedCount;
     this.ply += 1;
 
-    this.hash ^= this.meta.zobristBlackToMove;
+    this.hash ^= this.meta.zobristBlackToMove64;
     // Update ko in hash: XOR out old ko, XOR in new ko
     const oldKoIdx = this.koPoint === -1 ? this.area : this.koPoint;
     const newKoIdx = nextKo === -1 ? this.area : nextKo;
-    this.hash ^= this.meta.zobristKo[oldKoIdx] ^ this.meta.zobristKo[newKoIdx];
+    this.hash ^= this.meta.zobristKo64[oldKoIdx] ^ this.meta.zobristKo64[newKoIdx];
     this.koPoint = nextKo;
     this.toMove = opponent;
     this.winner = madeFive ? player : EMPTY;
@@ -575,7 +620,7 @@ export class GogoPosition {
     this.historyWinner = growTypedArray(this.historyWinner, minimumLength, Uint8Array);
     this.historyCaptureStart = growTypedArray(this.historyCaptureStart, minimumLength, Int32Array);
     this.historyCaptureCount = growTypedArray(this.historyCaptureCount, minimumLength, Int16Array);
-    this.historyHash = growTypedArray(this.historyHash, minimumLength, Int32Array);
+    this.historyHash = growTypedArray(this.historyHash, minimumLength, BigUint64Array);
   }
 
   private ensureCaptureCapacity(minimumLength: number): void {
