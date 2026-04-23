@@ -5,6 +5,33 @@ import { insertMoveDescending } from '../../src/engine/moveOrdering';
 
 const GENERATE_ORDERED_MOVES_TACTICAL_ONLY_INDEX = 4;
 
+function collectBruteForceTacticalScores(
+  ai: GogoAI,
+  position: GogoPosition,
+  hintMove = -1,
+  ply = 0,
+): { count: number; moves: Int16Array; scores: Int32Array } {
+  const anyAI = ai as any;
+  anyAI.ensureBuffers(position.area);
+  const moves = new Int16Array(position.area);
+  const scores = new Int32Array(position.area);
+  let count = 0;
+
+  for (let move = 0; move < position.area; move += 1) {
+    if (position.board[move] !== EMPTY || move === position.koPoint) {
+      continue;
+    }
+    const score = anyAI.scoreMove(position, move, hintMove, true, ply);
+    if (score === Number.NEGATIVE_INFINITY) {
+      continue;
+    }
+    insertMoveDescending(moves, scores, count, move, score);
+    count += 1;
+  }
+
+  return { count, moves, scores };
+}
+
 test('AI chooses the center on an empty board, handles immediate timeout, and handles terminal states', () => {
   const empty = new GogoPosition(9);
   const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2 });
@@ -622,7 +649,7 @@ test('generateOrderedMoves does not rescore duplicate rejects in the same pass',
   expect(scoreCalls).toBe(uniqueCandidates.size);
 });
 
-test('generateOrderedMoves tactical fast path skips scoreMove for pure line threats', () => {
+test('generateOrderedMoves tactical fast path only scores discovered tactical candidates', () => {
   const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
   const anyAI = ai as any;
   const position = GogoPosition.fromAscii([
@@ -638,12 +665,19 @@ test('generateOrderedMoves tactical fast path skips scoreMove for pure line thre
   ], BLACK);
   anyAI.ensureBuffers(position.area);
 
-  anyAI.scoreMove = () => {
-    throw new Error('scoreMove should not be used for pure line-threat tactical generation');
+  const originalScoreMove = anyAI.scoreMove.bind(anyAI);
+  let scoreCalls = 0;
+  anyAI.scoreMove = (...args: unknown[]) => {
+    scoreCalls += 1;
+    return originalScoreMove(...args);
   };
 
   const count = anyAI.generateOrderedMoves(position, anyAI.moveBuffers[0], anyAI.scoreBuffers[0], -1, true);
+  const legalMoves = Array.from({ length: position.area }, (_, move) => move)
+    .filter((move) => position.board[move] === EMPTY && move !== position.koPoint);
   expect(count).toBeGreaterThan(0);
+  expect(count).toBeLessThan(legalMoves.length);
+  expect(scoreCalls).toBe(count);
 });
 
 test('generateOrderedMoves still returns each accepted candidate once after duplicate deduping in non-tactical mode', () => {
@@ -720,19 +754,88 @@ test('generateOrderedMoves tactical fast path matches brute-force tactical filte
   expect(new Set(Array.from(anyAI.moveBuffers[0].slice(0, count)))).toEqual(expected);
 });
 
+test('generateOrderedMoves tactical fast path matches brute-force scores for overlapping line threats', () => {
+  const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+  const position = GogoPosition.fromAscii([
+    '.........',
+    '....X....',
+    '....X....',
+    '....X....',
+    '.XXX.....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  anyAI.ensureBuffers(position.area);
+
+  const expected = collectBruteForceTacticalScores(ai, position);
+  const count = anyAI.generateOrderedMoves(position, anyAI.moveBuffers[0], anyAI.scoreBuffers[0], -1, true);
+
+  expect(count).toBe(expected.count);
+  expect(Array.from(anyAI.moveBuffers[0].slice(0, count))).toEqual(Array.from(expected.moves.slice(0, expected.count)));
+  expect(Array.from(anyAI.scoreBuffers[0].slice(0, count))).toEqual(Array.from(expected.scores.slice(0, expected.count)));
+});
+
+test('generateOrderedMoves tactical fast path matches brute-force scores when a move both captures and escapes', () => {
+  const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+  const position = GogoPosition.fromAscii([
+    '.........',
+    '....OO...',
+    '..O.X....',
+    '..OXOX...',
+    '....O....',
+    '....XX...',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  anyAI.ensureBuffers(position.area);
+
+  const expected = collectBruteForceTacticalScores(ai, position);
+  const count = anyAI.generateOrderedMoves(position, anyAI.moveBuffers[0], anyAI.scoreBuffers[0], -1, true);
+
+  expect(count).toBe(expected.count);
+  expect(Array.from(anyAI.moveBuffers[0].slice(0, count))).toEqual(Array.from(expected.moves.slice(0, expected.count)));
+  expect(Array.from(anyAI.scoreBuffers[0].slice(0, count))).toEqual(Array.from(expected.scores.slice(0, expected.count)));
+});
+
+test('generateOrderedMoves tactical fast path matches brute-force scores when hinting a move with threshold pressure', () => {
+  const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+  const position = GogoPosition.fromAscii([
+    '.........',
+    '.O.OO....',
+    '.O.XX.X..',
+    '...X..O..',
+    '...OXO...',
+    '.XX.XOO..',
+    '.X.OXXO..',
+    '.........',
+    '.........',
+  ], BLACK);
+  anyAI.ensureBuffers(position.area);
+  const hintMove = position.index(2, 4);
+
+  const expected = collectBruteForceTacticalScores(ai, position, hintMove, 0);
+  const count = anyAI.generateOrderedMoves(position, anyAI.moveBuffers[0], anyAI.scoreBuffers[0], hintMove, true, 0);
+
+  expect(count).toBe(expected.count);
+  expect(Array.from(anyAI.moveBuffers[0].slice(0, count))).toEqual(Array.from(expected.moves.slice(0, expected.count)));
+  expect(Array.from(anyAI.scoreBuffers[0].slice(0, count))).toEqual(Array.from(expected.scores.slice(0, expected.count)));
+});
+
 test('insertTacticalWindowMoves handles empty counts from zero through five', () => {
   const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
   const anyAI = ai as any;
   anyAI.ensureBuffers(81);
 
   for (let emptyCount = 0; emptyCount <= 5; emptyCount += 1) {
-    const windowMoves = new Int16Array(5);
-    const windowScores = new Int32Array(5);
     anyAI.candidateEpoch += 1;
-    const windowCount = anyAI.insertTacticalWindowMoves(
-      windowMoves,
-      windowScores,
-      0,
+    anyAI.insertTacticalWindowMoves(
+      anyAI.tacticalAttackScores,
       123,
       emptyCount,
       10,
@@ -741,9 +844,9 @@ test('insertTacticalWindowMoves handles empty counts from zero through five', ()
       13,
       14,
     );
-    expect(windowCount).toBe(emptyCount);
-    expect(Array.from(windowMoves.slice(0, windowCount))).toEqual(Array.from({ length: emptyCount }, (_, i) => 10 + i));
-    expect(Array.from(windowScores.slice(0, windowCount))).toEqual(Array.from({ length: emptyCount }, () => 123));
+    const touchedMoves = [10, 11, 12, 13, 14].filter((move, index) => index < emptyCount);
+    expect(touchedMoves.filter((move) => anyAI.candidateMarks[move] === anyAI.candidateEpoch)).toEqual(touchedMoves);
+    expect(touchedMoves.map((move) => anyAI.tacticalAttackScores[move])).toEqual(Array.from({ length: emptyCount }, () => 123));
   }
 });
 
@@ -763,18 +866,16 @@ test('appendGroupTacticalMoves returns capture moves for one- and two-liberty gr
   ], BLACK);
   anyAI.ensureBuffers(captureOneLiberty.area);
   anyAI.candidateEpoch += 1;
-  const captureOneCount = anyAI.appendGroupTacticalMoves(
+  anyAI.appendGroupTacticalMoves(
     captureOneLiberty,
     WHITE,
     true,
-    anyAI.moveBuffers[0],
-    anyAI.scoreBuffers[0],
-    0,
   );
-  expect(new Set(Array.from(anyAI.moveBuffers[0].slice(0, captureOneCount)))).toEqual(new Set([
+  expect(new Set(Array.from({ length: captureOneLiberty.area }, (_, move) => move)
+    .filter((move) => anyAI.candidateMarks[move] === anyAI.candidateEpoch))).toEqual(new Set([
     captureOneLiberty.index(2, 1),
   ]));
-  expect(Array.from(anyAI.scoreBuffers[0].slice(0, captureOneCount))).toEqual([5300]);
+  expect(anyAI.tacticalCaptureScores[captureOneLiberty.index(2, 1)]).toBe(5300);
 
   const captureTwoLiberties = GogoPosition.fromAscii([
     '.X.......',
@@ -789,19 +890,21 @@ test('appendGroupTacticalMoves returns capture moves for one- and two-liberty gr
   ], BLACK);
   anyAI.ensureBuffers(captureTwoLiberties.area);
   anyAI.candidateEpoch += 1;
-  const captureCount = anyAI.appendGroupTacticalMoves(
+  anyAI.appendGroupTacticalMoves(
     captureTwoLiberties,
     WHITE,
     true,
-    anyAI.moveBuffers[0],
-    anyAI.scoreBuffers[0],
-    0,
   );
-  expect(new Set(Array.from(anyAI.moveBuffers[0].slice(0, captureCount)))).toEqual(new Set([
+  const captureMoves = new Set(Array.from({ length: captureTwoLiberties.area }, (_, move) => move)
+    .filter((move) => anyAI.candidateMarks[move] === anyAI.candidateEpoch));
+  expect(captureMoves).toEqual(new Set([
     captureTwoLiberties.index(0, 1),
     captureTwoLiberties.index(2, 1),
   ]));
-  expect(Array.from(anyAI.scoreBuffers[0].slice(0, captureCount))).toEqual([30, 30]);
+  expect([
+    anyAI.tacticalCaptureScores[captureTwoLiberties.index(0, 1)],
+    anyAI.tacticalCaptureScores[captureTwoLiberties.index(2, 1)],
+  ]).toEqual([30, 30]);
 });
 
 test('appendGroupTacticalMoves returns escape moves for one- and two-liberty groups', () => {
@@ -820,18 +923,16 @@ test('appendGroupTacticalMoves returns escape moves for one- and two-liberty gro
   ], BLACK);
   anyAI.ensureBuffers(escapeOneLiberty.area);
   anyAI.candidateEpoch += 1;
-  const escapeOneCount = anyAI.appendGroupTacticalMoves(
+  anyAI.appendGroupTacticalMoves(
     escapeOneLiberty,
     BLACK,
     false,
-    anyAI.moveBuffers[0],
-    anyAI.scoreBuffers[0],
-    0,
   );
-  expect(new Set(Array.from(anyAI.moveBuffers[0].slice(0, escapeOneCount)))).toEqual(new Set([
+  expect(new Set(Array.from({ length: escapeOneLiberty.area }, (_, move) => move)
+    .filter((move) => anyAI.candidateMarks[move] === anyAI.candidateEpoch))).toEqual(new Set([
     escapeOneLiberty.index(2, 1),
   ]));
-  expect(Array.from(anyAI.scoreBuffers[0].slice(0, escapeOneCount))).toEqual([3750]);
+  expect(anyAI.tacticalEscapeScores[escapeOneLiberty.index(2, 1)]).toBe(3750);
 
   const escapeTwoLiberties = GogoPosition.fromAscii([
     '.O.......',
@@ -846,19 +947,21 @@ test('appendGroupTacticalMoves returns escape moves for one- and two-liberty gro
   ], BLACK);
   anyAI.ensureBuffers(escapeTwoLiberties.area);
   anyAI.candidateEpoch += 1;
-  const escapeCount = anyAI.appendGroupTacticalMoves(
+  anyAI.appendGroupTacticalMoves(
     escapeTwoLiberties,
     BLACK,
     false,
-    anyAI.moveBuffers[0],
-    anyAI.scoreBuffers[0],
-    0,
   );
-  expect(new Set(Array.from(anyAI.moveBuffers[0].slice(0, escapeCount)))).toEqual(new Set([
+  const escapeMoves = new Set(Array.from({ length: escapeTwoLiberties.area }, (_, move) => move)
+    .filter((move) => anyAI.candidateMarks[move] === anyAI.candidateEpoch));
+  expect(escapeMoves).toEqual(new Set([
     escapeTwoLiberties.index(0, 1),
     escapeTwoLiberties.index(2, 1),
   ]));
-  expect(Array.from(anyAI.scoreBuffers[0].slice(0, escapeCount))).toEqual([20, 20]);
+  expect([
+    anyAI.tacticalEscapeScores[escapeTwoLiberties.index(0, 1)],
+    anyAI.tacticalEscapeScores[escapeTwoLiberties.index(2, 1)],
+  ]).toEqual([20, 20]);
 });
 
 test('appendGroupTacticalMoves skips non-tactical groups', () => {
@@ -877,14 +980,13 @@ test('appendGroupTacticalMoves skips non-tactical groups', () => {
   ], BLACK);
   anyAI.ensureBuffers(nonTacticalGroup.area);
   anyAI.candidateEpoch += 1;
-  expect(anyAI.appendGroupTacticalMoves(
+  anyAI.appendGroupTacticalMoves(
     nonTacticalGroup,
     WHITE,
     true,
-    anyAI.moveBuffers[0],
-    anyAI.scoreBuffers[0],
-    0,
-  )).toBe(0);
+  );
+  expect(Array.from({ length: nonTacticalGroup.area }, (_, move) => move)
+    .some((move) => anyAI.candidateMarks[move] === anyAI.candidateEpoch)).toBe(false);
 
   const threeLibertyGroup = GogoPosition.fromAscii([
     '.........',
@@ -899,14 +1001,13 @@ test('appendGroupTacticalMoves skips non-tactical groups', () => {
   ], BLACK);
   anyAI.ensureBuffers(threeLibertyGroup.area);
   anyAI.candidateEpoch += 1;
-  expect(anyAI.appendGroupTacticalMoves(
+  anyAI.appendGroupTacticalMoves(
     threeLibertyGroup,
     WHITE,
     true,
-    anyAI.moveBuffers[0],
-    anyAI.scoreBuffers[0],
-    0,
-  )).toBe(0);
+  );
+  expect(Array.from({ length: threeLibertyGroup.area }, (_, move) => move)
+    .some((move) => anyAI.candidateMarks[move] === anyAI.candidateEpoch)).toBe(false);
 });
 
 test('generateOrderedMoves and generateFullBoardMoves keep moves sorted after batch scoring', () => {

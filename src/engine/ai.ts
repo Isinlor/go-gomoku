@@ -68,6 +68,10 @@ export class GogoAI {
   private candidateEpoch = 1;
   private triedMoveMarks = new Uint32Array(0);
   private triedMoveEpoch = 1;
+  private tacticalAttackScores = new Int32Array(0);
+  private tacticalDefenseScores = new Int32Array(0);
+  private tacticalCaptureScores = new Int32Array(0);
+  private tacticalEscapeScores = new Int32Array(0);
   private tacticalLibertyMarks = new Uint32Array(0);
   private tacticalLibertyEpoch = 1;
   private scorerGroupMarks = new Uint32Array(0);
@@ -237,6 +241,10 @@ export class GogoAI {
     this.candidateEpoch = 1;
     this.triedMoveMarks = new Uint32Array(area);
     this.triedMoveEpoch = 1;
+    this.tacticalAttackScores = new Int32Array(area);
+    this.tacticalDefenseScores = new Int32Array(area);
+    this.tacticalCaptureScores = new Int32Array(area);
+    this.tacticalEscapeScores = new Int32Array(area);
     this.tacticalLibertyMarks = new Uint32Array(area);
     this.tacticalLibertyEpoch = 1;
     this.scorerGroupMarks = new Uint32Array(area);
@@ -703,7 +711,6 @@ export class GogoAI {
     const windows = meta.windows;
 
     this.candidateEpoch += 1;
-    let count = 0;
 
     for (let windowIndex = 0; windowIndex < meta.windowCount; windowIndex += 1) {
       const base = windowIndex * 5;
@@ -734,19 +741,29 @@ export class GogoAI {
 
       if (theirs === 0 && mine >= 3 && emptyCount !== 0) {
         const attackScore = ATTACK_WEIGHTS[mine + 1];
-        count = this.insertTacticalWindowMoves(moves, scores, count, attackScore, emptyCount, empty0, empty1, empty2, empty3, empty4);
+        this.insertTacticalWindowMoves(this.tacticalAttackScores, attackScore, emptyCount, empty0, empty1, empty2, empty3, empty4);
       }
       if (mine === 0 && theirs >= 3 && emptyCount !== 0) {
         const defenseScore = DEFENSE_WEIGHTS[theirs + 1];
-        count = this.insertTacticalWindowMoves(moves, scores, count, defenseScore, emptyCount, empty0, empty1, empty2, empty3, empty4);
+        this.insertTacticalWindowMoves(this.tacticalDefenseScores, defenseScore, emptyCount, empty0, empty1, empty2, empty3, empty4);
       }
     }
 
-    count = this.appendGroupTacticalMoves(position, opponent, true, moves, scores, count);
-    count = this.appendGroupTacticalMoves(position, player, false, moves, scores, count);
+    this.appendGroupTacticalMoves(position, opponent, true);
+    this.appendGroupTacticalMoves(position, player, false);
 
-    for (let index = 0; index < count; index += 1) {
-      scores[index] = this.finalizeMoveScore(position, moves[index], player, scores[index], hintMove, ply);
+    let count = 0;
+    for (let move = 0; move < position.area; move += 1) {
+      if (this.candidateMarks[move] !== this.candidateEpoch) {
+        continue;
+      }
+      const exactScore = this.scoreMove(position, move, hintMove, true, ply);
+      if (exactScore === NO_SCORE) {
+        continue;
+      }
+      moves[count] = move;
+      scores[count] = exactScore;
+      count += 1;
     }
     if (count > 1) {
       sortMovesDescending(moves, scores, count);
@@ -755,9 +772,7 @@ export class GogoAI {
   }
 
   private insertTacticalWindowMoves(
-    moves: Int16Array,
-    scores: Int32Array,
-    count: number,
+    targetScores: Int32Array,
     score: number,
     emptyCount: number,
     empty0: number,
@@ -765,25 +780,22 @@ export class GogoAI {
     empty2: number,
     empty3: number,
     empty4: number,
-  ): number {
-    if (emptyCount >= 1) count = this.insertOrPromoteMove(moves, scores, count, empty0, score);
-    if (emptyCount >= 2) count = this.insertOrPromoteMove(moves, scores, count, empty1, score);
-    if (emptyCount >= 3) count = this.insertOrPromoteMove(moves, scores, count, empty2, score);
-    if (emptyCount >= 4) count = this.insertOrPromoteMove(moves, scores, count, empty3, score);
-    if (emptyCount >= 5) count = this.insertOrPromoteMove(moves, scores, count, empty4, score);
-    return count;
+  ): void {
+    if (emptyCount >= 1) this.addTacticalScore(targetScores, empty0, score);
+    if (emptyCount >= 2) this.addTacticalScore(targetScores, empty1, score);
+    if (emptyCount >= 3) this.addTacticalScore(targetScores, empty2, score);
+    if (emptyCount >= 4) this.addTacticalScore(targetScores, empty3, score);
+    if (emptyCount >= 5) this.addTacticalScore(targetScores, empty4, score);
   }
 
   private appendGroupTacticalMoves(
     position: GogoPosition,
     groupColor: Player,
     isCapture: boolean,
-    moves: Int16Array,
-    scores: Int32Array,
-    count: number,
-  ): number {
+  ): void {
     const board = position.board;
     const neighbors = position.meta.neighbors4;
+    const targetScores = isCapture ? this.tacticalCaptureScores : this.tacticalEscapeScores;
 
     this.scorerGroupEpoch += 1;
     const groupEpoch = this.scorerGroupEpoch;
@@ -827,11 +839,21 @@ export class GogoAI {
             continue;
           }
           this.tacticalLibertyMarks[neighbor] = libertyEpoch;
-          count = this.insertOrPromoteMove(moves, scores, count, neighbor, bonus);
+          this.addTacticalScore(targetScores, neighbor, bonus);
         }
       }
     }
-    return count;
+  }
+
+  private addTacticalScore(targetScores: Int32Array, move: number, score: number): void {
+    if (this.candidateMarks[move] !== this.candidateEpoch) {
+      this.candidateMarks[move] = this.candidateEpoch;
+      this.tacticalAttackScores[move] = 0;
+      this.tacticalDefenseScores[move] = 0;
+      this.tacticalCaptureScores[move] = 0;
+      this.tacticalEscapeScores[move] = 0;
+    }
+    targetScores[move] += score;
   }
 
   private generateFullBoardMoves(
