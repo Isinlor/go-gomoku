@@ -757,12 +757,8 @@ export class GogoAI {
       if (this.candidateMarks[move] !== this.candidateEpoch) {
         continue;
       }
-      const exactScore = this.scoreMove(position, move, hintMove, true, ply);
-      if (exactScore === NO_SCORE) {
-        continue;
-      }
       moves[count] = move;
-      scores[count] = exactScore;
+      scores[count] = this.scoreMove(position, move, hintMove, true, ply);
       count += 1;
     }
     if (count > 1) {
