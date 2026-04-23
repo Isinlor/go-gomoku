@@ -835,8 +835,6 @@ test('insertTacticalWindowMoves handles empty counts from zero through five', ()
   for (let emptyCount = 0; emptyCount <= 5; emptyCount += 1) {
     anyAI.candidateEpoch += 1;
     anyAI.insertTacticalWindowMoves(
-      anyAI.tacticalAttackScores,
-      123,
       emptyCount,
       10,
       11,
@@ -846,7 +844,6 @@ test('insertTacticalWindowMoves handles empty counts from zero through five', ()
     );
     const touchedMoves = [10, 11, 12, 13, 14].filter((move, index) => index < emptyCount);
     expect(touchedMoves.filter((move) => anyAI.candidateMarks[move] === anyAI.candidateEpoch)).toEqual(touchedMoves);
-    expect(touchedMoves.map((move) => anyAI.tacticalAttackScores[move])).toEqual(Array.from({ length: emptyCount }, () => 123));
   }
 });
 
@@ -875,7 +872,6 @@ test('appendGroupTacticalMoves returns capture moves for one- and two-liberty gr
     .filter((move) => anyAI.candidateMarks[move] === anyAI.candidateEpoch))).toEqual(new Set([
     captureOneLiberty.index(2, 1),
   ]));
-  expect(anyAI.tacticalCaptureScores[captureOneLiberty.index(2, 1)]).toBe(5300);
 
   const captureTwoLiberties = GogoPosition.fromAscii([
     '.X.......',
@@ -901,10 +897,6 @@ test('appendGroupTacticalMoves returns capture moves for one- and two-liberty gr
     captureTwoLiberties.index(0, 1),
     captureTwoLiberties.index(2, 1),
   ]));
-  expect([
-    anyAI.tacticalCaptureScores[captureTwoLiberties.index(0, 1)],
-    anyAI.tacticalCaptureScores[captureTwoLiberties.index(2, 1)],
-  ]).toEqual([30, 30]);
 });
 
 test('appendGroupTacticalMoves returns escape moves for one- and two-liberty groups', () => {
@@ -932,7 +924,6 @@ test('appendGroupTacticalMoves returns escape moves for one- and two-liberty gro
     .filter((move) => anyAI.candidateMarks[move] === anyAI.candidateEpoch))).toEqual(new Set([
     escapeOneLiberty.index(2, 1),
   ]));
-  expect(anyAI.tacticalEscapeScores[escapeOneLiberty.index(2, 1)]).toBe(3750);
 
   const escapeTwoLiberties = GogoPosition.fromAscii([
     '.O.......',
@@ -958,10 +949,6 @@ test('appendGroupTacticalMoves returns escape moves for one- and two-liberty gro
     escapeTwoLiberties.index(0, 1),
     escapeTwoLiberties.index(2, 1),
   ]));
-  expect([
-    anyAI.tacticalEscapeScores[escapeTwoLiberties.index(0, 1)],
-    anyAI.tacticalEscapeScores[escapeTwoLiberties.index(2, 1)],
-  ]).toEqual([20, 20]);
 });
 
 test('appendGroupTacticalMoves skips non-tactical groups', () => {

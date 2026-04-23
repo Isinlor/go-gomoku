@@ -68,10 +68,6 @@ export class GogoAI {
   private candidateEpoch = 1;
   private triedMoveMarks = new Uint32Array(0);
   private triedMoveEpoch = 1;
-  private tacticalAttackScores = new Int32Array(0);
-  private tacticalDefenseScores = new Int32Array(0);
-  private tacticalCaptureScores = new Int32Array(0);
-  private tacticalEscapeScores = new Int32Array(0);
   private tacticalLibertyMarks = new Uint32Array(0);
   private tacticalLibertyEpoch = 1;
   private scorerGroupMarks = new Uint32Array(0);
@@ -241,10 +237,6 @@ export class GogoAI {
     this.candidateEpoch = 1;
     this.triedMoveMarks = new Uint32Array(area);
     this.triedMoveEpoch = 1;
-    this.tacticalAttackScores = new Int32Array(area);
-    this.tacticalDefenseScores = new Int32Array(area);
-    this.tacticalCaptureScores = new Int32Array(area);
-    this.tacticalEscapeScores = new Int32Array(area);
     this.tacticalLibertyMarks = new Uint32Array(area);
     this.tacticalLibertyEpoch = 1;
     this.scorerGroupMarks = new Uint32Array(area);
@@ -740,12 +732,10 @@ export class GogoAI {
       }
 
       if (theirs === 0 && mine >= 3 && emptyCount !== 0) {
-        const attackScore = ATTACK_WEIGHTS[mine + 1];
-        this.insertTacticalWindowMoves(this.tacticalAttackScores, attackScore, emptyCount, empty0, empty1, empty2, empty3, empty4);
+        this.insertTacticalWindowMoves(emptyCount, empty0, empty1, empty2, empty3, empty4);
       }
       if (mine === 0 && theirs >= 3 && emptyCount !== 0) {
-        const defenseScore = DEFENSE_WEIGHTS[theirs + 1];
-        this.insertTacticalWindowMoves(this.tacticalDefenseScores, defenseScore, emptyCount, empty0, empty1, empty2, empty3, empty4);
+        this.insertTacticalWindowMoves(emptyCount, empty0, empty1, empty2, empty3, empty4);
       }
     }
 
@@ -757,8 +747,12 @@ export class GogoAI {
       if (this.candidateMarks[move] !== this.candidateEpoch) {
         continue;
       }
+      const score = this.scoreMove(position, move, hintMove, true, ply);
+      if (score === NO_SCORE) {
+        continue;
+      }
       moves[count] = move;
-      scores[count] = this.scoreMove(position, move, hintMove, true, ply);
+      scores[count] = score;
       count += 1;
     }
     if (count > 1) {
@@ -768,8 +762,6 @@ export class GogoAI {
   }
 
   private insertTacticalWindowMoves(
-    targetScores: Int32Array,
-    score: number,
     emptyCount: number,
     empty0: number,
     empty1: number,
@@ -777,11 +769,11 @@ export class GogoAI {
     empty3: number,
     empty4: number,
   ): void {
-    if (emptyCount >= 1) this.addTacticalScore(targetScores, empty0, score);
-    if (emptyCount >= 2) this.addTacticalScore(targetScores, empty1, score);
-    if (emptyCount >= 3) this.addTacticalScore(targetScores, empty2, score);
-    if (emptyCount >= 4) this.addTacticalScore(targetScores, empty3, score);
-    if (emptyCount >= 5) this.addTacticalScore(targetScores, empty4, score);
+    if (emptyCount >= 1) this.markTacticalCandidate(empty0);
+    if (emptyCount >= 2) this.markTacticalCandidate(empty1);
+    if (emptyCount >= 3) this.markTacticalCandidate(empty2);
+    if (emptyCount >= 4) this.markTacticalCandidate(empty3);
+    if (emptyCount >= 5) this.markTacticalCandidate(empty4);
   }
 
   private appendGroupTacticalMoves(
@@ -791,7 +783,6 @@ export class GogoAI {
   ): void {
     const board = position.board;
     const neighbors = position.meta.neighbors4;
-    const targetScores = isCapture ? this.tacticalCaptureScores : this.tacticalEscapeScores;
 
     this.scorerGroupEpoch += 1;
     const groupEpoch = this.scorerGroupEpoch;
@@ -835,21 +826,14 @@ export class GogoAI {
             continue;
           }
           this.tacticalLibertyMarks[neighbor] = libertyEpoch;
-          this.addTacticalScore(targetScores, neighbor, bonus);
+          this.markTacticalCandidate(neighbor);
         }
       }
     }
   }
 
-  private addTacticalScore(targetScores: Int32Array, move: number, score: number): void {
-    if (this.candidateMarks[move] !== this.candidateEpoch) {
-      this.candidateMarks[move] = this.candidateEpoch;
-      this.tacticalAttackScores[move] = 0;
-      this.tacticalDefenseScores[move] = 0;
-      this.tacticalCaptureScores[move] = 0;
-      this.tacticalEscapeScores[move] = 0;
-    }
-    targetScores[move] += score;
+  private markTacticalCandidate(move: number): void {
+    this.candidateMarks[move] = this.candidateEpoch;
   }
 
   private generateFullBoardMoves(
