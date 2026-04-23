@@ -680,6 +680,36 @@ test('generateOrderedMoves tactical fast path only scores discovered tactical ca
   expect(scoreCalls).toBe(count);
 });
 
+test('generateOrderedMoves tactical fast path drops candidates that scoreMove rejects', () => {
+  const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+  const position = GogoPosition.fromAscii([
+    'XXXX.....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  anyAI.ensureBuffers(position.area);
+
+  const rejectedMove = position.index(4, 0);
+  const originalScoreMove = anyAI.scoreMove.bind(anyAI);
+  anyAI.scoreMove = (scorePosition: GogoPosition, move: number, hintMove: number, tacticalOnly: boolean, ply = 0) => {
+    if (move === rejectedMove) {
+      return Number.NEGATIVE_INFINITY;
+    }
+    return originalScoreMove(scorePosition, move, hintMove, tacticalOnly, ply);
+  };
+
+  const count = anyAI.generateOrderedMoves(position, anyAI.moveBuffers[0], anyAI.scoreBuffers[0], -1, true);
+  expect(Array.from(anyAI.moveBuffers[0].slice(0, count))).not.toContain(rejectedMove);
+  expect(count).toBeGreaterThan(0);
+});
+
 test('generateOrderedMoves still returns each accepted candidate once after duplicate deduping in non-tactical mode', () => {
   const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
   const anyAI = ai as any;
