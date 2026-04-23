@@ -578,6 +578,94 @@ test('generateOrderedMoves caches shared group scans across one move-generation 
   expect(scanCalls).toBe(1);
 });
 
+test('generateOrderedMoves does not rescore duplicate tactical rejects in the same pass', () => {
+  const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+  const position = GogoPosition.fromAscii([
+    '.........',
+    '.........',
+    '.........',
+    '...XO....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  anyAI.ensureBuffers(position.area);
+
+  const uniqueCandidates = new Set<number>();
+  for (let point = 0; point < position.area; point += 1) {
+    if (position.board[point] === EMPTY) {
+      continue;
+    }
+    for (
+      let cursor = position.meta.near2Offsets[point];
+      cursor < position.meta.near2Offsets[point + 1];
+      cursor += 1
+    ) {
+      const move = position.meta.near2[cursor];
+      if (position.board[move] === EMPTY) {
+        uniqueCandidates.add(move);
+      }
+    }
+  }
+
+  let scoreCalls = 0;
+  anyAI.scoreMove = () => {
+    scoreCalls += 1;
+    return Number.NEGATIVE_INFINITY;
+  };
+
+  const count = anyAI.generateOrderedMoves(position, anyAI.moveBuffers[0], anyAI.scoreBuffers[0], -1, true);
+  expect(count).toBe(0);
+  expect(scoreCalls).toBe(uniqueCandidates.size);
+});
+
+test('generateOrderedMoves still returns each accepted candidate once after duplicate deduping', () => {
+  const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+  const position = GogoPosition.fromAscii([
+    '.........',
+    '.........',
+    '.........',
+    '...XO....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  anyAI.ensureBuffers(position.area);
+
+  const uniqueCandidates = new Set<number>();
+  for (let point = 0; point < position.area; point += 1) {
+    if (position.board[point] === EMPTY) {
+      continue;
+    }
+    for (
+      let cursor = position.meta.near2Offsets[point];
+      cursor < position.meta.near2Offsets[point + 1];
+      cursor += 1
+    ) {
+      const move = position.meta.near2[cursor];
+      if (position.board[move] === EMPTY) {
+        uniqueCandidates.add(move);
+      }
+    }
+  }
+
+  anyAI.scoreMove = (_position: GogoPosition, move: number) => move + 1;
+
+  const moves = anyAI.moveBuffers[0];
+  const scores = anyAI.scoreBuffers[0];
+  const count = anyAI.generateOrderedMoves(position, moves, scores, -1, true);
+  const returnedMoves = new Set(Array.from(moves.slice(0, count)));
+
+  expect(count).toBe(uniqueCandidates.size);
+  expect(returnedMoves).toEqual(uniqueCandidates);
+});
+
 test('generateOrderedMoves and generateFullBoardMoves keep moves sorted after batch scoring', () => {
   const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
   const anyAI = ai as any;
