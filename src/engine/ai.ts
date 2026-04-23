@@ -21,6 +21,7 @@ export interface GogoAIOptions {
   maxDepth?: number;
   quiescenceDepth?: number;
   maxPly?: number;
+  maxCandidates?: number;
   now?: () => number;
 }
 
@@ -59,6 +60,7 @@ export class GogoAI {
   readonly maxDepth: number;
   readonly quiescenceDepth: number;
   readonly maxPly: number;
+  readonly maxCandidates: number;
 
   private readonly now: () => number;
   private moveBuffers: Int16Array[] = [];
@@ -95,6 +97,7 @@ export class GogoAI {
     this.maxDepth = Math.max(1, options.maxDepth ?? 6);
     this.quiescenceDepth = Math.max(0, options.quiescenceDepth ?? 6);
     this.maxPly = Math.max(2, options.maxPly ?? 64);
+    this.maxCandidates = Math.max(1, Math.floor(options.maxCandidates ?? MAX_CANDIDATES));
     this.now = options.now ?? (() => performance.now());
   }
 
@@ -434,8 +437,8 @@ export class GogoAI {
     const scores = this.scoreBuffers[ply];
     let count = this.generateOrderedMoves(position, moves, scores, hintMove, false, ply);
     let wasCapped = false;
-    if (!this.proofMode && count > MAX_CANDIDATES) {
-      count = MAX_CANDIDATES;
+    if (!this.proofMode && count > this.maxCandidates) {
+      count = this.maxCandidates;
       wasCapped = true;
     }
     let usedFullBoard = false;
@@ -497,8 +500,8 @@ export class GogoAI {
         break;
       }
       count = this.generateFullBoardMoves(position, moves, scores, hintMove, false, ply);
-      if (!this.proofMode && count > MAX_CANDIDATES) {
-        count = MAX_CANDIDATES;
+      if (!this.proofMode && count > this.maxCandidates) {
+        count = this.maxCandidates;
         wasCapped = true;
       }
       usedFullBoard = true;
