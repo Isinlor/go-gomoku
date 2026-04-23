@@ -718,7 +718,7 @@ export class GogoAI {
     this.scoredGroupHash = position.hash;
   }
 
-  private getScoredGroupInfo(position: GogoPosition, point: number, color: Player): { liberties: number; size: number; root: number } {
+  private primeScoredGroupInfo(position: GogoPosition, point: number, color: Player): void {
     this.beginScoredGroupPass(position);
     if (this.scoredGroupEpoch[point] !== this.scoredGroupPassEpoch) {
       const liberties = position.scanGroup(point, color);
@@ -732,12 +732,6 @@ export class GogoAI {
         this.scoredGroupRoots[stone] = root;
       }
     }
-
-    return {
-      liberties: this.scoredGroupLiberties[point],
-      size: this.scoredGroupSizes[point],
-      root: this.scoredGroupRoots[point],
-    };
   }
 
   private finalizeMoveScore(position: GogoPosition, move: number, player: Player, baseScore: number, hintMove: number, ply: number): number {
@@ -801,22 +795,28 @@ export class GogoAI {
       }
       const cell = board[neighbor];
       if (cell === opponent) {
-        const { liberties, size, root } = this.getScoredGroupInfo(position, neighbor, opponent);
+        this.primeScoredGroupInfo(position, neighbor, opponent);
+        const root = this.scoredGroupRoots[neighbor];
         if (this.scorerGroupMarks[root] === this.scorerGroupEpoch) {
           continue;
         }
         this.scorerGroupMarks[root] = this.scorerGroupEpoch;
+        const liberties = this.scoredGroupLiberties[neighbor];
+        const size = this.scoredGroupSizes[neighbor];
         if (liberties === 1) {
           capturePressure += CAPTURE_BONUS + (size * 300);
         } else if (liberties === 2) {
           capturePressure += size * 30;
         }
       } else if (cell === player) {
-        const { liberties, size, root } = this.getScoredGroupInfo(position, neighbor, player);
+        this.primeScoredGroupInfo(position, neighbor, player);
+        const root = this.scoredGroupRoots[neighbor];
         if (this.scorerGroupMarks[root] === this.scorerGroupEpoch) {
           continue;
         }
         this.scorerGroupMarks[root] = this.scorerGroupEpoch;
+        const liberties = this.scoredGroupLiberties[neighbor];
+        const size = this.scoredGroupSizes[neighbor];
         if (liberties === 1) {
           escapePressure += ESCAPE_BONUS + (size * 250);
         } else if (liberties === 2) {

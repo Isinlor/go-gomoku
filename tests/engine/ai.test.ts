@@ -611,7 +611,7 @@ test('generateOrderedMoves and generateFullBoardMoves keep moves sorted after ba
   }
 });
 
-test('getScoredGroupInfo caches group data for all stones and finalizeMoveScore applies bonuses', () => {
+test('primeScoredGroupInfo caches group data for all stones and finalizeMoveScore applies bonuses', () => {
   const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
   const anyAI = ai as any;
   const position = GogoPosition.fromAscii([
@@ -631,7 +631,12 @@ test('getScoredGroupInfo caches group data for all stones and finalizeMoveScore 
   const middleStone = position.index(4, 2);
   const rightStone = position.index(5, 2);
 
-  const first = anyAI.getScoredGroupInfo(position, leftStone, WHITE);
+  anyAI.primeScoredGroupInfo(position, leftStone, WHITE);
+  const first = {
+    liberties: anyAI.scoredGroupLiberties[leftStone],
+    size: anyAI.scoredGroupSizes[leftStone],
+    root: anyAI.scoredGroupRoots[leftStone],
+  };
   expect(first.liberties).toBeGreaterThan(0);
   expect(first.size).toBe(3);
 
@@ -642,8 +647,18 @@ test('getScoredGroupInfo caches group data for all stones and finalizeMoveScore 
     return originalScanGroup(start, color);
   }) as typeof position.scanGroup;
 
-  const second = anyAI.getScoredGroupInfo(position, middleStone, WHITE);
-  const third = anyAI.getScoredGroupInfo(position, rightStone, WHITE);
+  anyAI.primeScoredGroupInfo(position, middleStone, WHITE);
+  anyAI.primeScoredGroupInfo(position, rightStone, WHITE);
+  const second = {
+    liberties: anyAI.scoredGroupLiberties[middleStone],
+    size: anyAI.scoredGroupSizes[middleStone],
+    root: anyAI.scoredGroupRoots[middleStone],
+  };
+  const third = {
+    liberties: anyAI.scoredGroupLiberties[rightStone],
+    size: anyAI.scoredGroupSizes[rightStone],
+    root: anyAI.scoredGroupRoots[rightStone],
+  };
   expect(scanCalls).toBe(0);
   expect(second).toEqual(first);
   expect(third).toEqual(first);
