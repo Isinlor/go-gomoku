@@ -98,6 +98,7 @@ export class GogoAI {
     this.quiescenceDepth = Math.max(0, options.quiescenceDepth ?? 6);
     this.maxPly = Math.max(2, options.maxPly ?? 64);
     this.now = options.now ?? (() => performance.now());
+    this.proofTTBestMove.fill(-1);
   }
 
   findBestMove(position: GogoPosition, timeLimitMs: number): SearchResult {
@@ -1058,6 +1059,7 @@ export class GogoAI {
     if (this.proofTTEpoch === 0 || this.proofTTEpoch > 0xffff) {
       this.proofTTEpoch = 1;
       this.proofTTStamp.fill(0);
+      this.proofTTBestMove.fill(-1);
     }
   }
 
