@@ -160,6 +160,43 @@ test('verifyWinningMove rejects illegal candidates, proves winning candidates, a
   expect(position.hash).toBe(snapshot.hash);
 });
 
+test('recent proof threat precheck only flags open fours touched by the latest move', () => {
+  const ai = new GogoAI({ maxDepth: 5, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+  expect(anyAI.hasRecentOpenFourThreat(new GogoPosition(9))).toBe(false);
+
+  const recentThreat = GogoPosition.fromAscii([
+    'XXX......',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  expect(recentThreat.playXY(3, 0)).toBe(true);
+  expect(anyAI.hasRecentOpenFourThreat(recentThreat)).toBe(true);
+
+  const oldThreat = GogoPosition.fromAscii([
+    'XXXX.....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  expect(oldThreat.playXY(8, 8)).toBe(true);
+  expect(anyAI.hasRecentOpenFourThreat(oldThreat)).toBe(false);
+
+  oldThreat.lastCapturedCount = 1;
+  expect(anyAI.hasRecentOpenFourThreat(oldThreat)).toBe(true);
+});
+
 test('AI iterative deepening exits early once a forced win is proven at the root', () => {
   const winning = GogoPosition.fromAscii([
     'XXXX.....',
@@ -752,6 +789,96 @@ test('generateOrderedMoves still returns each accepted candidate once after dupl
 
   expect(count).toBe(uniqueCandidates.size);
   expect(returnedMoves).toEqual(uniqueCandidates);
+});
+
+test('generateOrderedMoves optional cap keeps the highest-scoring candidates sorted', () => {
+  const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+  const position = GogoPosition.fromAscii([
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '....X....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  anyAI.ensureBuffers(position.area);
+
+  const nearCenter = position.index(4, 4);
+  const expectedMoves = Array.from(position.meta.near2.slice(
+    position.meta.near2Offsets[nearCenter],
+    position.meta.near2Offsets[nearCenter + 1],
+  ))
+    .filter((move) => position.board[move] === EMPTY && move !== position.koPoint)
+    .sort((a, b) => b - a)
+    .slice(0, 3);
+  anyAI.scoreMove = (_position: GogoPosition, move: number) => move;
+
+  const count = anyAI.generateOrderedMoves(position, anyAI.moveBuffers[0], anyAI.scoreBuffers[0], -1, false, 0, 3);
+
+  expect(count).toBe(3);
+  expect(Array.from(anyAI.moveBuffers[0].slice(0, count))).toEqual(expectedMoves);
+  expect(Array.from(anyAI.scoreBuffers[0].slice(0, count))).toEqual(expectedMoves);
+});
+
+test('generateFullBoardMoves optional cap keeps the highest-scoring candidates sorted', () => {
+  const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+  const position = GogoPosition.fromAscii([
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '....X....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  anyAI.ensureBuffers(position.area);
+  anyAI.scoreMove = (_position: GogoPosition, move: number) => move;
+
+  const expectedMoves = Array.from({ length: position.area }, (_, move) => move)
+    .filter((move) => position.board[move] === EMPTY && move !== position.koPoint)
+    .sort((a, b) => b - a)
+    .slice(0, 4);
+  const count = anyAI.generateFullBoardMoves(position, anyAI.moveBuffers[0], anyAI.scoreBuffers[0], -1, false, 0, 4);
+
+  expect(count).toBe(4);
+  expect(Array.from(anyAI.moveBuffers[0].slice(0, count))).toEqual(expectedMoves);
+  expect(Array.from(anyAI.scoreBuffers[0].slice(0, count))).toEqual(expectedMoves);
+});
+
+test('scoreMove skips deep group scoring when a capped cutoff is already unreachable', () => {
+  const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+  const position = GogoPosition.fromAscii([
+    '.........',
+    '.........',
+    '....O....',
+    '...X.X...',
+    '....X....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  anyAI.ensureBuffers(position.area);
+
+  const originalScanGroup = position.scanGroup.bind(position);
+  let scanCalls = 0;
+  position.scanGroup = ((start: number, color: number) => {
+    scanCalls += 1;
+    return originalScanGroup(start, color);
+  }) as typeof position.scanGroup;
+
+  const score = anyAI.scoreMove(position, position.index(0, 0), -1, false, 0, 1_000_000);
+
+  expect(score).toBe(Number.NEGATIVE_INFINITY);
+  expect(scanCalls).toBe(0);
 });
 
 test('generateOrderedMoves tactical fast path matches brute-force tactical filtering', () => {
