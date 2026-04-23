@@ -1017,6 +1017,14 @@ export class GogoAI {
           }
         }
       }
+
+      // Without a ko restriction, the restricted response set is complete:
+      // any non-response move loses immediately to the attacker's open-four threat.
+      // Skip full-board defense generation for substantial speedup in puzzle proofs.
+      if (position.koPoint === -1 && anyLegalCount > 0) {
+        this.storeProofTT(ttIdx, hash, depthLeft, 1);
+        return true;
+      }
     }
 
     // Full generation: generate ALL legal moves.

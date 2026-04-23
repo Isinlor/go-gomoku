@@ -1384,17 +1384,6 @@ test('verifyWinningMove returns false on timeout', () => {
 test('verifyWinningMove proves deeper forced win with iterative deepening', () => {
   // White has OOOO on edge, black to move but white wins
   // Actually use a position where black has near-win on edge
-  const pos = GogoPosition.fromAscii([
-    'XXX......',
-    'O........',
-    'O........',
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-  ], BLACK);
   const ai = new GogoAI({ maxDepth: 30, quiescenceDepth: 4, now: () => 0 });
   // Move 3 = (0,3): extends XXX to XXXX, then need one more
   // This won't be a forced win from move 3 alone. Let's use XXXX position
@@ -1799,7 +1788,7 @@ test('recompute heuristic flags after resume: flags update when score changes', 
   // Mock searchRoot: d=2 fake forced win, then d=3+ fast non-winning mock
   // (avoids running real deep searches in Phase 3 with no timeout on CI)
   let searchRootCallCount = 0;
-  anyAI.searchRoot = function (position: any, depth: number, hintMove: number) {
+  anyAI.searchRoot = function (position: any, depth: number) {
     searchRootCallCount++;
     if (searchRootCallCount === 2) {
       return { move: 40, score: WIN - 2, depth: 2, nodes: 10, timedOut: false,
@@ -2706,7 +2695,7 @@ test('proofAttack: illegal TT move is attempted before move generation and skipp
   };
   const realGen = anyAI.generateOrderedMoves.bind(anyAI);
   let genCalls = 0;
-  anyAI.generateOrderedMoves = (...args: any[]) => {
+  anyAI.generateOrderedMoves = () => {
     genCalls += 1;
     expect(playCalls).toEqual([40]);
     return 0;
@@ -2800,7 +2789,7 @@ test('proofDefend: illegal TT move is attempted before ordered generation and sk
   const realGen = anyAI.generateOrderedMoves.bind(anyAI);
   const realFullGen = anyAI.generateFullBoardMoves.bind(anyAI);
   let genCalls = 0;
-  anyAI.generateOrderedMoves = (...args: any[]) => {
+  anyAI.generateOrderedMoves = () => {
     genCalls += 1;
     expect(playCalls).toEqual([40]);
     return 0;
@@ -2936,7 +2925,7 @@ test('proofDefend: restricted move play failure is handled without coverage supp
   anyAI.generateFullBoardMoves = realFullGen;
 });
 
-test('proofDefend: falls back to full-board generation even after an earlier legal restricted move', () => {
+test('proofDefend: skips full-board generation after restricted responses when no ko point exists', () => {
   const ai = new GogoAI({ maxDepth: 10 });
   const anyAI = ai as any;
   const pos = GogoPosition.fromAscii([
@@ -2980,9 +2969,9 @@ test('proofDefend: falls back to full-board generation even after an earlier leg
     return positionAfterDefense.lastMove !== 20;
   };
 
-  expect(anyAI.proofDefend(pos, 2, 1)).toBe(false);
-  expect(orderedCalls).toBe(1);
-  expect(fullCalls).toBe(1);
+  expect(anyAI.proofDefend(pos, 2, 1)).toBe(true);
+  expect(orderedCalls).toBe(0);
+  expect(fullCalls).toBe(0);
 
   anyAI.generateOrderedMoves = realGen;
   anyAI.generateFullBoardMoves = realFullGen;
@@ -3011,4 +3000,36 @@ test('insertOrPromoteMove promotes higher scores and tolerates stale marks witho
 
   anyAI.candidateMarks[30] = anyAI.candidateEpoch;
   expect(anyAI.insertOrPromoteMove(moves, scores, count, 30, 50)).toBe(count);
+});
+
+test('proofDefend stores a proven-win TT entry after full defense generation when ko exists', () => {
+  const ai = new GogoAI({ maxDepth: 10 });
+  const anyAI = ai as any;
+  const pos = GogoPosition.fromAscii([
+    'XXXX.....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    'OOO......',
+    'XXXX.....',
+  ], WHITE);
+  // Force proofDefend to skip the restricted-response early return path.
+  pos.koPoint = 40;
+
+  anyAI.ensureBuffers(pos.area);
+  anyAI.deadline = 1e15;
+  anyAI.proofTTHash.fill(0n);
+  anyAI.proofTTResult.fill(0);
+  anyAI.proofTTDepth.fill(0);
+  anyAI.proofTTBestMove.fill(-1);
+
+  const hash = pos.hash;
+  const ttIdx = Number(hash & 0x3FFFFn);
+
+  expect(anyAI.proofDefend(pos, 2, 1)).toBe(true);
+  expect(anyAI.proofTTHash[ttIdx]).toBe(hash);
+  expect(anyAI.proofTTResult[ttIdx]).toBe(1);
 });
