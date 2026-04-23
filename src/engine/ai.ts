@@ -1,5 +1,5 @@
 import { BLACK, EMPTY, GogoPosition, otherPlayer, type Cell, type Player, WHITE } from './gogomoku';
-import { insertMoveDescending } from './moveOrdering';
+import { insertMoveDescending, sortMovesDescending } from './moveOrdering';
 
 export interface SearchResult {
   move: number;
@@ -670,11 +670,15 @@ export class GogoAI {
           continue;
         }
         this.candidateMarks[move] = this.candidateEpoch;
-        insertMoveDescending(moves, scores, count, move, score);
+        moves[count] = move;
+        scores[count] = score;
         count += 1;
       }
     }
 
+    if (count > 1) {
+      sortMovesDescending(moves, scores, count);
+    }
     return count;
   }
 
@@ -696,8 +700,12 @@ export class GogoAI {
       if (score === NO_SCORE) {
         continue;
       }
-      insertMoveDescending(moves, scores, count, move, score);
+      moves[count] = move;
+      scores[count] = score;
       count += 1;
+    }
+    if (count > 1) {
+      sortMovesDescending(moves, scores, count);
     }
     return count;
   }
@@ -732,6 +740,19 @@ export class GogoAI {
     };
   }
 
+  private finalizeMoveScore(position: GogoPosition, move: number, player: Player, baseScore: number, hintMove: number, ply: number): number {
+    let score = baseScore;
+    score += position.meta.centerBias[move] * CENTER_MULTIPLIER;
+    score += this.history[(player - 1) * this.bufferArea + move];
+    if (move === hintMove) {
+      score += HINT_BONUS;
+    }
+    if (move === this.killerMoves[ply * 2] || move === this.killerMoves[ply * 2 + 1]) {
+      score += KILLER_BONUS;
+    }
+    return score;
+  }
+
   private scoreMove(position: GogoPosition, move: number, hintMove: number, tacticalOnly: boolean, ply = 0): number {
     const player = position.toMove;
     const opponent = otherPlayer(player);
@@ -762,6 +783,10 @@ export class GogoAI {
       if (mine === 0) {
         defense += DEFENSE_WEIGHTS[theirs + 1];
       }
+    }
+
+    if (tacticalOnly && (attack >= TACTICAL_PATTERN_THRESHOLD || defense >= DEFENSE_WEIGHTS[4])) {
+      return this.finalizeMoveScore(position, move, player, attack + defense, hintMove, ply);
     }
 
     let capturePressure = 0;
@@ -810,16 +835,7 @@ export class GogoAI {
       return NO_SCORE;
     }
 
-    let score = attack + defense + capturePressure + escapePressure;
-    score += meta.centerBias[move] * CENTER_MULTIPLIER;
-    score += this.history[(player - 1) * this.bufferArea + move];
-    if (move === hintMove) {
-      score += HINT_BONUS;
-    }
-    if (move === this.killerMoves[ply * 2] || move === this.killerMoves[ply * 2 + 1]) {
-      score += KILLER_BONUS;
-    }
-    return score;
+    return this.finalizeMoveScore(position, move, player, attack + defense + capturePressure + escapePressure, hintMove, ply);
   }
 
   private insertOrPromoteMove(moves: Int16Array, scores: Int32Array, count: number, move: number, score: number): number {
