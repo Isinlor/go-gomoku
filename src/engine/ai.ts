@@ -665,11 +665,11 @@ export class GogoAI {
         if (board[move] !== EMPTY || move === position.koPoint || this.candidateMarks[move] === this.candidateEpoch) {
           continue;
         }
+        this.candidateMarks[move] = this.candidateEpoch;
         const score = this.scoreMove(position, move, hintMove, tacticalOnly, ply);
         if (score === NO_SCORE) {
           continue;
         }
-        this.candidateMarks[move] = this.candidateEpoch;
         moves[count] = move;
         scores[count] = score;
         count += 1;
