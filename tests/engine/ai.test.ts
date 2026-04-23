@@ -725,24 +725,26 @@ test('insertTacticalWindowMoves handles empty counts from zero through five', ()
   const anyAI = ai as any;
   anyAI.ensureBuffers(81);
 
-  const windowMoves = new Int16Array(5);
-  const windowScores = new Int32Array(5);
-  anyAI.candidateEpoch += 1;
-  const windowCount = anyAI.insertTacticalWindowMoves(
-    windowMoves,
-    windowScores,
-    0,
-    123,
-    5,
-    10,
-    11,
-    12,
-    13,
-    14,
-  );
-  expect(windowCount).toBe(5);
-  expect(new Set(Array.from(windowMoves.slice(0, windowCount)))).toEqual(new Set([10, 11, 12, 13, 14]));
-  expect(anyAI.insertTacticalWindowMoves(windowMoves, windowScores, 0, 123, 0, 10, 11, 12, 13, 14)).toBe(0);
+  for (let emptyCount = 0; emptyCount <= 5; emptyCount += 1) {
+    const windowMoves = new Int16Array(5);
+    const windowScores = new Int32Array(5);
+    anyAI.candidateEpoch += 1;
+    const windowCount = anyAI.insertTacticalWindowMoves(
+      windowMoves,
+      windowScores,
+      0,
+      123,
+      emptyCount,
+      10,
+      11,
+      12,
+      13,
+      14,
+    );
+    expect(windowCount).toBe(emptyCount);
+    expect(Array.from(windowMoves.slice(0, windowCount))).toEqual(Array.from({ length: emptyCount }, (_, i) => 10 + i));
+    expect(Array.from(windowScores.slice(0, windowCount))).toEqual(Array.from({ length: emptyCount }, () => 123));
+  }
 });
 
 test('appendGroupTacticalMoves returns capture moves for one- and two-liberty groups', () => {
@@ -772,6 +774,7 @@ test('appendGroupTacticalMoves returns capture moves for one- and two-liberty gr
   expect(new Set(Array.from(anyAI.moveBuffers[0].slice(0, captureOneCount)))).toEqual(new Set([
     captureOneLiberty.index(2, 1),
   ]));
+  expect(Array.from(anyAI.scoreBuffers[0].slice(0, captureOneCount))).toEqual([5300]);
 
   const captureTwoLiberties = GogoPosition.fromAscii([
     '.X.......',
@@ -798,6 +801,7 @@ test('appendGroupTacticalMoves returns capture moves for one- and two-liberty gr
     captureTwoLiberties.index(0, 1),
     captureTwoLiberties.index(2, 1),
   ]));
+  expect(Array.from(anyAI.scoreBuffers[0].slice(0, captureCount))).toEqual([30, 30]);
 });
 
 test('appendGroupTacticalMoves returns escape moves for one- and two-liberty groups', () => {
@@ -827,6 +831,7 @@ test('appendGroupTacticalMoves returns escape moves for one- and two-liberty gro
   expect(new Set(Array.from(anyAI.moveBuffers[0].slice(0, escapeOneCount)))).toEqual(new Set([
     escapeOneLiberty.index(2, 1),
   ]));
+  expect(Array.from(anyAI.scoreBuffers[0].slice(0, escapeOneCount))).toEqual([3750]);
 
   const escapeTwoLiberties = GogoPosition.fromAscii([
     '.O.......',
@@ -853,6 +858,7 @@ test('appendGroupTacticalMoves returns escape moves for one- and two-liberty gro
     escapeTwoLiberties.index(0, 1),
     escapeTwoLiberties.index(2, 1),
   ]));
+  expect(Array.from(anyAI.scoreBuffers[0].slice(0, escapeCount))).toEqual([20, 20]);
 });
 
 test('appendGroupTacticalMoves skips non-tactical groups', () => {
@@ -873,6 +879,28 @@ test('appendGroupTacticalMoves skips non-tactical groups', () => {
   anyAI.candidateEpoch += 1;
   expect(anyAI.appendGroupTacticalMoves(
     nonTacticalGroup,
+    WHITE,
+    true,
+    anyAI.moveBuffers[0],
+    anyAI.scoreBuffers[0],
+    0,
+  )).toBe(0);
+
+  const threeLibertyGroup = GogoPosition.fromAscii([
+    '.........',
+    '...XO....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  anyAI.ensureBuffers(threeLibertyGroup.area);
+  anyAI.candidateEpoch += 1;
+  expect(anyAI.appendGroupTacticalMoves(
+    threeLibertyGroup,
     WHITE,
     true,
     anyAI.moveBuffers[0],
