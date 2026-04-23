@@ -68,6 +68,8 @@ export class GogoAI {
   private candidateEpoch = 1;
   private triedMoveMarks = new Uint32Array(0);
   private triedMoveEpoch = 1;
+  private tacticalLibertyMarks = new Uint32Array(0);
+  private tacticalLibertyEpoch = 1;
   private scorerGroupMarks = new Uint32Array(0);
   private scorerGroupEpoch = 1;
   private scoredGroupEpoch = new Uint32Array(0);
@@ -235,6 +237,8 @@ export class GogoAI {
     this.candidateEpoch = 1;
     this.triedMoveMarks = new Uint32Array(area);
     this.triedMoveEpoch = 1;
+    this.tacticalLibertyMarks = new Uint32Array(area);
+    this.tacticalLibertyEpoch = 1;
     this.scorerGroupMarks = new Uint32Array(area);
     this.scorerGroupEpoch = 1;
     this.scoredGroupEpoch = new Uint32Array(area);
@@ -652,6 +656,9 @@ export class GogoAI {
     const meta = position.meta;
     const near2 = meta.near2;
     const near2Offsets = meta.near2Offsets;
+    if (tacticalOnly) {
+      return this.generateTacticalMoves(position, moves, scores, hintMove, ply);
+    }
     this.candidateEpoch += 1;
     this.beginScoredGroupPass(position);
     let count = 0;
@@ -680,6 +687,153 @@ export class GogoAI {
       sortMovesDescending(moves, scores, count);
     }
     return count;
+  }
+
+  private generateTacticalMoves(
+    position: GogoPosition,
+    moves: Int16Array,
+    scores: Int32Array,
+    hintMove: number,
+    ply: number,
+  ): number {
+    const player = position.toMove;
+    const opponent = otherPlayer(player);
+    const board = position.board;
+    const meta = position.meta;
+    const windows = meta.windows;
+
+    this.candidateEpoch += 1;
+
+    for (let windowIndex = 0; windowIndex < meta.windowCount; windowIndex += 1) {
+      const base = windowIndex * 5;
+      let mine = 0;
+      let theirs = 0;
+      let emptyCount = 0;
+      let empty0 = -1;
+      let empty1 = -1;
+      let empty2 = -1;
+      let empty3 = -1;
+      let empty4 = -1;
+      for (let offset = 0; offset < 5; offset += 1) {
+        const point = windows[base + offset];
+        const cell = board[point];
+        if (cell === player) {
+          mine += 1;
+        } else if (cell === opponent) {
+          theirs += 1;
+        } else if (point !== position.koPoint) {
+          if (emptyCount === 0) empty0 = point;
+          else if (emptyCount === 1) empty1 = point;
+          else if (emptyCount === 2) empty2 = point;
+          else if (emptyCount === 3) empty3 = point;
+          else empty4 = point;
+          emptyCount += 1;
+        }
+      }
+
+      if (theirs === 0 && mine >= 3 && emptyCount !== 0) {
+        this.insertTacticalWindowMoves(emptyCount, empty0, empty1, empty2, empty3, empty4);
+      }
+      if (mine === 0 && theirs >= 3 && emptyCount !== 0) {
+        this.insertTacticalWindowMoves(emptyCount, empty0, empty1, empty2, empty3, empty4);
+      }
+    }
+
+    this.appendGroupTacticalMoves(position, opponent, true);
+    this.appendGroupTacticalMoves(position, player, false);
+
+    let count = 0;
+    for (let move = 0; move < position.area; move += 1) {
+      if (this.candidateMarks[move] !== this.candidateEpoch) {
+        continue;
+      }
+      const score = this.scoreMove(position, move, hintMove, true, ply);
+      if (score === NO_SCORE) {
+        continue;
+      }
+      moves[count] = move;
+      scores[count] = score;
+      count += 1;
+    }
+    if (count > 1) {
+      sortMovesDescending(moves, scores, count);
+    }
+    return count;
+  }
+
+  private insertTacticalWindowMoves(
+    emptyCount: number,
+    empty0: number,
+    empty1: number,
+    empty2: number,
+    empty3: number,
+    empty4: number,
+  ): void {
+    if (emptyCount >= 1) this.markTacticalCandidate(empty0);
+    if (emptyCount >= 2) this.markTacticalCandidate(empty1);
+    if (emptyCount >= 3) this.markTacticalCandidate(empty2);
+    if (emptyCount >= 4) this.markTacticalCandidate(empty3);
+    if (emptyCount >= 5) this.markTacticalCandidate(empty4);
+  }
+
+  private appendGroupTacticalMoves(
+    position: GogoPosition,
+    groupColor: Player,
+    isCapture: boolean,
+  ): void {
+    const board = position.board;
+    const neighbors = position.meta.neighbors4;
+
+    this.scorerGroupEpoch += 1;
+    const groupEpoch = this.scorerGroupEpoch;
+    for (let point = 0; point < position.area; point += 1) {
+      if (board[point] !== groupColor || this.scorerGroupMarks[point] === groupEpoch) {
+        continue;
+      }
+      const liberties = position.scanGroup(point, groupColor);
+      const size = position.scanGroupSize;
+      for (let index = 0; index < size; index += 1) {
+        this.scorerGroupMarks[position.groupBuffer[index]] = groupEpoch;
+      }
+      let bonus = 0;
+      if (isCapture) {
+        if (liberties === 1) {
+          bonus = CAPTURE_BONUS + (size * 300);
+        } else if (liberties === 2) {
+          bonus = size * 30;
+        }
+      } else if (liberties === 1) {
+        bonus = ESCAPE_BONUS + (size * 250);
+      } else if (liberties === 2) {
+        bonus = size * 20;
+      }
+      if (bonus === 0) {
+        continue;
+      }
+      this.tacticalLibertyEpoch += 1;
+      const libertyEpoch = this.tacticalLibertyEpoch;
+      for (let index = 0; index < size; index += 1) {
+        const stone = position.groupBuffer[index];
+        const neighborBase = stone * 4;
+        for (let offset = 0; offset < 4; offset += 1) {
+          const neighbor = neighbors[neighborBase + offset];
+          if (
+            neighbor === -1 ||
+            board[neighbor] !== EMPTY ||
+            neighbor === position.koPoint ||
+            this.tacticalLibertyMarks[neighbor] === libertyEpoch
+          ) {
+            continue;
+          }
+          this.tacticalLibertyMarks[neighbor] = libertyEpoch;
+          this.markTacticalCandidate(neighbor);
+        }
+      }
+    }
+  }
+
+  private markTacticalCandidate(move: number): void {
+    this.candidateMarks[move] = this.candidateEpoch;
   }
 
   private generateFullBoardMoves(
