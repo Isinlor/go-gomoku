@@ -1,5 +1,5 @@
 import { BLACK, EMPTY, GogoPosition, otherPlayer, type Cell, type Player, WHITE } from './gogomoku';
-import { insertMoveDescending } from './moveOrdering';
+import { insertMoveDescending, sortMovesDescending } from './moveOrdering';
 
 export interface SearchResult {
   move: number;
@@ -70,6 +70,12 @@ export class GogoAI {
   private triedMoveEpoch = 1;
   private scorerGroupMarks = new Uint32Array(0);
   private scorerGroupEpoch = 1;
+  private scoredGroupEpoch = new Uint32Array(0);
+  private scoredGroupLiberties = new Uint8Array(0);
+  private scoredGroupSizes = new Uint8Array(0);
+  private scoredGroupRoots = new Int16Array(0);
+  private scoredGroupPassEpoch = 1;
+  private scoredGroupHash = -1n;
   private bufferArea = 0;
   private deadline = 0;
   private nodesVisited = 0;
@@ -231,6 +237,13 @@ export class GogoAI {
     this.triedMoveEpoch = 1;
     this.scorerGroupMarks = new Uint32Array(area);
     this.scorerGroupEpoch = 1;
+    this.scoredGroupEpoch = new Uint32Array(area);
+    this.scoredGroupLiberties = new Uint8Array(area);
+    this.scoredGroupSizes = new Uint8Array(area);
+    this.scoredGroupRoots = new Int16Array(area);
+    this.scoredGroupRoots.fill(-1);
+    this.scoredGroupPassEpoch = 1;
+    this.scoredGroupHash = -1n;
     this.killerMoves = new Int16Array((this.maxPly + 1) * 2);
     this.killerMoves.fill(-1);
   }
@@ -640,6 +653,7 @@ export class GogoAI {
     const near2 = meta.near2;
     const near2Offsets = meta.near2Offsets;
     this.candidateEpoch += 1;
+    this.beginScoredGroupPass(position);
     let count = 0;
 
     for (let point = 0; point < position.area; point += 1) {
@@ -656,11 +670,15 @@ export class GogoAI {
           continue;
         }
         this.candidateMarks[move] = this.candidateEpoch;
-        insertMoveDescending(moves, scores, count, move, score);
+        moves[count] = move;
+        scores[count] = score;
         count += 1;
       }
     }
 
+    if (count > 1) {
+      sortMovesDescending(moves, scores, count);
+    }
     return count;
   }
 
@@ -672,6 +690,7 @@ export class GogoAI {
     tacticalOnly: boolean,
     ply = 0,
   ): number {
+    this.beginScoredGroupPass(position);
     let count = 0;
     for (let move = 0; move < position.area; move += 1) {
       if (position.board[move] !== EMPTY || move === position.koPoint) {
@@ -681,10 +700,51 @@ export class GogoAI {
       if (score === NO_SCORE) {
         continue;
       }
-      insertMoveDescending(moves, scores, count, move, score);
+      moves[count] = move;
+      scores[count] = score;
       count += 1;
     }
+    if (count > 1) {
+      sortMovesDescending(moves, scores, count);
+    }
     return count;
+  }
+
+  private beginScoredGroupPass(position: GogoPosition): void {
+    if (this.scoredGroupHash === position.hash) {
+      return;
+    }
+    this.scoredGroupPassEpoch += 1;
+    this.scoredGroupHash = position.hash;
+  }
+
+  private primeScoredGroupInfo(position: GogoPosition, point: number, color: Player): void {
+    this.beginScoredGroupPass(position);
+    if (this.scoredGroupEpoch[point] !== this.scoredGroupPassEpoch) {
+      const liberties = position.scanGroup(point, color);
+      const size = position.scanGroupSize;
+      const root = position.groupBuffer[0];
+      for (let i = 0; i < size; i += 1) {
+        const stone = position.groupBuffer[i];
+        this.scoredGroupEpoch[stone] = this.scoredGroupPassEpoch;
+        this.scoredGroupLiberties[stone] = liberties;
+        this.scoredGroupSizes[stone] = size;
+        this.scoredGroupRoots[stone] = root;
+      }
+    }
+  }
+
+  private finalizeMoveScore(position: GogoPosition, move: number, player: Player, baseScore: number, hintMove: number, ply: number): number {
+    let score = baseScore;
+    score += position.meta.centerBias[move] * CENTER_MULTIPLIER;
+    score += this.history[(player - 1) * this.bufferArea + move];
+    if (move === hintMove) {
+      score += HINT_BONUS;
+    }
+    if (move === this.killerMoves[ply * 2] || move === this.killerMoves[ply * 2 + 1]) {
+      score += KILLER_BONUS;
+    }
+    return score;
   }
 
   private scoreMove(position: GogoPosition, move: number, hintMove: number, tacticalOnly: boolean, ply = 0): number {
@@ -719,6 +779,10 @@ export class GogoAI {
       }
     }
 
+    if (tacticalOnly && (attack >= TACTICAL_PATTERN_THRESHOLD || defense >= DEFENSE_WEIGHTS[4])) {
+      return this.finalizeMoveScore(position, move, player, attack + defense, hintMove, ply);
+    }
+
     let capturePressure = 0;
     let escapePressure = 0;
     const neighbors = meta.neighbors4;
@@ -730,25 +794,33 @@ export class GogoAI {
         continue;
       }
       const cell = board[neighbor];
-      if (cell === opponent && this.scorerGroupMarks[neighbor] !== this.scorerGroupEpoch) {
-        const liberties = position.scanGroup(neighbor, opponent);
-        for (let i = 0; i < position.scanGroupSize; i += 1) {
-          this.scorerGroupMarks[position.groupBuffer[i]] = this.scorerGroupEpoch;
+      if (cell === opponent) {
+        this.primeScoredGroupInfo(position, neighbor, opponent);
+        const root = this.scoredGroupRoots[neighbor];
+        if (this.scorerGroupMarks[root] === this.scorerGroupEpoch) {
+          continue;
         }
+        this.scorerGroupMarks[root] = this.scorerGroupEpoch;
+        const liberties = this.scoredGroupLiberties[neighbor];
+        const size = this.scoredGroupSizes[neighbor];
         if (liberties === 1) {
-          capturePressure += CAPTURE_BONUS + (position.scanGroupSize * 300);
+          capturePressure += CAPTURE_BONUS + (size * 300);
         } else if (liberties === 2) {
-          capturePressure += position.scanGroupSize * 30;
+          capturePressure += size * 30;
         }
-      } else if (cell === player && this.scorerGroupMarks[neighbor] !== this.scorerGroupEpoch) {
-        const liberties = position.scanGroup(neighbor, player);
-        for (let i = 0; i < position.scanGroupSize; i += 1) {
-          this.scorerGroupMarks[position.groupBuffer[i]] = this.scorerGroupEpoch;
+      } else if (cell === player) {
+        this.primeScoredGroupInfo(position, neighbor, player);
+        const root = this.scoredGroupRoots[neighbor];
+        if (this.scorerGroupMarks[root] === this.scorerGroupEpoch) {
+          continue;
         }
+        this.scorerGroupMarks[root] = this.scorerGroupEpoch;
+        const liberties = this.scoredGroupLiberties[neighbor];
+        const size = this.scoredGroupSizes[neighbor];
         if (liberties === 1) {
-          escapePressure += ESCAPE_BONUS + (position.scanGroupSize * 250);
+          escapePressure += ESCAPE_BONUS + (size * 250);
         } else if (liberties === 2) {
-          escapePressure += position.scanGroupSize * 20;
+          escapePressure += size * 20;
         }
       }
     }
@@ -763,16 +835,7 @@ export class GogoAI {
       return NO_SCORE;
     }
 
-    let score = attack + defense + capturePressure + escapePressure;
-    score += meta.centerBias[move] * CENTER_MULTIPLIER;
-    score += this.history[(player - 1) * this.bufferArea + move];
-    if (move === hintMove) {
-      score += HINT_BONUS;
-    }
-    if (move === this.killerMoves[ply * 2] || move === this.killerMoves[ply * 2 + 1]) {
-      score += KILLER_BONUS;
-    }
-    return score;
+    return this.finalizeMoveScore(position, move, player, attack + defense + capturePressure + escapePressure, hintMove, ply);
   }
 
   private insertOrPromoteMove(moves: Int16Array, scores: Int32Array, count: number, move: number, score: number): number {

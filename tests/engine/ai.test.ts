@@ -549,6 +549,153 @@ test('scoreMove deduplicates adjacent groups that wrap around the candidate from
   expect(anyAI.scoreMove(playerDedup, playerDedup.index(3, 2), -1, false)).toBe(6080);
 });
 
+test('generateOrderedMoves caches shared group scans across one move-generation pass', () => {
+  const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+  const position = GogoPosition.fromAscii([
+    '.........',
+    '.........',
+    '.........',
+    '...OOO...',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  anyAI.ensureBuffers(position.area);
+
+  const originalScanGroup = position.scanGroup.bind(position);
+  let scanCalls = 0;
+  position.scanGroup = ((start: number, color: number) => {
+    scanCalls += 1;
+    return originalScanGroup(start, color);
+  }) as typeof position.scanGroup;
+
+  const count = anyAI.generateOrderedMoves(position, anyAI.moveBuffers[0], anyAI.scoreBuffers[0], -1, false);
+
+  expect(count).toBeGreaterThan(1);
+  expect(scanCalls).toBe(1);
+});
+
+test('generateOrderedMoves and generateFullBoardMoves keep moves sorted after batch scoring', () => {
+  const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+  const position = GogoPosition.fromAscii([
+    '.........',
+    '.........',
+    '.........',
+    '....X....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], WHITE);
+  anyAI.ensureBuffers(position.area);
+
+  const orderedMoves = anyAI.moveBuffers[0];
+  const orderedScores = anyAI.scoreBuffers[0];
+  anyAI.scoreMove = (_position: any, move: number) => 1000 - move;
+
+  const orderedCount = anyAI.generateOrderedMoves(position, orderedMoves, orderedScores, -1, false);
+  expect(orderedCount).toBeGreaterThan(2);
+  for (let i = 1; i < orderedCount; i += 1) {
+    expect(orderedScores[i - 1]).toBeGreaterThanOrEqual(orderedScores[i]);
+  }
+
+  const fullCount = anyAI.generateFullBoardMoves(position, orderedMoves, orderedScores, -1, false);
+  expect(fullCount).toBeGreaterThan(2);
+  for (let i = 1; i < fullCount; i += 1) {
+    expect(orderedScores[i - 1]).toBeGreaterThanOrEqual(orderedScores[i]);
+  }
+});
+
+test('primeScoredGroupInfo caches group data for all stones and finalizeMoveScore applies bonuses', () => {
+  const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+  const position = GogoPosition.fromAscii([
+    '.........',
+    '.........',
+    '...OOO...',
+    '.........',
+    '....X....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  anyAI.ensureBuffers(position.area);
+
+  const leftStone = position.index(3, 2);
+  const middleStone = position.index(4, 2);
+  const rightStone = position.index(5, 2);
+
+  anyAI.primeScoredGroupInfo(position, leftStone, WHITE);
+  const first = {
+    liberties: anyAI.scoredGroupLiberties[leftStone],
+    size: anyAI.scoredGroupSizes[leftStone],
+    root: anyAI.scoredGroupRoots[leftStone],
+  };
+  expect(first.liberties).toBeGreaterThan(0);
+  expect(first.size).toBe(3);
+
+  const originalScanGroup = position.scanGroup.bind(position);
+  let scanCalls = 0;
+  position.scanGroup = ((start: number, color: number) => {
+    scanCalls += 1;
+    return originalScanGroup(start, color);
+  }) as typeof position.scanGroup;
+
+  anyAI.primeScoredGroupInfo(position, middleStone, WHITE);
+  anyAI.primeScoredGroupInfo(position, rightStone, WHITE);
+  const second = {
+    liberties: anyAI.scoredGroupLiberties[middleStone],
+    size: anyAI.scoredGroupSizes[middleStone],
+    root: anyAI.scoredGroupRoots[middleStone],
+  };
+  const third = {
+    liberties: anyAI.scoredGroupLiberties[rightStone],
+    size: anyAI.scoredGroupSizes[rightStone],
+    root: anyAI.scoredGroupRoots[rightStone],
+  };
+  expect(scanCalls).toBe(0);
+  expect(second).toEqual(first);
+  expect(third).toEqual(first);
+
+  const move = position.index(4, 3);
+  const base = 123;
+  const plain = anyAI.finalizeMoveScore(position, move, BLACK, base, -1, 0);
+  anyAI.history[move] = 7;
+  anyAI.killerMoves[0] = move;
+  const boosted = anyAI.finalizeMoveScore(position, move, BLACK, base, move, 0);
+  expect(boosted - plain).toBe(7 + 10_000_000 + 1_000_000);
+});
+
+test('scoreMove tactical fast path skips group scans when pattern pressure already makes the move forcing', () => {
+  const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+  const position = GogoPosition.fromAscii([
+    'XXXX.....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  anyAI.ensureBuffers(position.area);
+
+  position.scanGroup = (() => {
+    throw new Error('scanGroup should not run for tactical fast path');
+  }) as typeof position.scanGroup;
+
+  const score = anyAI.scoreMove(position, position.index(4, 0), -1, true);
+  expect(score).toBeGreaterThan(0);
+});
+
 test('null move pruning prunes when the position is strongly in favor of the side to move', () => {
   // Position where BLACK has a strong 3-in-a-row pattern.
   // The null move (giving WHITE a free move) still evaluates strongly
