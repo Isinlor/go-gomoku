@@ -133,6 +133,31 @@ test('verifyWinningMove rejects illegal candidates, proves winning candidates, a
   expect(position.hash).toBe(snapshot.hash);
 });
 
+test('verifyWinningMove caps iterative proof depth when maxProofDepth is provided', () => {
+  const position = GogoPosition.fromAscii([
+    'XXXX.....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  const ai = new GogoAI({ maxPly: 11, now: () => 0 });
+  const anyAI = ai as any;
+  const seenDepths: number[] = [];
+
+  anyAI.proofDefend = (_position: GogoPosition, depthLeft: number) => {
+    seenDepths.push(depthLeft);
+    return false;
+  };
+
+  expect(ai.verifyWinningMove(position, position.index(4, 0), 100, 5)).toBe(false);
+  expect(seenDepths).toEqual([1, 3, 5]);
+});
+
 test('AI iterative deepening exits early once a forced win is proven at the root', () => {
   const winning = GogoPosition.fromAscii([
     'XXXX.....',

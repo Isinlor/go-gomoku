@@ -45,6 +45,7 @@ const CAPTURE_BONUS = 5_000;
 const ESCAPE_BONUS = 3_500;
 const NO_SCORE = Number.NEGATIVE_INFINITY;
 const MAX_CANDIDATES = 12;
+const PROOF_DEPTH_BUFFER = 8;
 
 // Transposition table constants
 const TT_SIZE_BITS = 18;
@@ -155,7 +156,8 @@ export class GogoAI {
       if (heuristicWin) {
         // AND/OR threat-space prover for forced wins
         const remainingMs = this.deadline - this.now();
-        if (this.verifyWinningMove(position, state.bestMove, remainingMs)) {
+        const maxProofDepth = state.completedDepth + PROOF_DEPTH_BUFFER;
+        if (this.verifyWinningMove(position, state.bestMove, remainingMs, maxProofDepth)) {
           provenWin = true;
         } else if (!this.timedOut) {
           proofFailed = true;
@@ -853,7 +855,7 @@ export class GogoAI {
    * Uses AND/OR threat-space search with a dedicated proof TT.
    * Returns true if the win is provable within the time and depth limits.
    */
-  verifyWinningMove(position: GogoPosition, move: number, timeLimitMs: number): boolean {
+  verifyWinningMove(position: GogoPosition, move: number, timeLimitMs: number, maxProofDepth = this.maxPly): boolean {
     this.ensureBuffers(position.area);
     this.deadline = this.now() + Math.max(0, timeLimitMs);
     this.nodesVisited = 0;
@@ -865,7 +867,8 @@ export class GogoAI {
       // Iterative deepening: start shallow and deepen. Earlier iterations
       // populate the proof TT, which acts as a powerful pruning mechanism
       // for deeper iterations.
-      for (let maxDepth = 1; maxDepth <= this.maxPly; maxDepth += 2) {
+      const proofDepthLimit = Math.max(1, Math.min(this.maxPly, maxProofDepth));
+      for (let maxDepth = 1; maxDepth <= proofDepthLimit; maxDepth += 2) {
         try {
           const result = this.proofDefend(position, maxDepth, 1);
           if (result) return true;
