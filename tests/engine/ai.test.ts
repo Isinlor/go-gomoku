@@ -803,6 +803,8 @@ test('generateOrderedMoves tactical fast path matches brute-force scores for ove
   const expected = collectBruteForceTacticalScores(ai, position);
   const count = anyAI.generateOrderedMoves(position, anyAI.moveBuffers[0], anyAI.scoreBuffers[0], -1, true);
 
+  expect(Array.from(expected.moves.slice(0, expected.count))).toEqual([40, 41, 49, 4, 36]);
+  expect(Array.from(expected.scores.slice(0, expected.count))).toEqual([401587, 101204, 101204, 100211, 100211]);
   expect(count).toBe(expected.count);
   expect(Array.from(anyAI.moveBuffers[0].slice(0, count))).toEqual(Array.from(expected.moves.slice(0, expected.count)));
   expect(Array.from(anyAI.scoreBuffers[0].slice(0, count))).toEqual(Array.from(expected.scores.slice(0, expected.count)));
@@ -827,6 +829,8 @@ test('generateOrderedMoves tactical fast path matches brute-force scores when a 
   const expected = collectBruteForceTacticalScores(ai, position);
   const count = anyAI.generateOrderedMoves(position, anyAI.moveBuffers[0], anyAI.scoreBuffers[0], -1, true);
 
+  expect(Array.from(expected.moves.slice(0, expected.count))).toEqual([41, 21, 39, 23]);
+  expect(Array.from(expected.scores.slice(0, expected.count))).toEqual([2292, 2074, 1260, 1202]);
   expect(count).toBe(expected.count);
   expect(Array.from(anyAI.moveBuffers[0].slice(0, count))).toEqual(Array.from(expected.moves.slice(0, expected.count)));
   expect(Array.from(anyAI.scoreBuffers[0].slice(0, count))).toEqual(Array.from(expected.scores.slice(0, expected.count)));
