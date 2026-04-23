@@ -549,6 +549,35 @@ test('scoreMove deduplicates adjacent groups that wrap around the candidate from
   expect(anyAI.scoreMove(playerDedup, playerDedup.index(3, 2), -1, false)).toBe(6080);
 });
 
+test('generateOrderedMoves caches shared group scans across one move-generation pass', () => {
+  const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+  const position = GogoPosition.fromAscii([
+    '.........',
+    '.........',
+    '.........',
+    '...OOO...',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  anyAI.ensureBuffers(position.area);
+
+  const originalScanGroup = position.scanGroup.bind(position);
+  let scanCalls = 0;
+  position.scanGroup = ((start: number, color: number) => {
+    scanCalls += 1;
+    return originalScanGroup(start, color);
+  }) as typeof position.scanGroup;
+
+  const count = anyAI.generateOrderedMoves(position, anyAI.moveBuffers[0], anyAI.scoreBuffers[0], -1, false);
+
+  expect(count).toBeGreaterThan(1);
+  expect(scanCalls).toBe(1);
+});
+
 test('null move pruning prunes when the position is strongly in favor of the side to move', () => {
   // Position where BLACK has a strong 3-in-a-row pattern.
   // The null move (giving WHITE a free move) still evaluates strongly
