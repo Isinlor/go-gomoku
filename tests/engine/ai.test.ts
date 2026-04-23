@@ -720,7 +720,7 @@ test('generateOrderedMoves tactical fast path matches brute-force tactical filte
   expect(new Set(Array.from(anyAI.moveBuffers[0].slice(0, count)))).toEqual(expected);
 });
 
-test('tactical fast-path helpers cover wide windows and group-liberty branches', () => {
+test('insertTacticalWindowMoves handles empty counts from zero through five', () => {
   const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
   const anyAI = ai as any;
   anyAI.ensureBuffers(81);
@@ -743,7 +743,11 @@ test('tactical fast-path helpers cover wide windows and group-liberty branches',
   expect(windowCount).toBe(5);
   expect(new Set(Array.from(windowMoves.slice(0, windowCount)))).toEqual(new Set([10, 11, 12, 13, 14]));
   expect(anyAI.insertTacticalWindowMoves(windowMoves, windowScores, 0, 123, 0, 10, 11, 12, 13, 14)).toBe(0);
+});
 
+test('appendGroupTacticalMoves returns capture moves for one- and two-liberty groups', () => {
+  const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
   const captureOneLiberty = GogoPosition.fromAscii([
     '.X.......',
     'XO.......',
@@ -794,7 +798,11 @@ test('tactical fast-path helpers cover wide windows and group-liberty branches',
     captureTwoLiberties.index(0, 1),
     captureTwoLiberties.index(2, 1),
   ]));
+});
 
+test('appendGroupTacticalMoves returns escape moves for one- and two-liberty groups', () => {
+  const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
   const escapeOneLiberty = GogoPosition.fromAscii([
     '.O.......',
     'OX.......',
@@ -845,7 +853,11 @@ test('tactical fast-path helpers cover wide windows and group-liberty branches',
     escapeTwoLiberties.index(0, 1),
     escapeTwoLiberties.index(2, 1),
   ]));
+});
 
+test('appendGroupTacticalMoves skips non-tactical groups', () => {
+  const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
   const nonTacticalGroup = GogoPosition.fromAscii([
     '.........',
     '....O....',
