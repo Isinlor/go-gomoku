@@ -45,6 +45,8 @@ const CAPTURE_BONUS = 5_000;
 const ESCAPE_BONUS = 3_500;
 const NO_SCORE = Number.NEGATIVE_INFINITY;
 const MAX_CANDIDATES = 12;
+const MAX_VCF_PRESEARCH_CANDIDATES = 3;
+const MAX_VCF_PRESEARCH_TIME_PER_MOVE_MS = 25;
 
 // Transposition table constants
 const TT_SIZE_BITS = 18;
@@ -144,6 +146,12 @@ export class GogoAI {
     }
 
     state.hintMove = fallbackMove;
+
+    const vcfMove = this.runVCFPreSearch(position, fallbackMove);
+    if (vcfMove !== -1) {
+      state.hintMove = vcfMove;
+    }
+
     // === Phase 1: Heuristic Discovery ===
     // Use NMP, LMR, and candidate capping for fast search.
     this.searchDepths(position, 1, state);
@@ -1022,6 +1030,84 @@ export class GogoAI {
     this.nodesVisited += 1;
     if ((force || (this.nodesVisited & 127) === 0) && this.now() >= this.deadline) {
       throw this.timeoutSignal;
+    }
+  }
+
+  private runVCFPreSearch(position: GogoPosition, hintMove: number): number {
+    const searchDeadline = this.deadline;
+    const startNodes = this.nodesVisited;
+    const startTimedOut = this.timedOut;
+
+    const moves = this.moveBuffers[0];
+    const scores = this.scoreBuffers[0];
+    const count = this.generateOrderedMoves(position, moves, scores, hintMove, true, 0);
+
+    const limit = Math.min(count, MAX_VCF_PRESEARCH_CANDIDATES);
+    for (let i = 0; i < limit; i += 1) {
+      if (this.now() >= searchDeadline) {
+        break;
+      }
+      const move = moves[i];
+      if (!this.createsImmediateFourThreat(position, move)) {
+        continue;
+      }
+      const remainingMs = searchDeadline - this.now();
+      if (remainingMs <= 0) {
+        break;
+      }
+      const proven = this.verifyWinningMove(
+        position,
+        move,
+        Math.min(remainingMs, MAX_VCF_PRESEARCH_TIME_PER_MOVE_MS),
+      );
+      // verifyWinningMove runs an independent search; restore root-search context.
+      this.deadline = searchDeadline;
+      this.timedOut = false;
+      if (proven) {
+        this.nodesVisited = startNodes;
+        this.timedOut = startTimedOut;
+        return move;
+      }
+    }
+
+    this.deadline = searchDeadline;
+    this.nodesVisited = startNodes;
+    this.timedOut = startTimedOut;
+    return -1;
+  }
+
+  private createsImmediateFourThreat(position: GogoPosition, move: number): boolean {
+    if (position.board[move] !== EMPTY || move === position.koPoint) return false;
+    const attacker = position.toMove;
+    if (!position.play(move)) return false;
+    try {
+      if (position.winner === attacker) {
+        return true;
+      }
+      const meta = position.meta;
+      const windowsByPoint = meta.windowsByPoint;
+      const windowOffsets = meta.windowsByPointOffsets;
+      const windows = meta.windows;
+      const board = position.board;
+      const playerShift = attacker - 1;
+      const opponentShift = 2 - attacker;
+      for (let cursor = windowOffsets[move]; cursor < windowOffsets[move + 1]; cursor += 1) {
+        const windowIndex = windowsByPoint[cursor];
+        const base = windowIndex * 5;
+        const c0 = board[windows[base]];
+        const c1 = board[windows[base + 1]];
+        const c2 = board[windows[base + 2]];
+        const c3 = board[windows[base + 3]];
+        const c4 = board[windows[base + 4]];
+        const mine = ((c0 >> playerShift) & 1) + ((c1 >> playerShift) & 1) + ((c2 >> playerShift) & 1) + ((c3 >> playerShift) & 1) + ((c4 >> playerShift) & 1);
+        const theirs = ((c0 >> opponentShift) & 1) + ((c1 >> opponentShift) & 1) + ((c2 >> opponentShift) & 1) + ((c3 >> opponentShift) & 1) + ((c4 >> opponentShift) & 1);
+        if (mine === 4 && theirs === 0) {
+          return true;
+        }
+      }
+      return false;
+    } finally {
+      position.undo();
     }
   }
 
