@@ -45,6 +45,8 @@ const CAPTURE_BONUS = 5_000;
 const ESCAPE_BONUS = 3_500;
 const NO_SCORE = Number.NEGATIVE_INFINITY;
 const MAX_CANDIDATES = 12;
+const VCF_ROOT_CANDIDATES = 8;
+const VCF_PRESEARCH_MAX_PLY = 9;
 
 // Transposition table constants
 const TT_SIZE_BITS = 18;
@@ -144,6 +146,21 @@ export class GogoAI {
     }
 
     state.hintMove = fallbackMove;
+    const vcfResult = this.preSearchVCF(position);
+    if (vcfResult !== null) {
+      return {
+        move: vcfResult.move,
+        score: WIN_SCORE - 1,
+        depth: vcfResult.depth,
+        nodes: this.nodesVisited,
+        timedOut: false,
+        forcedWin: true,
+        forcedLoss: false,
+        heuristicWin: true,
+        heuristicLoss: false,
+      };
+    }
+
     // === Phase 1: Heuristic Discovery ===
     // Use NMP, LMR, and candidate capping for fast search.
     this.searchDepths(position, 1, state);
@@ -219,6 +236,45 @@ export class GogoAI {
       heuristicWin: finalHeuristicWin,
       heuristicLoss: finalHeuristicLoss,
     };
+  }
+
+  /**
+   * VCF (Victory by Continuous Fours) pre-search.
+   *
+   * Before entering the broader heuristic search, probe a small number of
+   * highly tactical root moves and verify each with the exact threat-space
+   * prover. This catches tactical forced wins early and avoids spending time
+   * in deeper non-proof search when a VCF exists.
+   */
+  private preSearchVCF(position: GogoPosition): { move: number; depth: number } | null {
+    const remainingMs = this.deadline - this.now();
+    if (remainingMs <= 0) {
+      return null;
+    }
+
+    const moves = this.moveBuffers[0];
+    const scores = this.scoreBuffers[0];
+    let count = this.generateOrderedMoves(position, moves, scores, -1, true, 0);
+    if (count === 0) {
+      return null;
+    }
+    count = Math.min(count, VCF_ROOT_CANDIDATES);
+
+    for (let i = 0; i < count; i += 1) {
+      const move = moves[i];
+      const moveRemainingMs = this.deadline - this.now();
+      if (moveRemainingMs <= 0) {
+        return null;
+      }
+      if (this.verifyWinningMove(position, move, moveRemainingMs, VCF_PRESEARCH_MAX_PLY)) {
+        return { move, depth: 1 };
+      }
+      if (this.timedOut) {
+        return null;
+      }
+    }
+
+    return null;
   }
 
   private ensureBuffers(area: number): void {
@@ -1070,7 +1126,7 @@ export class GogoAI {
    * Uses AND/OR threat-space search with a dedicated proof TT.
    * Returns true if the win is provable within the time and depth limits.
    */
-  verifyWinningMove(position: GogoPosition, move: number, timeLimitMs: number): boolean {
+  verifyWinningMove(position: GogoPosition, move: number, timeLimitMs: number, maxProofPly = this.maxPly): boolean {
     this.ensureBuffers(position.area);
     this.deadline = this.now() + Math.max(0, timeLimitMs);
     this.nodesVisited = 0;
@@ -1082,7 +1138,8 @@ export class GogoAI {
       // Iterative deepening: start shallow and deepen. Earlier iterations
       // populate the proof TT, which acts as a powerful pruning mechanism
       // for deeper iterations.
-      for (let maxDepth = 1; maxDepth <= this.maxPly; maxDepth += 2) {
+      const boundedMaxDepth = Math.max(1, Math.min(this.maxPly, maxProofPly));
+      for (let maxDepth = 1; maxDepth <= boundedMaxDepth; maxDepth += 2) {
         try {
           const result = this.proofDefend(position, maxDepth, 1);
           if (result) return true;
