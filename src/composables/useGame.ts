@@ -2,7 +2,6 @@ import { ref, shallowRef, triggerRef, computed, onUnmounted } from 'vue';
 import {
   GogoPosition,
   BLACK,
-  WHITE,
   EMPTY,
   playerName,
   decodeGame,
@@ -20,7 +19,7 @@ export interface UseGameOptions {
 }
 
 const AI_CONFIG = {
-  maxDepth: 14,
+  maxDepth: 30,
   quiescenceDepth: 4,
   maxPly: 96,
 } as const;
