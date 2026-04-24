@@ -21,6 +21,7 @@ export interface GogoAIOptions {
   maxDepth?: number;
   quiescenceDepth?: number;
   maxPly?: number;
+  candidateTaper?: readonly number[];
   now?: () => number;
 }
 
@@ -44,7 +45,7 @@ const KILLER_BONUS = 1_000_000;
 const CAPTURE_BONUS = 5_000;
 const ESCAPE_BONUS = 3_500;
 const NO_SCORE = Number.NEGATIVE_INFINITY;
-const MAX_CANDIDATES = 12;
+const DEFAULT_CANDIDATE_TAPER = [24, 12, 8, 6, 4] as const;
 
 // Transposition table constants
 const TT_SIZE_BITS = 18;
@@ -55,10 +56,29 @@ const TT_EXACT = 1;
 const TT_LOWERBOUND = 2;
 const TT_UPPERBOUND = 3;
 
+export function normalizeCandidateTaper(taper: readonly number[] | undefined): readonly number[] {
+  if (!taper || taper.length === 0) {
+    return DEFAULT_CANDIDATE_TAPER;
+  }
+  const normalized = taper
+    .map((value) => Math.floor(value))
+    .filter((value) => Number.isFinite(value) && value > 0);
+  return normalized.length === 0 ? DEFAULT_CANDIDATE_TAPER : normalized;
+}
+
+export function candidateCapForPly(ply: number, taper: readonly number[]): number {
+  const safePly = Math.max(0, ply | 0);
+  if (safePly < taper.length) {
+    return taper[safePly];
+  }
+  return taper[taper.length - 1];
+}
+
 export class GogoAI {
   readonly maxDepth: number;
   readonly quiescenceDepth: number;
   readonly maxPly: number;
+  readonly candidateTaper: readonly number[];
 
   private readonly now: () => number;
   private moveBuffers: Int16Array[] = [];
@@ -97,6 +117,7 @@ export class GogoAI {
     this.maxDepth = Math.max(1, options.maxDepth ?? 6);
     this.quiescenceDepth = Math.max(0, options.quiescenceDepth ?? 6);
     this.maxPly = Math.max(2, options.maxPly ?? 64);
+    this.candidateTaper = normalizeCandidateTaper(options.candidateTaper);
     this.now = options.now ?? (() => performance.now());
   }
 
@@ -333,6 +354,9 @@ export class GogoAI {
     const scores = this.scoreBuffers[0];
 
     let count = this.generateOrderedMoves(position, moves, scores, hintMove, false);
+    if (!this.proofMode) {
+      count = Math.min(count, candidateCapForPly(0, this.candidateTaper));
+    }
     let alpha = -WIN_SCORE;
     let bestMove = -1;
     let bestScore = -WIN_SCORE;
@@ -374,6 +398,9 @@ export class GogoAI {
         };
       }
       count = this.generateFullBoardMoves(position, moves, scores, hintMove, false);
+      if (!this.proofMode) {
+        count = Math.min(count, candidateCapForPly(0, this.candidateTaper));
+      }
       usedFullBoard = true;
     }
   }
@@ -438,8 +465,9 @@ export class GogoAI {
     const scores = this.scoreBuffers[ply];
     let count = this.generateOrderedMoves(position, moves, scores, hintMove, false, ply);
     let wasCapped = false;
-    if (!this.proofMode && count > MAX_CANDIDATES) {
-      count = MAX_CANDIDATES;
+    const maxCandidates = candidateCapForPly(ply, this.candidateTaper);
+    if (!this.proofMode && count > maxCandidates) {
+      count = maxCandidates;
       wasCapped = true;
     }
     let usedFullBoard = false;
@@ -501,8 +529,8 @@ export class GogoAI {
         break;
       }
       count = this.generateFullBoardMoves(position, moves, scores, hintMove, false, ply);
-      if (!this.proofMode && count > MAX_CANDIDATES) {
-        count = MAX_CANDIDATES;
+      if (!this.proofMode && count > maxCandidates) {
+        count = maxCandidates;
         wasCapped = true;
       }
       usedFullBoard = true;
@@ -513,7 +541,7 @@ export class GogoAI {
     }
 
     // Transposition table store
-    // Capped nodes (MAX_CANDIDATES applied) may have missed legal defenses.
+    // Capped nodes (candidate taper applied) may have missed legal defenses.
     // Only TT_LOWERBOUND (fail-high on a real move) is safe from capped nodes.
     // TT_EXACT and TT_UPPERBOUND may be wrong because unsearched moves could
     // have produced a higher score.
