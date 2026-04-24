@@ -1,6 +1,6 @@
 import { test, expect } from 'vitest';
 
-import { BLACK, EMPTY, GogoAI, GogoPosition, WHITE } from '../../src/engine';
+import { BLACK, CENTER_MULTIPLIER, EMPTY, GogoAI, GogoPosition, WHITE } from '../../src/engine';
 import { insertMoveDescending } from '../../src/engine/moveOrdering';
 
 const GENERATE_ORDERED_MOVES_TACTICAL_ONLY_INDEX = 4;
@@ -61,6 +61,10 @@ test('AI chooses the center on an empty board, handles immediate timeout, and ha
   const terminalResult = ai.findBestMove(terminal, 100);
   expect(terminalResult.move).toBe(-1);
   expect(terminalResult.timedOut).toBe(false);
+});
+
+test('AI keeps the tuned center multiplier', () => {
+  expect(CENTER_MULTIPLIER).toBe(3);
 });
 
 test('AI finds immediate wins, blocks forced replies at depth one, and returns best-so-far after a later timeout', () => {
