@@ -63,8 +63,20 @@ test('AI chooses the center on an empty board, handles immediate timeout, and ha
   expect(terminalResult.timedOut).toBe(false);
 });
 
-test('AI keeps the tuned center multiplier', () => {
-  expect(CENTER_MULTIPLIER).toBe(3);
+test('AI center-bias move bonus uses the tuned center multiplier', () => {
+  const ai = new GogoAI({ maxDepth: 1, now: () => 0 });
+  const anyAI = ai as any;
+  const position = new GogoPosition(9);
+  anyAI.ensureBuffers(position.area);
+
+  const centerMove = position.index(4, 4);
+  const cornerMove = position.index(0, 0);
+  const centerScore = anyAI.finalizeMoveScore(position, centerMove, BLACK, 0, -1, 0);
+  const cornerScore = anyAI.finalizeMoveScore(position, cornerMove, BLACK, 0, -1, 0);
+
+  expect(centerScore).toBe(position.meta.centerBias[centerMove] * CENTER_MULTIPLIER);
+  expect(cornerScore).toBe(position.meta.centerBias[cornerMove] * CENTER_MULTIPLIER);
+  expect(centerScore).toBeGreaterThan(cornerScore);
 });
 
 test('AI finds immediate wins, blocks forced replies at depth one, and returns best-so-far after a later timeout', () => {
