@@ -36,6 +36,8 @@ const ATTACK_WEIGHTS = [0, 12, 72, 540, 100_000, 500_000] as const;
 const DEFENSE_WEIGHTS = [0, 16, 96, 720, 100_000, 500_000] as const;
 const EVAL_WEIGHTS = [0, 6, 32, 240, 500_000, WIN_SCORE >> 2] as const;
 const LOCAL_LIBERTY_WEIGHTS = [-200, -80, 20, 60, 80] as const;
+const SHAPE_ATTACK_WEIGHTS = [160_000, 70_000, 12_000, 3_000, 9_000, 28_000] as const;
+const SHAPE_DEFENSE_WEIGHTS = [180_000, 82_000, 14_000, 3_600, 10_500, 32_000] as const;
 const TACTICAL_PATTERN_THRESHOLD = ATTACK_WEIGHTS[4];
 const CENTER_MULTIPLIER = 3;
 const HINT_BONUS = 10_000_000;
@@ -54,6 +56,12 @@ const TT_NONE = 0;
 const TT_EXACT = 1;
 const TT_LOWERBOUND = 2;
 const TT_UPPERBOUND = 3;
+const OPEN_FOUR_INDEX = 0;
+const CLOSED_FOUR_INDEX = 1;
+const OPEN_THREE_INDEX = 2;
+const CLOSED_THREE_INDEX = 3;
+const BROKEN_THREE_INDEX = 4;
+const FORK_INDEX = 5;
 
 export class GogoAI {
   readonly maxDepth: number;
@@ -611,6 +619,54 @@ export class GogoAI {
       }
     }
 
+    const blackPatterns = new Int16Array(6);
+    const whitePatterns = new Int16Array(6);
+    let blackForcingThreats = 0;
+    let whiteForcingThreats = 0;
+    const windowPrev = meta.windowPrev;
+    const windowNext = meta.windowNext;
+    const scanWindow = (windowIndex: number): void => {
+      const base = windowIndex * 5;
+      const c0 = board[windows[base]];
+      const c1 = board[windows[base + 1]];
+      const c2 = board[windows[base + 2]];
+      const c3 = board[windows[base + 3]];
+      const c4 = board[windows[base + 4]];
+      const black = (c0 & 1) + (c1 & 1) + (c2 & 1) + (c3 & 1) + (c4 & 1);
+      const white = (c0 >> 1) + (c1 >> 1) + (c2 >> 1) + (c3 >> 1) + (c4 >> 1);
+      const leftOpen = windowPrev[windowIndex] !== -1 && board[windowPrev[windowIndex]] === EMPTY;
+      const rightOpen = windowNext[windowIndex] !== -1 && board[windowNext[windowIndex]] === EMPTY;
+      if (white === 0 && black > 0 && black < 5) {
+        blackForcingThreats += this.accumulateWindowPatternShape(c0, c1, c2, c3, c4, black, leftOpen, rightOpen, blackPatterns);
+      }
+      if (black === 0 && white > 0 && white < 5) {
+        whiteForcingThreats += this.accumulateWindowPatternShape(c0 >> 1, c1 >> 1, c2 >> 1, c3 >> 1, c4 >> 1, white, leftOpen, rightOpen, whitePatterns);
+      }
+    };
+
+    if (position.lastMove !== -1) {
+      const windowOffsets = meta.windowsByPointOffsets;
+      const windowsByPoint = meta.windowsByPoint;
+      for (let cursor = windowOffsets[position.lastMove]; cursor < windowOffsets[position.lastMove + 1]; cursor += 1) {
+        scanWindow(windowsByPoint[cursor]);
+      }
+    } else {
+      for (let windowIndex = 0; windowIndex < meta.windowCount; windowIndex += 1) {
+        scanWindow(windowIndex);
+      }
+    }
+
+    if (blackForcingThreats > 1) {
+      blackPatterns[FORK_INDEX] = blackForcingThreats - 1;
+    }
+    if (whiteForcingThreats > 1) {
+      whitePatterns[FORK_INDEX] = whiteForcingThreats - 1;
+    }
+    const blackWeights = position.toMove === BLACK ? SHAPE_ATTACK_WEIGHTS : SHAPE_DEFENSE_WEIGHTS;
+    const whiteWeights = position.toMove === WHITE ? SHAPE_ATTACK_WEIGHTS : SHAPE_DEFENSE_WEIGHTS;
+    score += this.weightPatternShapes(blackPatterns, blackWeights);
+    score -= this.weightPatternShapes(whitePatterns, whiteWeights);
+
     const neighbors = meta.neighbors4;
     for (let point = 0; point < position.area; point += 1) {
       const cell = board[point];
@@ -629,6 +685,62 @@ export class GogoAI {
     }
 
     return position.toMove === BLACK ? score : -score;
+  }
+
+  private weightPatternShapes(counts: Int16Array, weights: readonly number[]): number {
+    let weighted = 0;
+    for (let i = 0; i < counts.length; i += 1) {
+      weighted += counts[i] * weights[i];
+    }
+    return weighted;
+  }
+
+  private accumulateWindowPatternShape(
+    c0: number,
+    c1: number,
+    c2: number,
+    c3: number,
+    c4: number,
+    stones: number,
+    leftOpen: boolean,
+    rightOpen: boolean,
+    counts: Int16Array,
+  ): number {
+    const s0 = c0 & 1;
+    const s1 = c1 & 1;
+    const s2 = c2 & 1;
+    const s3 = c3 & 1;
+    const s4 = c4 & 1;
+    const openEnds = Number(leftOpen) + Number(rightOpen);
+
+    if (stones === 4 && openEnds > 0) {
+      counts[openEnds === 2 ? OPEN_FOUR_INDEX : CLOSED_FOUR_INDEX] += 1;
+      return 1;
+    }
+
+    if (stones === 3 && openEnds > 0) {
+      let maxRun = 0;
+      let run = 0;
+      run = s0 === 1 ? run + 1 : 0;
+      if (run > maxRun) maxRun = run;
+      run = s1 === 1 ? run + 1 : 0;
+      if (run > maxRun) maxRun = run;
+      run = s2 === 1 ? run + 1 : 0;
+      if (run > maxRun) maxRun = run;
+      run = s3 === 1 ? run + 1 : 0;
+      if (run > maxRun) maxRun = run;
+      run = s4 === 1 ? run + 1 : 0;
+      if (run > maxRun) maxRun = run;
+      if (maxRun === 3) {
+        counts[openEnds === 2 ? OPEN_THREE_INDEX : CLOSED_THREE_INDEX] += 1;
+        return openEnds === 2 ? 1 : 0;
+      }
+      if (openEnds === 2) {
+        counts[BROKEN_THREE_INDEX] += 1;
+        return 1;
+      }
+    }
+    return 0;
   }
 
   private generateOrderedMoves(

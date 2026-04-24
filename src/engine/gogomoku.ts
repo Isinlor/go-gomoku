@@ -23,6 +23,8 @@ export interface BoardMeta {
   readonly windowCount: number;
   readonly windowsByPointOffsets: Uint16Array;
   readonly windowsByPoint: Int16Array;
+  readonly windowPrev: Int16Array;
+  readonly windowNext: Int16Array;
   readonly centerBias: Int16Array;
   readonly zobristStones64: BigUint64Array;
   readonly zobristBlackToMove64: bigint;
@@ -98,6 +100,8 @@ function createBoardMeta(size: SupportedSize): BoardMeta {
   const windowsBucket: number[][] = Array.from({ length: area }, () => []);
   const windows: number[] = [];
   let windowCount = 0;
+  const windowPrev: number[] = [];
+  const windowNext: number[] = [];
 
   for (let y = 0; y < size; y += 1) {
     for (let x = 0; x < size; x += 1) {
@@ -137,6 +141,14 @@ function createBoardMeta(size: SupportedSize): BoardMeta {
           windows.push(point);
           windowsBucket[point].push(windowIndex);
         }
+        const prevX = x - dx;
+        const prevY = y - dy;
+        const nextX = endX + dx;
+        const nextY = endY + dy;
+        const prevPoint = prevX >= 0 && prevX < size && prevY >= 0 && prevY < size ? prevY * size + prevX : -1;
+        const nextPoint = nextX >= 0 && nextX < size && nextY >= 0 && nextY < size ? nextY * size + nextX : -1;
+        windowPrev.push(prevPoint);
+        windowNext.push(nextPoint);
         windowCount += 1;
       }
     }
@@ -188,6 +200,8 @@ function createBoardMeta(size: SupportedSize): BoardMeta {
     windowCount,
     windowsByPointOffsets,
     windowsByPoint,
+    windowPrev: Int16Array.from(windowPrev),
+    windowNext: Int16Array.from(windowNext),
     centerBias,
     zobristStones64,
     zobristBlackToMove64,
