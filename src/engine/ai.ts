@@ -1,4 +1,4 @@
-import { BLACK, EMPTY, GogoPosition, otherPlayer, type Cell, type Player, WHITE } from './gogomoku';
+import { BLACK, EMPTY, GogoPosition, otherPlayer, type Player, WHITE } from './gogomoku';
 import { insertMoveDescending, sortMovesDescending } from './moveOrdering';
 
 export interface SearchResult {
@@ -37,7 +37,7 @@ const DEFENSE_WEIGHTS = [0, 16, 96, 720, 100_000, 500_000] as const;
 const EVAL_WEIGHTS = [0, 6, 32, 240, 500_000, WIN_SCORE >> 2] as const;
 const LOCAL_LIBERTY_WEIGHTS = [-200, -80, 20, 60, 80] as const;
 const TACTICAL_PATTERN_THRESHOLD = ATTACK_WEIGHTS[4];
-const CENTER_MULTIPLIER = 3;
+const CENTER_MULTIPLIER = 0.9; // edge moves are better (see puzzles)
 const HINT_BONUS = 10_000_000;
 const HISTORY_SCALE = 1;
 const KILLER_BONUS = 1_000_000;
