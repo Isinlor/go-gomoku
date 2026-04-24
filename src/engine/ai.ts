@@ -98,6 +98,7 @@ export class GogoAI {
     this.quiescenceDepth = Math.max(0, options.quiescenceDepth ?? 6);
     this.maxPly = Math.max(2, options.maxPly ?? 64);
     this.now = options.now ?? (() => performance.now());
+    this.proofTTBestMove.fill(-1);
   }
 
   findBestMove(position: GogoPosition, timeLimitMs: number): SearchResult {
@@ -1046,19 +1047,24 @@ export class GogoAI {
   private proofTTResult = new Int8Array(TT_SIZE);
   private proofTTDepth = new Int8Array(TT_SIZE);
   private proofTTBestMove = new Int16Array(TT_SIZE);
+  private proofTTStamp = new Uint16Array(TT_SIZE);
+  private proofTTEpoch = 1;
 
   private resetProofSearch(): void {
     // Reset proof TT and search heuristics so the main iterative-deepening
     // heuristic phase does not leak move-ordering state (history/killers) into
     // proof search, which can amplify TT collision patterns and make proofs incomplete.
     this.resetSearchHeuristics();
-    this.proofTTHash.fill(0n);
-    this.proofTTResult.fill(0);
-    this.proofTTDepth.fill(0);
-    this.proofTTBestMove.fill(-1);
+    this.proofTTEpoch += 1;
+    if (this.proofTTEpoch === 0 || this.proofTTEpoch > 0xffff) {
+      this.proofTTEpoch = 1;
+      this.proofTTStamp.fill(0);
+      this.proofTTBestMove.fill(-1);
+    }
   }
 
   private storeProofTT(ttIdx: number, hash: bigint, depthLeft: number, result: 1 | -1, bestMove?: number): void {
+    this.proofTTStamp[ttIdx] = this.proofTTEpoch;
     this.proofTTHash[ttIdx] = hash;
     this.proofTTResult[ttIdx] = result;
     this.proofTTDepth[ttIdx] = depthLeft;
@@ -1116,7 +1122,8 @@ export class GogoAI {
     const hash = position.hash;
     const ttIdx = Number(hash & TT_MASK);
     let ttBest = -1;
-    if (this.proofTTHash[ttIdx] === hash) {
+    const stamp = this.proofTTStamp[ttIdx];
+    if ((stamp === 0 || stamp === this.proofTTEpoch) && this.proofTTHash[ttIdx] === hash) {
       if (this.proofTTDepth[ttIdx] >= depthLeft) {
         if (this.proofTTResult[ttIdx] === 1) return true;
         if (this.proofTTResult[ttIdx] === -1) return false;
@@ -1179,7 +1186,8 @@ export class GogoAI {
     const hash = position.hash;
     const ttIdx = Number(hash & TT_MASK);
     let ttBest = -1;
-    if (this.proofTTHash[ttIdx] === hash) {
+    const stamp = this.proofTTStamp[ttIdx];
+    if ((stamp === 0 || stamp === this.proofTTEpoch) && this.proofTTHash[ttIdx] === hash) {
       if (this.proofTTDepth[ttIdx] >= depthLeft) {
         if (this.proofTTResult[ttIdx] === 1) return true;
         if (this.proofTTResult[ttIdx] === -1) return false;

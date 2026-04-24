@@ -160,6 +160,94 @@ test('verifyWinningMove rejects illegal candidates, proves winning candidates, a
   expect(position.hash).toBe(snapshot.hash);
 });
 
+test('verifyWinningMove resets proof TT with epoch stamps and clears stamps on wraparound', () => {
+  const position = GogoPosition.fromAscii([
+    'XXXX.....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  const ai = new GogoAI({ maxDepth: 5, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+
+  // Seed stale proof-TT state and force epoch wrap path.
+  anyAI.proofTTStamp.fill(777);
+  anyAI.proofTTEpoch = 0xffff;
+
+  expect(ai.verifyWinningMove(position, position.index(4, 0), 100)).toBe(true);
+  expect(anyAI.proofTTEpoch).toBe(1);
+  expect(anyAI.proofTTStamp.some((stamp: number) => stamp === 0)).toBe(true);
+  expect(anyAI.proofTTStamp.some((stamp: number) => stamp === 777)).toBe(false);
+});
+
+test('proofAttack does not treat zero-initialized proof TT slots as move 0 hints', () => {
+  const ai = new GogoAI({ maxDepth: 5, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+  const position = new GogoPosition(9);
+  position.hash = 0n;
+
+  anyAI.ensureBuffers(position.area);
+  anyAI.deadline = 1e15;
+  anyAI.proofTTEpoch = 1;
+  anyAI.proofTTStamp.fill(0);
+  anyAI.proofTTHash.fill(0n);
+
+  const playCalls: number[] = [];
+  const realPlay = position.play.bind(position);
+  (position as any).play = (move: number) => {
+    playCalls.push(move);
+    return realPlay(move);
+  };
+
+  const realGen = anyAI.generateOrderedMoves.bind(anyAI);
+  anyAI.generateOrderedMoves = () => 0;
+
+  expect(anyAI.proofAttack(position, 1, 1)).toBe(false);
+  expect(playCalls).toEqual([]);
+
+  anyAI.generateOrderedMoves = realGen;
+  (position as any).play = realPlay;
+});
+
+test('resetProofSearch clears proofTTBestMove on epoch wrap so stale hints are not reused', () => {
+  const ai = new GogoAI({ maxDepth: 5, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+  const position = new GogoPosition(9);
+  position.hash = 0n;
+
+  anyAI.ensureBuffers(position.area);
+  anyAI.deadline = 1e15;
+  anyAI.proofTTHash[0] = 0n;
+  anyAI.proofTTBestMove[0] = 42;
+  anyAI.proofTTStamp[0] = 77;
+  anyAI.proofTTEpoch = 0xffff;
+
+  anyAI.resetProofSearch();
+  expect(anyAI.proofTTEpoch).toBe(1);
+  expect(anyAI.proofTTBestMove[0]).toBe(-1);
+
+  const playCalls: number[] = [];
+  const realPlay = position.play.bind(position);
+  (position as any).play = (move: number) => {
+    playCalls.push(move);
+    return realPlay(move);
+  };
+
+  const realGen = anyAI.generateOrderedMoves.bind(anyAI);
+  anyAI.generateOrderedMoves = () => 0;
+
+  expect(anyAI.proofAttack(position, 1, 1)).toBe(false);
+  expect(playCalls).toEqual([]);
+
+  anyAI.generateOrderedMoves = realGen;
+  (position as any).play = realPlay;
+});
+
 test('AI iterative deepening exits early once a forced win is proven at the root', () => {
   const winning = GogoPosition.fromAscii([
     'XXXX.....',
