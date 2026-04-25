@@ -38,6 +38,30 @@ npm run coverage
 
 The coverage command is configured with 100% thresholds for lines, branches, and functions.
 
+
+## AI strength regression gate
+
+A simple, robust strength check is included for pull requests.
+
+- Script: `npm run ai:strength -- --baseline <git-ref>`
+- CI compares the PR branch against the pull request base commit.
+- Method:
+  - fixed opening suite (including empty-board and corner/center patterns)
+  - paired games for each opening (candidate plays both colors)
+  - score rate = `(wins + 0.5 * draws) / games`
+  - 95% Wilson lower confidence bound used as the pass/fail signal
+
+By default the gate fails if:
+
+- any invalid moves occur, or
+- the 95% lower bound is not above `0.50`.
+
+Example:
+
+```bash
+npm run ai:strength -- --baseline master --time-ms 20 --min-lower-bound 0.50
+```
+
 ## Development
 
 ```bash

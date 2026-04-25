@@ -13,6 +13,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -22,3 +24,14 @@ jobs:
         run: make install
       - name: Test with coverage
         run: npm run coverage
+      - name: Select baseline commit
+        id: baseline
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "ref=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=$(git rev-parse HEAD^)" >> "$GITHUB_OUTPUT"
+          fi
+      - name: AI strength gate
+        run: npm run ai:strength -- --baseline "${{ steps.baseline.outputs.ref }}" --time-ms 20 --min-lower-bound 0.50
