@@ -37,7 +37,7 @@ const DEFENSE_WEIGHTS = [0, 16, 96, 720, 100_000, 500_000] as const;
 const EVAL_WEIGHTS = [0, 6, 32, 240, 500_000, WIN_SCORE >> 2] as const;
 const LOCAL_LIBERTY_WEIGHTS = [-200, -80, 20, 60, 80] as const;
 const TACTICAL_PATTERN_THRESHOLD = ATTACK_WEIGHTS[4];
-const CENTER_MULTIPLIER = 3;
+const CENTER_MULTIPLIER = 0.75;
 const HINT_BONUS = 10_000_000;
 const HISTORY_SCALE = 1;
 const KILLER_BONUS = 1_000_000;
@@ -624,7 +624,7 @@ export class GogoAI {
         localLiberties += neighbor !== -1 && board[neighbor] === EMPTY ? 1 : 0;
       }
       const libertyBucket = Math.min(localLiberties, LOCAL_LIBERTY_WEIGHTS.length - 1);
-      const stoneScore = meta.centerBias[point] * CENTER_MULTIPLIER + LOCAL_LIBERTY_WEIGHTS[libertyBucket];
+      const stoneScore = centerBonus(meta.centerBias[point]) + LOCAL_LIBERTY_WEIGHTS[libertyBucket];
       score += cell === BLACK ? stoneScore : -stoneScore;
     }
 
@@ -890,7 +890,7 @@ export class GogoAI {
 
   private finalizeMoveScore(position: GogoPosition, move: number, player: Player, baseScore: number, hintMove: number, ply: number): number {
     let score = baseScore;
-    score += position.meta.centerBias[move] * CENTER_MULTIPLIER;
+    score += centerBonus(position.meta.centerBias[move]);
     score += this.history[(player - 1) * this.bufferArea + move];
     if (move === hintMove) {
       score += HINT_BONUS;
@@ -1361,4 +1361,7 @@ export class GogoAI {
 
     return count;
   }
+}
+function centerBonus(centerBias: number): number {
+  return Math.round(centerBias * CENTER_MULTIPLIER);
 }

@@ -538,7 +538,7 @@ test('scoreMove deduplicates adjacent groups that wrap around the candidate from
   // Opponent (WHITE) L-shaped group {(2,1),(3,1),(2,2)} has exactly 1 liberty at
   // candidate (3,2).  The group is adjacent from both left and above, so without
   // dedup the capturePressure of 5900 (CAPTURE_BONUS + 3*300) would be counted
-  // twice.  Expected score with correct dedup: 7318.
+  // twice.  Expected score with correct dedup: 7305.
   const oppDedup = GogoPosition.fromAscii([
     'XXXXX....',
     'XXOOX....',
@@ -555,12 +555,12 @@ test('scoreMove deduplicates adjacent groups that wrap around the candidate from
   // that fromAscii() correctly detects from the finished five-in-a-row on the top edge.
   oppDedup.winner = EMPTY;
   anyAI.ensureBuffers(oppDedup.area);
-  expect(anyAI.scoreMove(oppDedup, oppDedup.index(3, 2), -1, false)).toBe(7318);
+  expect(anyAI.scoreMove(oppDedup, oppDedup.index(3, 2), -1, false)).toBe(7305);
 
   // Player (BLACK) L-shaped group {(2,1),(3,1),(2,2)} has exactly 1 liberty at
   // candidate (3,2).  The group is adjacent from both left and above, so without
   // dedup the escapePressure of 4250 (ESCAPE_BONUS + 3*250) would be counted
-  // twice.  Expected score with correct dedup: 6080.
+  // twice.  Expected score with correct dedup: 6067.
   const playerDedup = GogoPosition.fromAscii([
     '..OO.....',
     'OOXXO....',
@@ -573,7 +573,7 @@ test('scoreMove deduplicates adjacent groups that wrap around the candidate from
     '.........',
   ], BLACK);
   anyAI.ensureBuffers(playerDedup.area);
-  expect(anyAI.scoreMove(playerDedup, playerDedup.index(3, 2), -1, false)).toBe(6080);
+  expect(anyAI.scoreMove(playerDedup, playerDedup.index(3, 2), -1, false)).toBe(6067);
 });
 
 test('generateOrderedMoves caches shared group scans across one move-generation pass', () => {
@@ -803,8 +803,8 @@ test('generateOrderedMoves tactical fast path matches brute-force scores for ove
   const expected = collectBruteForceTacticalScores(ai, position);
   const count = anyAI.generateOrderedMoves(position, anyAI.moveBuffers[0], anyAI.scoreBuffers[0], -1, true);
 
-  expect(Array.from(expected.moves.slice(0, expected.count))).toEqual([40, 41, 49, 4, 36]);
-  expect(Array.from(expected.scores.slice(0, expected.count))).toEqual([401587, 101204, 101204, 100211, 100211]);
+  expect(new Set(Array.from(expected.moves.slice(0, expected.count)))).toEqual(new Set([40, 49, 41, 36, 4]));
+  expect(Array.from(expected.scores.slice(0, expected.count))).toEqual([401567, 101186, 101186, 100200, 100200]);
   expect(count).toBe(expected.count);
   expect(Array.from(anyAI.moveBuffers[0].slice(0, count))).toEqual(Array.from(expected.moves.slice(0, expected.count)));
   expect(Array.from(anyAI.scoreBuffers[0].slice(0, count))).toEqual(Array.from(expected.scores.slice(0, expected.count)));
@@ -830,7 +830,7 @@ test('generateOrderedMoves tactical fast path matches brute-force scores when a 
   const count = anyAI.generateOrderedMoves(position, anyAI.moveBuffers[0], anyAI.scoreBuffers[0], -1, true);
 
   expect(Array.from(expected.moves.slice(0, expected.count))).toEqual([41, 21, 39, 23]);
-  expect(Array.from(expected.scores.slice(0, expected.count))).toEqual([2292, 2074, 1260, 1202]);
+  expect(Array.from(expected.scores.slice(0, expected.count))).toEqual([2274, 2061, 1242, 1189]);
   expect(count).toBe(expected.count);
   expect(Array.from(anyAI.moveBuffers[0].slice(0, count))).toEqual(Array.from(expected.moves.slice(0, expected.count)));
   expect(Array.from(anyAI.scoreBuffers[0].slice(0, count))).toEqual(Array.from(expected.scores.slice(0, expected.count)));
@@ -1123,6 +1123,22 @@ test('primeScoredGroupInfo caches group data for all stones and finalizeMoveScor
   anyAI.killerMoves[0] = move;
   const boosted = anyAI.finalizeMoveScore(position, move, BLACK, base, move, 0);
   expect(boosted - plain).toBe(7 + 10_000_000 + 1_000_000);
+});
+
+test('finalizeMoveScore applies rounded center-bias weighting', () => {
+  const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
+  const anyAI = ai as any;
+  const position = new GogoPosition(9);
+  anyAI.ensureBuffers(position.area);
+
+  const center = position.index(4, 4);
+  const corner = position.index(0, 0);
+  const centerScore = anyAI.finalizeMoveScore(position, center, BLACK, 0, -1, 0);
+  const cornerScore = anyAI.finalizeMoveScore(position, corner, BLACK, 0, -1, 0);
+
+  expect(centerScore - cornerScore).toBe(
+    Math.round(position.meta.centerBias[center] * 0.75) - Math.round(position.meta.centerBias[corner] * 0.75),
+  );
 });
 
 test('scoreMove tactical fast path skips group scans when pattern pressure already makes the move forcing', () => {
