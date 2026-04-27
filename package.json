@@ -17,7 +17,8 @@
     "archive": "git archive -o latest-code.zip HEAD",
     "patch": "git format-patch --root master --stdout > latest-code.patch",
     "latest-code": "npm run archive && npm run patch",
-    "test:e2e": "npx playwright test"
+    "test:e2e": "npx playwright test",
+    "ai:strength": "tsx scripts/ai-strength-ci.ts"
   },
   "keywords": [],
   "author": "",
@@ -30,6 +31,7 @@
     "@vitest/coverage-v8": "^4.1.2",
     "@vue/test-utils": "^2.4.6",
     "happy-dom": "^20.8.9",
+    "tsx": "^4.21.0",
     "typescript": "^6.0.2",
     "vite": "^8.0.3",
     "vitest": "^4.1.2",
