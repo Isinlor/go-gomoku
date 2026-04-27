@@ -43,7 +43,7 @@ The coverage command is configured with 100% thresholds for lines, branches, and
 
 A simple, robust strength check is included for pull requests.
 
-- Script: `npm run ai:strength -- --baseline <git-ref>`
+- Script: `npm run ai:strength -- --candidate <git-ref> --baseline <git-ref>`
 - CI compares the PR branch against the pull request base commit.
 - Method:
   - fixed opening suite (including empty-board and corner/center patterns)
@@ -59,7 +59,7 @@ By default the gate fails if:
 Example:
 
 ```bash
-npm run ai:strength -- --baseline master --time-ms 20 --min-lower-bound 0.50
+npm run ai:strength -- --candidate HEAD --baseline master --time-ms 20 --min-lower-bound 0.50
 ```
 
 ## Development
