@@ -2,11 +2,12 @@
  * CLI script to generate puzzles.
  *
  * Usage:
- *   npx tsx scripts/generate-puzzles.ts [difficulty] [count] [seed]
+ *   npx tsx scripts/generate-puzzles.ts [difficulty] [count] [seed] [targetPly]
  *
  * difficulty: beginner | intermediate | advanced (default: beginner)
  * count:      number of puzzles to generate (default: 10)
  * seed:       RNG seed (default: current timestamp)
+ * targetPly:  only generate puzzles at this exact ply (default: any)
  */
 import {
   BEGINNER,
@@ -29,6 +30,7 @@ const difficultyMap: Record<string, PuzzleDifficulty> = {
 const diffArg = process.argv[2] ?? 'beginner';
 const countArg = parseInt(process.argv[3] ?? '10', 10);
 const seedArg = parseInt(process.argv[4] ?? String(Date.now()), 10);
+const targetPlyArg = process.argv[5] !== undefined ? parseInt(process.argv[5], 10) : undefined;
 
 const difficulty = difficultyMap[diffArg];
 if (!difficulty) {
@@ -36,7 +38,8 @@ if (!difficulty) {
   process.exit(1);
 }
 
-console.log(`Generating ${countArg} ${diffArg} puzzles (n=${difficulty.n}, m=${difficulty.m}, k=${difficulty.k}) seed=${seedArg}`);
+const plyLabel = targetPlyArg !== undefined ? ` ply=${targetPlyArg}` : '';
+console.log(`Generating ${countArg} ${diffArg} puzzles (n=${difficulty.n}, m=${difficulty.m}, k=${difficulty.k}) seed=${seedArg}${plyLabel}`);
 console.log('---');
 
 const startTime = performance.now();
@@ -48,7 +51,10 @@ function formatStats(s: GeneratorStats): string {
 
 const { puzzles, stats } = generatePuzzles(difficulty, countArg, {
   seed: seedArg,
-  maxGames: 500_000,
+  // 5 million max games ensures sufficient coverage for constrained searches
+  // (e.g. targetPly=6 yields ~1 puzzle per 5,500 games, so 100 puzzles needs ~550k games)
+  maxGames: 5_000_000,
+  targetPly: targetPlyArg,
   onProgress: (s: GeneratorStats) => {
     console.log(`  [progress] ${formatStats(s)}`);
   },
@@ -69,7 +75,8 @@ console.log('// Generated puzzles:');
 for (let i = 0; i < puzzles.length; i += 1) {
   const p = puzzles[i];
   const color = p.toMove === BLACK ? 'black' : 'white';
-  const id = `gen-${color}-${p.depth}-${p.threshold}-${i + 1}`;
+  const ply = targetPlyArg !== undefined ? `-ply${targetPlyArg}` : '';
+  const id = `gen-${color}-${p.depth}-${p.threshold}${ply}-${i + 1}`;
   console.log(`  {`);
   console.log(`    id: '${id}',`);
   console.log(`    encoded: '${p.encoded}',`);
@@ -77,5 +84,7 @@ for (let i = 0; i < puzzles.length; i += 1) {
   console.log(`    solution: '${p.solution}',`);
   console.log(`    depth: ${p.depth},`);
   console.log(`    threshold: ${p.threshold},`);
+  console.log(`    wonEncoded: '${p.wonEncoded}',`);
+  console.log(`    winningMoves: [${p.winningMoves.map((m) => `'${m}'`).join(', ')}],`);
   console.log(`  },`);
 }
