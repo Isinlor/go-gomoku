@@ -44,7 +44,7 @@ const KILLER_BONUS = 1_000_000;
 const CAPTURE_BONUS = 5_000;
 const ESCAPE_BONUS = 3_500;
 const NO_SCORE = Number.NEGATIVE_INFINITY;
-const MAX_CANDIDATES = 12;
+const MAX_CANDIDATES = 10;
 
 // Transposition table constants
 const TT_SIZE_BITS = 18;
@@ -410,7 +410,7 @@ export class GogoAI {
     // can't beat beta, the position is likely good enough to prune.
     // Skipped in proof mode because NMP is unsound (can miss forced wins).
     if (depth >= 3 && canNullMove && !this.proofMode) {
-      const R = depth >= 6 ? 3 : 2;
+      const R = depth >= 4 ? 3 : 2;
       const savedToMove = position.toMove;
       const savedKo = position.koPoint;
       const savedHash = position.hash;

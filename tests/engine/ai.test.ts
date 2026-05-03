@@ -1355,7 +1355,7 @@ test('LMR reduces later moves at depth >= 3 and re-searches on improvement', () 
   expect(result.depth).toBeGreaterThanOrEqual(1);
 });
 
-test('adaptive null move pruning uses R=3 at depth >= 6', () => {
+test('adaptive null move pruning uses R=3 at depth >= 4', () => {
   const ai = new GogoAI({ maxDepth: 8, quiescenceDepth: 2, now: () => 0 });
   const anyAI = ai as any;
   // Strong position for BLACK to trigger NMP cutoff with R=3
@@ -1376,12 +1376,16 @@ test('adaptive null move pruning uses R=3 at depth >= 6', () => {
   anyAI.history.fill(0);
   anyAI.ttFlag.fill(0);
 
-  // Search at depth 6 should use R=3 for NMP (depth >= 6)
+  // Search at depth 4 should now use R=3 for NMP.
+  const score4 = anyAI.search(pos, 4, -1_000_000, 100, 1, true);
+  expect(score4).toBe(100);
+
+  // Deeper searches should keep using the stronger reduction too.
   const score6 = anyAI.search(pos, 6, -1_000_000, 100, 1, true);
   expect(score6).toBe(100);
 });
 
-test('MAX_CANDIDATES caps the number of moves explored per node', () => {
+test('MAX_CANDIDATES caps the number of moves explored per node at 10', () => {
   const ai = new GogoAI({ maxDepth: 3, quiescenceDepth: 2, now: () => 0 });
   const anyAI = ai as any;
   // Position with many stones creating many near-2 candidates (> 15)
@@ -1398,11 +1402,11 @@ test('MAX_CANDIDATES caps the number of moves explored per node', () => {
   ], BLACK);
   anyAI.ensureBuffers(pos.area);
 
-  // Verify generateOrderedMoves returns more than MAX_CANDIDATES
+  // Verify generateOrderedMoves returns more than the reduced MAX_CANDIDATES cap.
   const moves = anyAI.moveBuffers[0];
   const scores = anyAI.scoreBuffers[0];
   const rawCount = anyAI.generateOrderedMoves(pos, moves, scores, -1, false);
-  expect(rawCount).toBeGreaterThan(15);
+  expect(rawCount).toBeGreaterThan(10);
 
   // Search should still work correctly with the cap
   anyAI.deadline = 1e15;
