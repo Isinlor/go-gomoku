@@ -127,6 +127,7 @@ export class ForcedWinSearcher {
   private readonly scoreBuffers: Int32Array[];
   private readonly candidateMarks: Uint32Array;
   private readonly threatBuffer: Int16Array;
+  private readonly proofCache = new Map<bigint, boolean>();
   private candidateEpoch = 0;
   private readonly area: number;
   nodesSearched = 0;
@@ -253,15 +254,24 @@ export class ForcedWinSearcher {
     remaining: number,
     depth: number,
   ): boolean {
+    const cacheKey = this.cacheKey(pos, attacker, remaining);
+    const cached = this.proofCache.get(cacheKey);
+    if (cached !== undefined) {
+      return cached;
+    }
+
     this.nodesSearched += 1;
 
     if (pos.winner === attacker) {
+      this.proofCache.set(cacheKey, true);
       return true;
     }
     if (pos.winner !== EMPTY) {
+      this.proofCache.set(cacheKey, false);
       return false;
     }
     if (remaining <= 0) {
+      this.proofCache.set(cacheKey, false);
       return false;
     }
 
@@ -272,7 +282,7 @@ export class ForcedWinSearcher {
     const [attackerThreats, defenderThreats] = this.countBothThreats(pos, attacker, defender);
 
     if (isAttacker) {
-      return this.searchAttacker(
+      const result = this.searchAttacker(
         pos,
         attacker,
         remaining,
@@ -280,8 +290,10 @@ export class ForcedWinSearcher {
         attackerThreats,
         defenderThreats,
       );
+      this.proofCache.set(cacheKey, result);
+      return result;
     }
-    return this.searchDefender(
+    const result = this.searchDefender(
       pos,
       attacker,
       remaining,
@@ -289,6 +301,12 @@ export class ForcedWinSearcher {
       attackerThreats,
       defenderThreats,
     );
+    this.proofCache.set(cacheKey, result);
+    return result;
+  }
+
+  private cacheKey(pos: GogoPosition, attacker: Player, remaining: number): bigint {
+    return (BigInt(pos.hash >>> 0) << 8n) ^ (BigInt(remaining) << 2n) ^ BigInt(attacker);
   }
 
   private searchAttacker(

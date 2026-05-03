@@ -78,6 +78,20 @@ test('hasForcedWin detects 3-ply forced win (double threat)', () => {
   expect(searcher.hasForcedWin(pos, BLACK, 1)).toBe(false);
 });
 
+test('hasForcedWin reuses proof cache across repeated calls', () => {
+  const pos = decodeGame('B9 c5 e3 d5 e4 f5 e6');
+  const searcher = new ForcedWinSearcher(81, 6);
+
+  expect(searcher.hasForcedWin(pos, BLACK, 3)).toBe(true);
+  const firstNodes = searcher.nodesSearched;
+
+  expect(searcher.hasForcedWin(pos, BLACK, 3)).toBe(true);
+  const secondNodes = searcher.nodesSearched;
+
+  expect(firstNodes).toBeGreaterThan(0);
+  expect(secondNodes).toBe(0);
+});
+
 test('hasForcedWin returns false for position with no forced win', () => {
   const pos = new GogoPosition(9);
   pos.play(pos.index(4, 4)); // single stone
