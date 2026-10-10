@@ -57,7 +57,7 @@ test('AI window counts follow moves, captures, undo, board sizes, and reused pos
 
 test('quiescence reuses an identical tactical search without changing its score', () => {
   const position = GogoPosition.fromAscii([
-    'XXXX.....', '.........', '.........', '.........', '.........',
+    'XXXX.....', 'OOOO.....', '.........', '.........', '.........',
     '.........', '.........', '.........', '.........',
   ], BLACK);
   const ai = new GogoAI({ now: () => 0 }) as any;
