@@ -7,6 +7,13 @@ export interface SearchResult {
   depth: number;
   nodes: number;
   timedOut: boolean;
+  /**
+   * True only when exact tactical analysis confirms a unique defensive reply:
+   * there is no immediate counter-win, and every other legal move allows the
+   * opponent to win next turn. This does not establish the eventual outcome.
+   * False also covers cases where the time budget prevented confirmation.
+   */
+  forcedDefensiveMove: boolean;
   /** True only when an exact (proof) search has confirmed a forced win. */
   forcedWin: boolean;
   /** True only when an exact (proof) search has confirmed a forced loss. */
@@ -113,6 +120,7 @@ export class GogoAI {
   private deadline = 0;
   private nodesVisited = 0;
   private timedOut = false;
+  private fallbackWins = false;
   private killerMoves = new Int16Array(0);
   private readonly timeoutSignal = new Error('SEARCH_TIMEOUT');
   private proofMode = false;
@@ -152,6 +160,7 @@ export class GogoAI {
         depth: 0,
         nodes: 0,
         timedOut: false,
+        forcedDefensiveMove: false,
         forcedWin: false,
         forcedLoss: true,
         heuristicWin: false,
@@ -173,6 +182,7 @@ export class GogoAI {
         depth: 0,
         nodes: 0,
         timedOut: fallbackMove !== -1,
+        forcedDefensiveMove: false,
         forcedWin: false,
         forcedLoss: false,
         heuristicWin: false,
@@ -181,6 +191,25 @@ export class GogoAI {
     }
 
     state.hintMove = fallbackMove;
+    // The fallback legality check already tells us when our own immediate win
+    // takes precedence. Avoid an unnecessary defensive scan in that case.
+    const forcedDefensiveMove = this.fallbackWins ? -1 : this.findForcedDefensiveMove(position);
+    if (forcedDefensiveMove !== -1) {
+      // Choosing the only move that avoids losing next turn needs no deeper
+      // evaluation. It does not establish a forced win or loss after the reply.
+      return {
+        move: forcedDefensiveMove,
+        score: 0,
+        depth: 0,
+        nodes: 0,
+        timedOut: false,
+        forcedDefensiveMove: true,
+        forcedWin: false,
+        forcedLoss: false,
+        heuristicWin: false,
+        heuristicLoss: false,
+      };
+    }
     // === Phase 1: Heuristic Discovery ===
     // Use NMP, LMR, and candidate capping for fast search.
     this.searchDepths(position, 1, state);
@@ -251,6 +280,7 @@ export class GogoAI {
       depth: state.completedDepth,
       nodes: this.nodesVisited,
       timedOut: this.timedOut,
+      forcedDefensiveMove: false,
       forcedWin: provenWin,
       forcedLoss: provenLoss,
       heuristicWin: finalHeuristicWin,
@@ -342,7 +372,53 @@ export class GogoAI {
     return score <= -WIN_SCORE + depth;
   }
 
+  private findForcedDefensiveMove(position: GogoPosition): number {
+    const count = this.findThreatResponses(position, 0);
+    if (count < 0) return -1;
+
+    const moves = this.moveBuffers[0];
+    let reply = -1;
+    for (let i = 0; i < count; i += 1) {
+      const move = moves[i];
+      if (!position.play(move)) continue;
+      try {
+        // Keep immediate wins on the normal search/proof path so their scores
+        // and outcome flags retain their meaning.
+        if (position.winner !== EMPTY) return -1;
+        if (!this.hasImmediateWin(position)) {
+          if (reply !== -1) return -1;
+          reply = move;
+        }
+      } finally {
+        position.undo();
+      }
+    }
+    return reply;
+  }
+
+  private hasImmediateWin(position: GogoPosition): boolean {
+    const { windows, windowCount } = position.meta;
+    const board = position.board;
+    const player = position.toMove;
+    for (let wi = 0; wi < windowCount; wi += 1) {
+      const base = wi * 5;
+      let stones = 0;
+      let empty = -1;
+      for (let j = 0; j < 5; j += 1) {
+        const point = windows[base + j];
+        const cell = board[point];
+        if (cell === player) stones += 1;
+        else if (cell === EMPTY) empty = point;
+      }
+      // Completing five is legal even without liberties. An opponent stone
+      // cannot occur in a window containing four stones and an empty cell.
+      if (stones === 4 && empty !== -1 && empty !== position.koPoint) return true;
+    }
+    return false;
+  }
+
   private pickFallbackMove(position: GogoPosition): number {
+    this.fallbackWins = false;
     if (position.stoneCount === 0) {
       return ((position.size >> 1) * position.size) + (position.size >> 1);
     }
@@ -352,6 +428,7 @@ export class GogoAI {
     let count = this.generateOrderedMoves(position, moves, scores, -1, false);
     for (let i = 0; i < count; i += 1) {
       if (position.play(moves[i])) {
+        this.fallbackWins = position.winner !== EMPTY;
         position.undo();
         return moves[i];
       }
@@ -360,6 +437,7 @@ export class GogoAI {
     count = this.generateFullBoardMoves(position, moves, scores, -1, false);
     for (let i = 0; i < count; i += 1) {
       if (position.play(moves[i])) {
+        this.fallbackWins = position.winner !== EMPTY;
         position.undo();
         return moves[i];
       }
@@ -429,6 +507,7 @@ export class GogoAI {
           depth,
           nodes: this.nodesVisited,
           timedOut: false,
+          forcedDefensiveMove: false,
           forcedWin: false,
           forcedLoss: false,
           heuristicWin: false,

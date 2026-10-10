@@ -154,7 +154,7 @@ test('root scout searches preserve an exhaustive score and re-search improvement
   ai.proofMode = oracle.proofMode = true;
   const hint = position.index(2, 2);
   const count = ai.generateOrderedMoves(position, ai.moveBuffers[0], ai.scoreBuffers[0], hint, false);
-  const candidates = Array.from(ai.moveBuffers[0].slice(0, count));
+  const candidates = Array.from((ai.moveBuffers[0] as Int16Array).slice(0, count));
   let best = -Infinity;
   for (const move of candidates) {
     expect(position.play(move)).toBe(true);

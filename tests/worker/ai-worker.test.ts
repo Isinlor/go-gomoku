@@ -2,6 +2,23 @@ import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 import { handleAIRequest, setupWorkerHandler, type AIRequest } from '../../src/worker/ai-worker';
 
 describe('handleAIRequest', () => {
+  test('returns the unique i1 defense immediately through the browser worker request path', () => {
+    const response = handleAIRequest({
+      encodedGame: 'B9 e5 f6 f4 d6 g3 e6 h2',
+      timeLimitMs: 5_000,
+      maxDepth: 30,
+      quiescenceDepth: 4,
+      maxPly: 96,
+    });
+    expect(response.move).toBe(8); // i1
+    expect(response.depth).toBe(0);
+    expect(response.nodes).toBe(0);
+    expect(response.timedOut).toBe(false);
+    expect(response.forcedDefensiveMove).toBe(true);
+    expect(response.forcedWin).toBe(false);
+    expect(response.forcedLoss).toBe(false);
+  });
+
   test('returns a valid result for an empty board', () => {
     const request: AIRequest = {
       encodedGame: 'B9',
@@ -17,6 +34,7 @@ describe('handleAIRequest', () => {
     expect(typeof response.nodes).toBe('number');
     expect(typeof response.timedOut).toBe('boolean');
     expect(typeof response.forcedWin).toBe('boolean');
+    expect(response.forcedDefensiveMove).toBe(false);
   });
 
   test('returns move -1 for a terminal position', () => {
