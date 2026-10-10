@@ -17,6 +17,8 @@ export interface AIResponse {
   depth: number;
   nodes: number;
   timedOut: boolean;
+  /** Confirmed unique defensive reply; independent of the eventual outcome. */
+  forcedDefensiveMove: boolean;
   forcedWin: boolean;
   forcedLoss: boolean;
   heuristicWin: boolean;
@@ -36,6 +38,7 @@ export function handleAIRequest(data: AIRequest): AIResponse {
     depth: result.depth,
     nodes: result.nodes,
     timedOut: result.timedOut,
+    forcedDefensiveMove: result.forcedDefensiveMove,
     forcedWin: result.forcedWin,
     forcedLoss: result.forcedLoss,
     heuristicWin: result.heuristicWin,

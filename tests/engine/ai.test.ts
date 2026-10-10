@@ -1,6 +1,6 @@
 import { test, expect } from 'vitest';
 
-import { BLACK, EMPTY, GogoAI, GogoPosition, WHITE } from '../../src/engine';
+import { BLACK, EMPTY, GogoAI, GogoPosition, WHITE, type Player } from '../../src/engine';
 import { insertMoveDescending } from '../../src/engine/moveOrdering';
 
 const GENERATE_ORDERED_MOVES_TACTICAL_ONLY_INDEX = 4;
@@ -281,8 +281,8 @@ test('searchDepths skips empty root results and keeps deepening', () => {
   anyAI.searchRoot = (_: any, depth: number) => {
     calls += 1;
     return calls === 1
-      ? { move: -1, score: 0, depth, nodes: 0, timedOut: false, forcedWin: false, forcedLoss: false, heuristicWin: false, heuristicLoss: false }
-      : { move: 41, score: 10, depth, nodes: 0, timedOut: false, forcedWin: false, forcedLoss: false, heuristicWin: false, heuristicLoss: false };
+      ? { move: -1, score: 0, depth, nodes: 0, timedOut: false, forcedDefensiveMove: false, forcedWin: false, forcedLoss: false, heuristicWin: false, heuristicLoss: false }
+      : { move: 41, score: 10, depth, nodes: 0, timedOut: false, forcedDefensiveMove: false, forcedWin: false, forcedLoss: false, heuristicWin: false, heuristicLoss: false };
   };
 
   anyAI.searchDepths(new GogoPosition(9), 1, state);
@@ -303,6 +303,7 @@ test('searchDepths stops early after a forced win score', () => {
       depth,
       nodes: 0,
       timedOut: false,
+      forcedDefensiveMove: false,
       forcedWin: false,
       forcedLoss: false,
       heuristicWin: false,
@@ -326,7 +327,7 @@ test('searchDepths marks timeouts and stops deepening on timeoutSignal', () => {
     if (calls === 2) {
       throw anyAI.timeoutSignal;
     }
-    return { move: 41, score: 10, depth: 1, nodes: 0, timedOut: false, forcedWin: false, forcedLoss: false, heuristicWin: false, heuristicLoss: false };
+    return { move: 41, score: 10, depth: 1, nodes: 0, timedOut: false, forcedDefensiveMove: false, forcedWin: false, forcedLoss: false, heuristicWin: false, heuristicLoss: false };
   };
 
   anyAI.searchDepths(new GogoPosition(9), 1, state);
@@ -594,7 +595,7 @@ test('generateOrderedMoves caches shared group scans across one move-generation 
 
   const originalScanGroup = position.scanGroup.bind(position);
   let scanCalls = 0;
-  position.scanGroup = ((start: number, color: number) => {
+  position.scanGroup = ((start: number, color: Player) => {
     scanCalls += 1;
     return originalScanGroup(start, color);
   }) as typeof position.scanGroup;
@@ -1095,7 +1096,7 @@ test('primeScoredGroupInfo caches group data for all stones and finalizeMoveScor
 
   const originalScanGroup = position.scanGroup.bind(position);
   let scanCalls = 0;
-  position.scanGroup = ((start: number, color: number) => {
+  position.scanGroup = ((start: number, color: Player) => {
     scanCalls += 1;
     return originalScanGroup(start, color);
   }) as typeof position.scanGroup;
@@ -1544,6 +1545,7 @@ test('proof mode: proof collapse triggers fallback to heuristic discovery', () =
     if (searchRootCallCount === 2) {
       // Discovery d=2: fake forced win
       return { move: 40, score: WIN - 2, depth: 2, nodes: 10, timedOut: false,
+        forcedDefensiveMove: false,
         forcedWin: false, forcedLoss: false, heuristicWin: false, heuristicLoss: false };
     }
     return realSearchRoot(position, depth, hintMove);
@@ -1586,6 +1588,7 @@ test('proof mode: resume heuristic after proof collapse can timeout', () => {
     searchRootCallCount++;
     if (searchRootCallCount === 2) {
       return { move: 40, score: WIN - 2, depth: 2, nodes: 10, timedOut: false,
+        forcedDefensiveMove: false,
         forcedWin: false, forcedLoss: false, heuristicWin: false, heuristicLoss: false };
     }
     if (searchRootCallCount >= 3) {
@@ -1631,11 +1634,13 @@ test('proof mode: resume heuristic finds forced outcome after proof collapse', (
     if (searchRootCallCount === 2) {
       // Discovery d=2: fake forced win
       return { move: 40, score: WIN - 2, depth: 2, nodes: 10, timedOut: false,
+        forcedDefensiveMove: false,
         forcedWin: false, forcedLoss: false, heuristicWin: false, heuristicLoss: false };
     }
     if (searchRootCallCount === 3) {
       // Resume d=3: forced win again → breaks loop
       return { move: 40, score: WIN - 3, depth: 3, nodes: 10, timedOut: false,
+        forcedDefensiveMove: false,
         forcedWin: false, forcedLoss: false, heuristicWin: false, heuristicLoss: false };
     }
     return realSearchRoot(position, depth, hintMove);
@@ -1677,6 +1682,7 @@ test('proof mode: proof collapse with no remaining time skips resume', () => {
     searchRootCallCount++;
     if (searchRootCallCount === 2) {
       return { move: 40, score: WIN - 2, depth: 2, nodes: 10, timedOut: false,
+        forcedDefensiveMove: false,
         forcedWin: false, forcedLoss: false, heuristicWin: false, heuristicLoss: false };
     }
     return realSearchRoot(position, depth, hintMove);
@@ -1829,6 +1835,7 @@ test('proof mode: non-timeout error in resume phase is rethrown', () => {
     if (searchRootCallCount === 2) {
       // Discovery d=2: fake forced win
       return { move: 40, score: WIN - 2, depth: 2, nodes: 10, timedOut: false,
+        forcedDefensiveMove: false,
         forcedWin: false, forcedLoss: false, heuristicWin: false, heuristicLoss: false };
     }
     if (searchRootCallCount === 3) {
@@ -2215,6 +2222,7 @@ test('loss proof: collapse triggers resume', () => {
     searchRootCallCount++;
     if (searchRootCallCount === 2) {
       return { move: 40, score: -WIN + 2, depth: 2, nodes: 10, timedOut: false,
+        forcedDefensiveMove: false,
         forcedWin: false, forcedLoss: false, heuristicWin: false, heuristicLoss: false };
     }
     return realSearchRoot(position, depth, hintMove);
@@ -2255,6 +2263,7 @@ test('loss proof: timeout during proof reports heuristic loss but not forced los
     searchRootCallCount++;
     if (searchRootCallCount === 2) {
       return { move: 40, score: -WIN + 2, depth: 2, nodes: 10, timedOut: false,
+        forcedDefensiveMove: false,
         forcedWin: false, forcedLoss: false, heuristicWin: false, heuristicLoss: false };
     }
     return realSearchRoot(position, depth, hintMove);
@@ -2295,6 +2304,7 @@ test('loss proof: non-timeout error in proof is rethrown', () => {
     searchRootCallCount++;
     if (searchRootCallCount === 2) {
       return { move: 40, score: -WIN + 2, depth: 2, nodes: 10, timedOut: false,
+        forcedDefensiveMove: false,
         forcedWin: false, forcedLoss: false, heuristicWin: false, heuristicLoss: false };
     }
     return realSearchRoot(position, depth, hintMove);
@@ -2392,10 +2402,12 @@ test('recompute heuristic flags after resume: flags update when score changes', 
     searchRootCallCount++;
     if (searchRootCallCount === 2) {
       return { move: 40, score: WIN - 2, depth: 2, nodes: 10, timedOut: false,
+        forcedDefensiveMove: false,
         forcedWin: false, forcedLoss: false, heuristicWin: false, heuristicLoss: false };
     }
     // Phase 3 and all other depths: return a cheap non-winning result
     return { move: 40, score: 100, depth, nodes: 1, timedOut: false,
+      forcedDefensiveMove: false,
       forcedWin: false, forcedLoss: false, heuristicWin: false, heuristicLoss: false };
   };
 
