@@ -7,3 +7,5 @@ latest-code.zip
 latest-code.patch
 test-results/
 e2e/screenshots/
+# Local benchmark reports and scratch files
+/work/

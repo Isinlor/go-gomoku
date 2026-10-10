@@ -131,3 +131,20 @@ A few ambiguities were fixed explicitly:
 ## Agents
 
 If you are a code agent, then follow AGENTS.md
+
+## AI performance regression check
+
+```bash
+npm run benchmark:ai -- --baseline=HEAD
+```
+
+Compares the working AI with the AI at the selected Git revision, using the
+current rules and puzzles. Both implementations receive the same warmup; each
+`gen-intermediate-*` and `gen-advanced-*` puzzle is then measured three times in
+alternating order. The command fails if any new median is slower, a winning
+puzzle is not proved, or any of three `B9 e9 e8 f9` runs fails to prove a loss
+within 60 seconds. The loss search uses a 59-second budget to leave room for
+return overhead. Run it without other CPU-intensive jobs.
+
+The JSON report includes all runs and is saved to `work/ai-benchmark.json`.
+Use `--output=path/to/report.json` to select another report path.
