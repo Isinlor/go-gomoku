@@ -195,15 +195,18 @@ export class GogoAI {
     // takes precedence. Avoid an unnecessary defensive scan in that case.
     const forcedDefensiveMove = this.fallbackWins ? -1 : this.findForcedDefensiveMove(position);
     if (forcedDefensiveMove !== -1) {
+      // The tactical scan consumes the same budget as deeper search. Once the
+      // deadline expires, return the legal fallback without claiming a defense.
+      const timedOut = this.now() >= this.deadline;
       // Choosing the only move that avoids losing next turn needs no deeper
       // evaluation. It does not establish a forced win or loss after the reply.
       return {
-        move: forcedDefensiveMove,
+        move: timedOut ? fallbackMove : forcedDefensiveMove,
         score: 0,
         depth: 0,
         nodes: 0,
-        timedOut: false,
-        forcedDefensiveMove: true,
+        timedOut,
+        forcedDefensiveMove: !timedOut,
         forcedWin: false,
         forcedLoss: false,
         heuristicWin: false,

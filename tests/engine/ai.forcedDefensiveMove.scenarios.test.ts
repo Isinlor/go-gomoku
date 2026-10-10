@@ -51,6 +51,28 @@ function forcedDefensiveMove(ai: GogoAI, position: GogoPosition): number {
   return detector.findForcedDefensiveMove(position);
 }
 
+test.each([0.999, 1, 2])('checks the 1 ms deadline after confirming i1 at %s ms', elapsed => {
+  const position = decodeGame('B9 e5 f6 f4 d6 g3 e6 h2');
+  const before = snapshot(position);
+  const fallback = new GogoAI({ now: () => 0 }).findBestMove(position, 0).move;
+  let calls = 0;
+  const ai = new GogoAI({ now: () => ++calls <= 2 ? 0 : elapsed });
+  const result = ai.findBestMove(position, 1);
+  const expired = elapsed >= 1;
+  expect(result).toMatchObject({
+    move: expired ? fallback : decodeMove('i1', 9),
+    depth: 0, nodes: 0, timedOut: expired, forcedDefensiveMove: !expired,
+    forcedWin: false, forcedLoss: false, heuristicWin: false, heuristicLoss: false,
+  });
+  expect(snapshot(position)).toEqual(before);
+  // A scan timeout must not suppress confirmation when this AI is reused.
+  calls = 0;
+  expect(ai.findBestMove(position, 5_000)).toMatchObject({
+    move: decodeMove('i1', 9), timedOut: false, forcedDefensiveMove: true,
+  });
+  expect(snapshot(position)).toEqual(before);
+});
+
 const directions = [
   { name: 'horizontal', dx: 1, dy: 0 },
   { name: 'vertical', dx: 0, dy: 1 },
