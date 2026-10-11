@@ -44,7 +44,7 @@ test.each(
 // Smoke test: Classic AI solves ALL generated puzzles.
 // This confirms the puzzle generator's correctness independently.
 const generatedPuzzles = PUZZLES.filter((p) => p.id.startsWith('gen-'));
-const genClassicTimeMs: Record<number, number> = { 3: 15_000, 5: 15_000, 7: 20_000 };
+const genClassicTimeMs: Record<number, number> = { 3: 15_000, 5: 15_000, 7: 20_000, 9: 20_000 };
 
 test.each(
   generatedPuzzles.map((p) => [p.id, p] as const),
@@ -60,6 +60,15 @@ test('getPuzzleById returns the correct puzzle or undefined', () => {
   expect(found!.solution).toBe('e5');
 
   expect(getPuzzleById('nonexistent')).toBeUndefined();
+});
+
+test('expert collection includes the verified 11x11 nine-ply puzzle', () => {
+  const puzzle = getPuzzleById('gen-expert-1');
+  expect(puzzle).toBeDefined();
+  expect(decodeGame(puzzle!.encoded).size).toBe(11);
+  expect(puzzle!.solution).toBe('f2');
+  expect(puzzle!.depth).toBe(9);
+  expect(puzzle!.threshold).toBe(4);
 });
 
 test('all puzzles have valid encoded positions and solutions', () => {
