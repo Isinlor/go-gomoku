@@ -1,97 +1,94 @@
-import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import assert from 'node:assert/strict';
+import { realpathSync } from 'node:fs';
+import { createRequire, registerHooks } from 'node:module';
+import { extname, join } from 'node:path';
+import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 
 const MAX_ATTEMPTS = 5;
+const RUNS = 3;
+const require = createRequire(import.meta.url);
 
-/** Compare three per-puzzle Vitest JSON reports from each revision. */
-export function comparePuzzleRuns(masterReports, newReports, expectedPuzzles) {
-  if (masterReports.length !== 3 || newReports.length !== 3) {
-    throw new Error('Expected exactly three reports per version');
-  }
-  const runs = [...masterReports, ...newReports].map((report) => {
-    if (!report.success) throw new Error('Puzzle test run failed');
-    const timings = new Map();
-    for (const suite of report.testResults) {
-      for (const test of suite.assertionResults) {
-        if (!/^Classic AI solves (generated )?puzzle /.test(test.fullName) || test.status === 'skipped') continue;
-        if (test.status !== 'passed' || !Number.isFinite(test.duration) || test.duration < 0) {
-          throw new Error(`Invalid puzzle timing: ${test.fullName}`);
-        }
-        if (timings.has(test.fullName)) throw new Error(`Duplicate puzzle: ${test.fullName}`);
-        timings.set(test.fullName, test.duration);
-      }
-    }
-    if (timings.size === 0) throw new Error('No puzzle timings found');
-    return timings;
+/** Node 24 strips TypeScript; resolve the engine's extensionless imports. */
+export function loadEngine(root) {
+  const hooks = registerHooks({
+    resolve(specifier, context, nextResolve) {
+      return nextResolve(specifier.startsWith('.') && !extname(specifier) ? `${specifier}.ts` : specifier, context);
+    },
   });
-  const names = expectedPuzzles ?? [...runs[0].keys()];
-  for (const run of runs) {
-    if (run.size !== names.length || names.some((name) => !run.has(name))) {
-      throw new Error('All runs must measure the same puzzles');
-    }
+  try {
+    const { GogoAI } = require(join(root, 'src/engine/ai.ts'));
+    const { decodeGame, decodeMove } = require(join(root, 'src/engine/gogomoku.ts'));
+    const { PUZZLES } = require(join(root, 'src/engine/puzzles.ts'));
+    return { GogoAI, decodeGame, decodeMove, PUZZLES };
+  } finally {
+    hooks.deregister();
   }
-  return names.map((puzzle) => {
-    const masterMs = Math.max(...runs.slice(0, 3).map((run) => run.get(puzzle)));
-    const newMs = Math.min(...runs.slice(3).map((run) => run.get(puzzle)));
-    return { puzzle, masterMs, newMs, passed: newMs <= masterMs };
-  });
 }
 
+/** Setup and solution checks are outside the measured solver call. */
+export function measurePuzzle(engine, puzzle, now = () => performance.now()) {
+  const position = engine.decodeGame(puzzle.encoded);
+  assert.equal(position.toMove, puzzle.toMove, `${puzzle.id}: wrong player to move`);
+  const expected = engine.decodeMove(puzzle.solution, position.size);
+  assert.notEqual(expected, -1, `${puzzle.id}: invalid solution`);
+  const ai = new engine.GogoAI({ maxDepth: 10, quiescenceDepth: 4 });
+  const budgets = puzzle.id.startsWith('gen-')
+    ? { 3: 15_000, 5: 15_000, 7: 20_000 }
+    : { 3: 500, 5: 2_000, 7: 8_000 };
+  const budget = budgets[puzzle.depth] ?? 5_000;
+  const start = now();
+  const result = ai.findBestMove(position, budget);
+  const elapsed = now() - start;
+  assert.equal(result.move, expected, `${puzzle.id}: AI failed to solve puzzle`);
+  return elapsed;
+}
 
-/** Run both checkouts serially; retry only puzzles not yet validated. */
-export function runPuzzlePerformance(masterRoot, newRoot = process.cwd(), log = console.log) {
-  let reports;
-  try {
-    if (!masterRoot) throw new Error('Usage: node scripts/puzzle-performance.mjs MASTER_CHECKOUT');
-    masterRoot = realpathSync(masterRoot);
-    newRoot = realpathSync(newRoot);
-    reports = mkdtempSync(join(tmpdir(), 'puzzle-performance-reports-'));
-    let pending;
+export function comparePuzzleRuns(masterRuns, newRuns) {
+  assert(masterRuns.length === RUNS && newRuns.length === RUNS, 'Expected exactly three measurements per version');
+  for (const time of [...masterRuns, ...newRuns]) {
+    assert(Number.isFinite(time) && time >= 0, 'Invalid puzzle timing');
+  }
+  const masterMs = Math.max(...masterRuns);
+  const newMs = Math.min(...newRuns);
+  return { masterMs, newMs, passed: newMs <= masterMs };
+}
 
+/** Use the candidate's puzzles as identical inputs for both engine versions. */
+export function benchmarkPuzzles(master, candidate, log = console.log, measure = measurePuzzle) {
+  const puzzles = candidate.PUZZLES;
+  assert(puzzles.length > 0, 'No puzzles to benchmark');
+  assert.equal(new Set(puzzles.map((puzzle) => puzzle.id)).size, puzzles.length, 'Duplicate puzzle IDs');
+  for (const puzzle of puzzles) {
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-      const pattern = pending
-        ? `^(?:${pending.map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})$`
-        : '^Classic AI solves (generated )?puzzle ';
-      const samples = { master: [], new: [] };
-      for (let run = 1; run <= 3; run++) {
-        for (const version of ['master', 'new']) {
-          const report = join(reports, `${version}-${run}.json`);
-          // Both revisions use the candidate's runner and configuration.
-          const result = spawnSync(process.execPath, [
-            join(newRoot, 'node_modules/vitest/vitest.mjs'), 'run',
-            '--root', version === 'master' ? masterRoot : newRoot,
-            '--config', join(newRoot, 'vitest.puzzles.config.ts'),
-            '--maxWorkers=1', '--no-file-parallelism',
-            '--testNamePattern', pattern, '--reporter=json', `--outputFile=${report}`,
-          ], { cwd: newRoot, stdio: 'inherit' });
-          if (result.status !== 0) {
-            log(`Puzzle runner failed for ${version} (exit status ${result.status})`);
-            return 2;
-          }
-          samples[version].push(JSON.parse(readFileSync(report, 'utf8')));
-        }
+      const masterRuns = [];
+      const newRuns = [];
+      for (let run = 0; run < RUNS; run++) {
+        masterRuns.push(measure(master, puzzle));
+        newRuns.push(measure(candidate, puzzle));
       }
-
-      const results = comparePuzzleRuns(samples.master, samples.new, pending);
-      for (const result of results) {
-        log(`${result.passed ? 'PASS' : 'FAIL'} ${result.puzzle} (attempt ${attempt}/${MAX_ATTEMPTS}): fastest new ${result.newMs.toFixed(3)} ms, slowest master ${result.masterMs.toFixed(3)} ms`);
+      const result = comparePuzzleRuns(masterRuns, newRuns);
+      log(`${result.passed ? 'PASS' : 'FAIL'} ${puzzle.id} (attempt ${attempt}/${MAX_ATTEMPTS}): fastest new ${result.newMs.toFixed(3)} ms, slowest master ${result.masterMs.toFixed(3)} ms`);
+      if (result.passed) break;
+      if (attempt === MAX_ATTEMPTS) {
+        log(`Performance regression confirmed after five attempts for ${puzzle.id}.`);
+        return 1;
       }
-      pending = results.filter((result) => !result.passed).map((result) => result.puzzle);
-      if (pending.length === 0) return 0;
-      if (attempt < MAX_ATTEMPTS) {
-        log('Possible performance regression; repeating only failing puzzles with fresh samples.');
-      }
+      log(`Possible performance regression; repeating ${puzzle.id} with fresh samples.`);
     }
-    log('Performance regression confirmed after five attempts for the remaining puzzles.');
-    return 1;
+  }
+  return 0;
+}
+
+export function runPuzzlePerformance(masterRoot, newRoot = process.cwd(), log = console.log) {
+  try {
+    assert(masterRoot, 'Usage: node scripts/puzzle-performance.mjs MASTER_CHECKOUT');
+    const master = loadEngine(realpathSync(masterRoot));
+    const candidate = loadEngine(realpathSync(newRoot));
+    return benchmarkPuzzles(master, candidate, log);
   } catch (error) {
     log(error.message);
     return 2;
-  } finally {
-    if (reports) rmSync(reports, { recursive: true, force: true });
   }
 }
 

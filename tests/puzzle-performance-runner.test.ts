@@ -1,142 +1,138 @@
 // @vitest-environment node
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { expect, test, vi } from 'vitest';
-import { runPuzzlePerformance } from '../scripts/puzzle-performance.mjs';
+import { benchmarkPuzzles, loadEngine, runPuzzlePerformance } from '../scripts/puzzle-performance.mjs';
 
-// A lightweight reporter fixture exercises the actual Node orchestration and
-// comparator without spending minutes solving puzzles in every unit test run.
-function createFixture(scenario: string) {
-  const root = mkdtempSync(join(tmpdir(), 'puzzle-performance-'));
-  writeFileSync(join(root, 'scenario'), scenario);
-  mkdirSync(join(root, 'master'));
-  mkdirSync(join(root, 'node_modules/vitest'), { recursive: true });
-  writeFileSync(join(root, 'node_modules/vitest/vitest.mjs'), `
-      import { readFileSync, writeFileSync, existsSync } from 'node:fs';
-      const countFile = 'count';
-      const count = existsSync(countFile) ? Number(readFileSync(countFile, 'utf8')) + 1 : 1;
-      writeFileSync(countFile, String(count));
-      const scenario = readFileSync('scenario', 'utf8');
-      if (scenario === 'solver-error') process.exit(3);
-      const master = process.argv[process.argv.indexOf('--root') + 1].endsWith('/master');
-      const pattern = new RegExp(process.argv[process.argv.indexOf('--testNamePattern') + 1]);
-      const names = ['Classic AI solves puzzle example', 'Classic AI solves generated puzzle retry.two+[1]', 'Classic AI solves puzzle retry-three'];
-      const history = existsSync('history') ? JSON.parse(readFileSync('history', 'utf8')) : [];
-      const assertionResults = names.map((fullName, index) => {
-        if (!pattern.test(fullName)) return { fullName, status: 'skipped' };
-        history.push({ fullName, master });
-        const attempt = Math.ceil(history.filter(r => r.fullName === fullName).length / 6);
-        const fails = scenario === 'persistent' ? index === 1
-          : scenario === 'transient' ? index === 1 && attempt === 1
-          : scenario === 'fifth-attempt' ? index === 1 && attempt < 5
-          : scenario === 'mixed' ? attempt <= index : false;
-        return { fullName, status: 'passed', duration: master ? 10 : fails ? 20 : 5 };
-      });
-      writeFileSync('history', JSON.stringify(history));
-      const report = { success: scenario !== 'invalid', testResults: [{ assertionResults }] };
-      const output = process.argv.find(arg => arg.startsWith('--outputFile=')).slice('--outputFile='.length);
-      writeFileSync('report-path', output);
-      writeFileSync(output, scenario === 'bad-json' ? 'invalid JSON' : JSON.stringify(report));
+// Deterministic measurements test retry decisions without relying on CPU noise.
+function check(scenario: string) {
+  const puzzles = ['first', 'second', 'third'].map(id => ({ id }));
+  const master = {};
+  const candidate = { PUZZLES: puzzles };
+  const history: { id: string; master: boolean; puzzle: unknown }[] = [];
+  const output: string[] = [];
+  const status = benchmarkPuzzles(master, candidate, (line: string) => output.push(line), (engine: unknown, puzzle: { id: string }) => {
+    history.push({ id: puzzle.id, master: engine === master, puzzle });
+    const attempt = Math.ceil(history.filter(run => run.id === puzzle.id).length / 6);
+    const index = puzzles.indexOf(puzzle);
+    const fail = scenario === 'persistent' ? index === 1
+      : scenario === 'transient' ? index === 1 && attempt === 1
+      : scenario === 'fifth' ? index === 1 && attempt < 5
+      : scenario === 'mixed' ? attempt <= index : false;
+    return engine === master ? 10 : fail ? 20 : 5;
+  });
+  return { status, history, output: output.join('\n') };
+}
+
+test('runs each puzzle three times per version and alternates versions', () => {
+  const result = check('pass');
+  expect(result.status).toBe(0);
+  expect(result.history).toHaveLength(18);
+  expect(result.history.map(run => run.master)).toEqual(Array(9).fill([true, false]).flat());
+  expect(result.output).not.toContain('repeating');
+});
+
+test('retries only the failing puzzle using fresh samples', () => {
+  const result = check('transient');
+  expect(result.status).toBe(0);
+  expect(result.history.map(run => run.id)).toEqual([...Array(6).fill('first'), ...Array(12).fill('second'), ...Array(6).fill('third')]);
+  expect(result.output).toContain('repeating');
+});
+
+test('accepts a puzzle on its fifth comparison', () => {
+  const result = check('fifth');
+  expect(result.status).toBe(0);
+  expect(result.history.filter(run => run.id === 'second')).toHaveLength(30);
+  expect(result.output).toContain('attempt 5/5');
+});
+
+test('fails the build after five failed comparisons without running further puzzles', () => {
+  const result = check('persistent');
+  expect(result.status).toBe(1);
+  expect(result.history.filter(run => run.id === 'second')).toHaveLength(30);
+  expect(result.history.some(run => run.id === 'third')).toBe(false);
+  expect(result.output).toContain('confirmed');
+});
+
+test('never reruns a puzzle that passed any comparison', () => {
+  const result = check('mixed');
+  expect(result.status).toBe(0);
+  for (const [id, count] of [['first', 6], ['second', 12], ['third', 18]] as const) {
+    const runs = result.history.filter(run => run.id === id);
+    expect(runs).toHaveLength(count);
+    expect(runs.filter(run => run.master)).toHaveLength(count / 2);
+    expect(new Set(runs.map(run => run.puzzle)).size).toBe(1);
+  }
+});
+
+test('rejects empty or duplicate puzzle lists', () => {
+  expect(() => benchmarkPuzzles({}, { PUZZLES: [] })).toThrow('No puzzles');
+  expect(() => benchmarkPuzzles({}, { PUZZLES: [{ id: 'x' }, { id: 'x' }] })).toThrow('Duplicate');
+});
+
+// A tiny TypeScript engine exercises Node's real loader and CLI without Vitest
+// subprocesses, compilation, timing-dependent expectations, or dependencies.
+function createFixture(wrongMove = false) {
+  const root = mkdtempSync(join(tmpdir(), 'direct-puzzle-performance-'));
+  const engine = join(root, 'src/engine');
+  mkdirSync(engine, { recursive: true });
+  writeFileSync(join(engine, 'gogomoku.ts'), `
+    export const SOLUTION: number = 0;
+    export function decodeGame(encoded: string) { return { toMove: 1, size: 9 }; }
+    export function decodeMove(move: string, size: number) { return SOLUTION; }
+  `);
+  writeFileSync(join(engine, 'ai.ts'), `
+    import { SOLUTION } from './gogomoku.ts';
+    export class GogoAI {
+      findBestMove(position: unknown, timeMs: number) { return { move: ${wrongMove ? 1 : 'SOLUTION'} }; }
+    }
+  `);
+  writeFileSync(join(engine, 'puzzles.ts'), `
+    import { SOLUTION } from './gogomoku';
+    export const PUZZLES = [{ id: 'example', encoded: 'B9', toMove: 1, solution: 'a1', depth: 3 }];
   `);
   return root;
 }
 
-function check(scenario: string) {
-  const root = createFixture(scenario);
+test('loads TypeScript directly, including extensionless and explicit imports', () => {
+  const root = createFixture();
   try {
-    const output: string[] = [];
-    const status = runPuzzlePerformance(join(root, 'master'), root, (line: string) => output.push(line));
-    const reportPath = join(root, 'report-path');
-    if (existsSync(reportPath)) expect(existsSync(readFileSync(reportPath, 'utf8'))).toBe(false);
-    return {
-      status, output: output.join('\n'), runs: Number(readFileSync(join(root, 'count'), 'utf8')),
-      history: existsSync(join(root, 'history')) ? JSON.parse(readFileSync(join(root, 'history'), 'utf8')) : [],
-    };
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-}
-
-test('runs exactly three times per version when timings pass', () => {
-  const result = check('pass');
-  expect(result.status).toBe(0);
-  expect(result.runs).toBe(6);
-  expect(result.output).not.toContain('repeating');
+    const engine = loadEngine(root);
+    expect(engine.PUZZLES[0].id).toBe('example');
+    expect(engine.decodeMove('a1', 9)).toBe(0);
+    expect(new engine.GogoAI().findBestMove({}, 100).move).toBe(0);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test('retries using six fresh samples and accepts a transient regression', () => {
-  const result = check('transient');
-  expect(result.status).toBe(0);
-  expect(result.runs).toBe(12);
-  expect(result.output).toContain('repeating');
-});
-
-test('fails after five failed comparisons without retrying indefinitely', () => {
-  const result = check('persistent');
-  expect(result.status).toBe(1);
-  expect(result.runs).toBe(30);
-  expect(result.output).toContain('confirmed after five attempts');
-  expect(result.output).toContain('attempt 5/5');
-});
-
-test('invalid reports and solver errors fail without retrying', () => {
-  expect(check('invalid')).toMatchObject({ status: 2, runs: 6 });
-  expect(check('solver-error')).toMatchObject({ status: 2, runs: 1 });
-});
-
-
-test('accepts a puzzle that passes on its fifth comparison', () => {
-  const result = check('fifth-attempt');
-  expect(result.status).toBe(0);
-  expect(result.runs).toBe(30);
-  const retryRuns = result.history.filter((run: { fullName: string }) => run.fullName.includes('retry.two'));
-  expect(retryRuns).toHaveLength(30);
-  expect(result.output).toContain('attempt 5/5');
-});
-
-test('never reruns a validated puzzle, even while other puzzles need two or three attempts', () => {
-  const result = check('mixed');
-  expect(result.status).toBe(0);
-  expect(result.runs).toBe(18);
-  const counts = new Map<string, number>();
-  for (const run of result.history) counts.set(run.fullName, (counts.get(run.fullName) ?? 0) + 1);
-  expect([...counts.values()]).toEqual([6, 12, 18]);
-  for (const [name, count] of counts) {
-    expect(result.history.filter((run: { fullName: string; master: boolean }) => run.fullName === name && run.master)).toHaveLength(count / 2);
-  }
-});
-
-
-test('malformed JSON fails immediately and removes temporary reports', () => {
-  expect(check('bad-json')).toMatchObject({ status: 2, runs: 1 });
-});
-
-test('missing arguments and nonexistent checkouts return a usage or configuration error', () => {
+test('configuration errors and incorrect solutions fail immediately', () => {
+  const root = createFixture(true);
   const messages: string[] = [];
   const log = (message: string) => messages.push(message);
-  expect(runPuzzlePerformance(undefined, process.cwd(), log)).toBe(2);
-  expect(messages.join(' ')).toContain('Usage:');
-  expect(runPuzzlePerformance('/nonexistent-master-checkout', process.cwd(), log)).toBe(2);
-});
-
-test('the Node CLI runs the same orchestration', () => {
-  const root = createFixture('pass');
   try {
-    const result = spawnSync(process.execPath, [resolve('scripts/puzzle-performance.mjs'), join(root, 'master')], {
-      cwd: root, encoding: 'utf8',
-    });
-    expect(result.status).toBe(0);
-    expect(Number(readFileSync(join(root, 'count'), 'utf8'))).toBe(6);
-    expect(result.stdout).toContain('PASS');
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
+    expect(runPuzzlePerformance(undefined, process.cwd(), log)).toBe(2);
+    expect(messages.join(' ')).toContain('Usage:');
+    expect(runPuzzlePerformance('/nonexistent-master-checkout', process.cwd(), log)).toBe(2);
+    expect(runPuzzlePerformance(root, root, log)).toBe(2);
+    expect(messages.join(' ')).toContain('solve');
+    expect(messages.join(' ')).not.toContain('repeating');
+    expect(() => loadEngine(join(root, 'missing'))).toThrow();
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test('the entry point uses the working directory and command-line master checkout', async () => {
-  const root = createFixture('pass');
+test('CLI runs directly from source without installed dependencies or test files', () => {
+  const root = createFixture(true);
+  try {
+    const result = spawnSync(process.execPath, [resolve('scripts/puzzle-performance.mjs'), root], { cwd: root, encoding: 'utf8' });
+    expect(result.status).toBe(2);
+    expect(result.stdout).toContain('solve');
+    expect(result.stderr).not.toContain('vitest');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('entry point uses the working directory and command-line master checkout', async () => {
+  const root = createFixture(true);
   const originalCwd = process.cwd();
   const originalArgv = process.argv;
   const originalExitCode = process.exitCode;
@@ -144,11 +140,11 @@ test('the entry point uses the working directory and command-line master checkou
   const log = vi.spyOn(console, 'log').mockImplementation(() => {});
   try {
     process.chdir(root);
-    process.argv = [process.execPath, script, join(root, 'master')];
+    process.argv = [process.execPath, script, root];
     vi.resetModules();
     await import('../scripts/puzzle-performance.mjs');
-    expect(process.exitCode).toBe(0);
-    expect(Number(readFileSync(join(root, 'count'), 'utf8'))).toBe(6);
+    expect(process.exitCode).toBe(2);
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('solve'));
   } finally {
     process.chdir(originalCwd);
     process.argv = originalArgv;

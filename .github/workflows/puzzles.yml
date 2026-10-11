@@ -38,11 +38,5 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: 'npm'
-      - name: Install new version dependencies
-        run: npm ci
-      - name: Install master dependencies
-        working-directory: .performance-master
-        run: npm ci
       - name: Compare puzzle performance with master
         run: npm run test:performance -- .performance-master
