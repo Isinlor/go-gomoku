@@ -42,10 +42,10 @@ The Puzzles workflow also compares performance against `master` on the same
 runner. It alternates master and candidate runs, measuring every original and
 generated puzzle three times per version. Each puzzle passes when its fastest
 candidate time is no slower than its slowest master time (equality passes).
-Each puzzle gets up to three comparisons, each with three fresh runs per
+Each puzzle gets up to five comparisons, each with three fresh runs per
 version. A puzzle that passes any comparison is validated and never rerun; only
 failing puzzles proceed to the next attempt. CI fails if any puzzle still
-regresses after its third comparison. Puzzle failures and
+regresses after its fifth comparison. Puzzle failures and
 invalid or mismatched timing reports fail immediately.
 
 To run locally, install dependencies in both checkouts, then run from the new

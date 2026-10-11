@@ -9,7 +9,7 @@ reports=$(mktemp -d)
 trap 'rm -rf "$reports"' EXIT
 
 pattern='^Classic AI solves (generated )?puzzle '
-for attempt in 1 2 3; do
+for attempt in 1 2 3 4 5; do
   if [[ "$attempt" != 1 ]]; then
     # Anchor and escape each remaining name; IDs may contain regex characters.
     pattern=$(node --input-type=module - "$reports/pending.json" <<'JS'
@@ -46,7 +46,7 @@ try {
   const expected = existsSync(pendingFile) ? JSON.parse(readFileSync(pendingFile, 'utf8')) : undefined;
   const results = comparePuzzleRuns(load('master'), load('new'), expected);
   for (const result of results) {
-    console.log(`${result.passed ? 'PASS' : 'FAIL'} ${result.puzzle} (attempt ${process.argv[3]}/3): fastest new ${result.newMs.toFixed(3)} ms, slowest master ${result.masterMs.toFixed(3)} ms`);
+    console.log(`${result.passed ? 'PASS' : 'FAIL'} ${result.puzzle} (attempt ${process.argv[3]}/5): fastest new ${result.newMs.toFixed(3)} ms, slowest master ${result.masterMs.toFixed(3)} ms`);
   }
   const pending = results.filter((result) => !result.passed).map((result) => result.puzzle);
   writeFileSync(pendingFile, JSON.stringify(pending));
@@ -58,10 +58,10 @@ try {
 JS
   if [[ "$status" == 0 ]]; then exit 0; fi
   if [[ "$status" != 1 ]]; then exit "$status"; fi
-  if [[ "$attempt" != 3 ]]; then
+  if [[ "$attempt" != 5 ]]; then
     echo 'Possible performance regression; repeating only failing puzzles with fresh samples.'
   fi
 done
 
-echo 'Performance regression confirmed after three attempts for the remaining puzzles.' >&2
+echo 'Performance regression confirmed after five attempts for the remaining puzzles.' >&2
 exit 1

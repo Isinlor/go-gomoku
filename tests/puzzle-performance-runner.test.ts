@@ -31,7 +31,7 @@ function check(scenario: string) {
         const attempt = Math.ceil(history.filter(r => r.fullName === fullName).length / 6);
         const fails = scenario === 'persistent' ? index === 1
           : scenario === 'transient' ? index === 1 && attempt === 1
-          : scenario === 'third-attempt' ? index === 1 && attempt < 3
+          : scenario === 'fifth-attempt' ? index === 1 && attempt < 5
           : scenario === 'mixed' ? attempt <= index : false;
         return { fullName, status: 'passed', duration: master ? 10 : fails ? 20 : 5 };
       });
@@ -63,11 +63,12 @@ test('retries using six fresh samples and accepts a transient regression', () =>
   expect(result.output).toContain('repeating');
 });
 
-test('fails after a confirmed regression without retrying indefinitely', () => {
+test('fails after five failed comparisons without retrying indefinitely', () => {
   const result = check('persistent');
   expect(result.status).toBe(1);
-  expect(result.runs).toBe(18);
-  expect(result.output).toContain('confirmed');
+  expect(result.runs).toBe(30);
+  expect(result.output).toContain('confirmed after five attempts');
+  expect(result.output).toContain('attempt 5/5');
 });
 
 test('invalid reports and solver errors fail without retrying', () => {
@@ -76,10 +77,13 @@ test('invalid reports and solver errors fail without retrying', () => {
 });
 
 
-test('accepts a puzzle that passes on its third comparison', () => {
-  const result = check('third-attempt');
+test('accepts a puzzle that passes on its fifth comparison', () => {
+  const result = check('fifth-attempt');
   expect(result.status).toBe(0);
-  expect(result.runs).toBe(18);
+  expect(result.runs).toBe(30);
+  const retryRuns = result.history.filter((run: { fullName: string }) => run.fullName.includes('retry.two'));
+  expect(retryRuns).toHaveLength(30);
+  expect(result.output).toContain('attempt 5/5');
 });
 
 test('never reruns a validated puzzle, even while other puzzles need two or three attempts', () => {
