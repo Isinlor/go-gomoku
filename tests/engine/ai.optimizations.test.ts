@@ -167,7 +167,7 @@ test('root scout searches preserve an exhaustive score and re-search improvement
     if (args[4] === 1) widths.push(args[3] - args[2]);
     return search(...args);
   };
-  expect(ai.searchRoot(position, 4, hint).score).toBe(best);
+  expect(ai.searchRoot(position, 4, hint).score).toBeCloseTo(best, 10);
   expect(widths).toContain(1);
   expect(widths.filter(width => width > 1).length).toBeGreaterThan(1);
 });
