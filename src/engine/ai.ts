@@ -124,6 +124,7 @@ export class GogoAI {
   private killerMoves = new Int16Array(0);
   private readonly timeoutSignal = new Error('SEARCH_TIMEOUT');
   private proofMode = false;
+  private lossProofMode = false;
 
   // Transposition table
   private qHash = new BigUint64Array(QTT_SIZE);
@@ -225,7 +226,7 @@ export class GogoAI {
     // === Phase 2: Proof ===
     // When the heuristic search found a forced outcome, verify with exact search.
     // For wins: use AND/OR threat-space prover (fast for tactical wins).
-    // For losses: use full exact root negamax (proofSearchRoot).
+    // For losses: verify an opponent win after every legal defense.
     if ((heuristicWin || heuristicLoss) && this.now() < this.deadline) {
       let proofFailed = false;
 
@@ -238,27 +239,15 @@ export class GogoAI {
           proofFailed = true;
         }
       } else {
-        // Full exact root search for forced losses
-        this.proofMode = true;
-        this.resetSearchHeuristics(true);
-
-        for (let proofDepth = 1; proofDepth <= state.completedDepth; proofDepth += 1) {
-          try {
-            const proofResult = this.proofSearchRoot(position, proofDepth, state.bestMove);
-            if (proofDepth === state.completedDepth) {
-              if (this.isForcedLossScore(proofResult, proofDepth)) {
-                provenLoss = true;
-              } else {
-                proofFailed = true;
-              }
-            }
-          } catch (error) {
-            if (error !== this.timeoutSignal) {
-              throw error;
-            }
-            this.timedOut = true;
-            break;
-          }
+        // Prove an opponent win after every legal defense. Discovery scores
+        // supply ordering hints only; the threat-space prover verifies each win.
+        try {
+          const score = this.proofSearchRoot(position, state.completedDepth, state.bestMove);
+          provenLoss = this.isForcedLossScore(score, state.completedDepth);
+          proofFailed = !provenLoss;
+        } catch (error) {
+          if (error !== this.timeoutSignal) throw error;
+          this.timedOut = true;
         }
         this.proofMode = false;
       }
@@ -343,8 +332,8 @@ export class GogoAI {
     }
   }
 
-  private searchDepths(position: GogoPosition, startDepth: number, state: SearchState): void {
-    for (let depth = startDepth; depth <= this.maxDepth; depth += 1) {
+  private searchDepths(position: GogoPosition, startDepth: number, state: SearchState, endDepth = this.maxDepth): void {
+    for (let depth = startDepth; depth <= endDepth; depth += 1) {
       try {
         const result = this.searchRoot(position, depth, state.hintMove);
         if (result.move === -1) {
@@ -400,22 +389,17 @@ export class GogoAI {
   }
 
   private hasImmediateWin(position: GogoPosition): boolean {
-    const { windows, windowCount } = position.meta;
-    const board = position.board;
-    const player = position.toMove;
-    for (let wi = 0; wi < windowCount; wi += 1) {
-      const base = wi * 5;
-      let stones = 0;
-      let empty = -1;
-      for (let j = 0; j < 5; j += 1) {
-        const point = windows[base + j];
-        const cell = board[point];
-        if (cell === player) stones += 1;
-        else if (cell === EMPTY) empty = point;
+    this.ensureBuffers(position.area);
+    this.beginWindowPass(position);
+    const mine = position.toMove === BLACK ? this.windowBlack : this.windowWhite;
+    const theirs = position.toMove === BLACK ? this.windowWhite : this.windowBlack;
+    for (let wi = 0; wi < position.meta.windowCount; wi += 1) {
+      if (mine[wi] !== 4 || theirs[wi] !== 0) continue;
+      for (let offset = 0; offset < 5; offset += 1) {
+        const point = position.meta.windows[wi * 5 + offset];
+        // Completing five is legal even in suicide; only occupancy and ko matter.
+        if (position.board[point] === EMPTY && point !== position.koPoint) return true;
       }
-      // Completing five is legal even without liberties. An opponent stone
-      // cannot occur in a window containing four stones and an empty cell.
-      if (stones === 4 && empty !== -1 && empty !== position.koPoint) return true;
     }
     return false;
   }
@@ -449,14 +433,46 @@ export class GogoAI {
     return -1;
   }
 
-  /**
-   * Full exact root search for forced-loss proof (proof mode).
-   * Searches ALL root moves to verify that every defense leads to a loss.
-   * Returns the best score achievable from the root.
-   */
+  /** Prove a winning opponent reply after EVERY legal defense, including distant moves. */
   private proofSearchRoot(position: GogoPosition, depth: number, hintMove: number): number {
-    const result = this.searchRoot(position, depth, hintMove);
-    return result.move === -1 ? 0 : result.score;
+    this.checkTime(true);
+    const count = this.generateFullBoardMoves(position, this.moveBuffers[0], this.scoreBuffers[0], hintMove, false);
+    // Child discovery uses the root buffers too. Keep the defense list intact.
+    const defenses = this.moveBuffers[0].slice(0, count);
+    let legalCount = 0;
+    const savedProofMode = this.proofMode;
+    try {
+      for (const defense of defenses) {
+        this.checkTime(true);
+        if (!position.play(defense)) continue;
+        legalCount++;
+        try {
+          if (position.winner !== EMPTY) return 0;
+          this.proofMode = false;
+          const state: SearchState = {
+            bestMove: -1, bestScore: 0, completedDepth: 0, hintMove: -1,
+          };
+          this.searchDepths(position, 1, state, depth - 1);
+          if (!this.isForcedWinScore(state.bestScore, state.completedDepth)) return 0;
+          this.checkTime(true);
+          this.resetProofSearch();
+          this.lossProofMode = true;
+          if (!position.play(state.bestMove)) return 0;
+          try {
+            if (!this.proofDefend(position, state.completedDepth, 1)) return 0;
+          } finally {
+            position.undo();
+            this.lossProofMode = false;
+          }
+        } finally {
+          position.undo();
+        }
+      }
+      return legalCount === 0 ? 0 : -WIN_SCORE + depth;
+    } finally {
+      this.proofMode = savedProofMode;
+      this.lossProofMode = false;
+    }
   }
 
   private searchRoot(position: GogoPosition, depth: number, hintMove: number): SearchResult {
@@ -500,8 +516,10 @@ export class GogoAI {
         if (score > alpha) {
           alpha = score;
         }
-        // No legal continuation can improve on winning this very move.
-        if (alpha === WIN_SCORE - 1) break;
+        // Discovery needs a winning witness within this iteration's depth.
+        // The independent prover verifies it before claiming a forced win.
+        // Exact numeric searches still stop only at an immediate win.
+        if (alpha >= WIN_SCORE - (this.proofMode ? 1 : depth)) break;
       }
       if (legalCount !== 0 || usedFullBoard) {
         return {
@@ -580,7 +598,8 @@ export class GogoAI {
     const hintMove = ttBest !== -1 ? ttBest : -1;
     const moves = this.moveBuffers[ply];
     const scores = this.scoreBuffers[ply];
-    let count = this.generateOrderedMoves(position, moves, scores, hintMove, false, ply);
+    const responses = this.findThreatResponses(position, ply);
+    let count = responses >= 0 ? responses : this.generateOrderedMoves(position, moves, scores, hintMove, false, ply);
     let wasCapped = false;
     if (!this.proofMode && count > MAX_CANDIDATES) {
       count = MAX_CANDIDATES;
@@ -712,6 +731,13 @@ export class GogoAI {
     }
     if (remainingDepth === 0 || ply >= this.maxPly) {
       return store(standPat);
+    }
+
+    // A large positive static score suggests an own four. Confirm its legality
+    // exactly before avoiding tactical generation; smaller scores take the
+    // normal path without an extra window scan.
+    if (standPat >= EVAL_WEIGHTS[4] / 2 && this.hasImmediateWin(position)) {
+      return store(WIN_SCORE - ply - 1);
     }
 
     const moves = this.moveBuffers[ply];
@@ -1465,7 +1491,7 @@ export class GogoAI {
           }
         }
       }
-      if (stageLegalCount !== 0 || usedFullBoard) break;
+      if ((!this.lossProofMode && stageLegalCount !== 0) || usedFullBoard) break;
       count = this.generateFullBoardMoves(position, moves, scores, -1, false, ply);
       usedFullBoard = true;
     }
