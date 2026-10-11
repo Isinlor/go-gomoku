@@ -277,6 +277,17 @@ export const PUZZLES: readonly Puzzle[] = [
     wonEncoded: 'B9 e5 h4 i3 a8 b6 h8 b8 e1 c6 c5 e8 h1 g3 g1 i1 h2 f1 f6 f5 f2 a1 b1 c1 d1 a2 f1',
     winningMoves: ['f2', 'a1', 'b1', 'c1', 'd1', 'a2', 'f1'],
   },
+  // ---- Generated expert puzzle (n=9, m=4, k=4) -----------------------
+  {
+    id: 'gen-expert-1',
+    encoded: 'B11 e5 h4 i3 a8 b6 h8 b8 e1 c6 c5 e8 h1 g3 g1 i1 h2 f1 f6 f5',
+    toMove: WHITE,
+    solution: 'f2',
+    depth: 9,
+    threshold: 4,
+    wonEncoded: 'B11 e5 h4 i3 a8 b6 h8 b8 e1 c6 c5 e8 h1 g3 g1 i1 h2 f1 f6 f5 f2 a1 b1 c1 a2 b2 d1 j1 f1',
+    winningMoves: ['f2', 'a1', 'b1', 'c1', 'a2', 'b2', 'd1', 'j1', 'f1'],
+  },
 ];
 
 export function getPuzzleById(id: string): Puzzle | undefined {
