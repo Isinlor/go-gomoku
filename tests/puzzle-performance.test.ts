@@ -1,0 +1,53 @@
+// @vitest-environment node
+import { expect, test } from 'vitest';
+import * as engine from '../src/engine';
+import { comparePuzzleRuns, measurePuzzle } from '../scripts/puzzle-performance.mjs';
+
+const puzzle = engine.PUZZLES[0];
+
+test('compares the fastest new run with the slowest master run, including equality', () => {
+  expect(comparePuzzleRuns([10, 20, 30], [40, 30, 50])).toEqual({ masterMs: 30, newMs: 30, passed: true });
+  expect(comparePuzzleRuns([10, 20, 30], [31, 40, 50]).passed).toBe(false);
+});
+
+test('requires exactly three measurements per version', () => {
+  expect(() => comparePuzzleRuns([1, 2], [1, 2, 3])).toThrow('three');
+  expect(() => comparePuzzleRuns([1, 2, 3], [1, 2])).toThrow('three');
+});
+
+test.each([undefined, -1, NaN, Infinity, '1'])('rejects invalid timing: %s', (duration) => {
+  expect(() => comparePuzzleRuns([duration, 1, 1], [1, 1, 1])).toThrow('timing');
+  expect(() => comparePuzzleRuns([1, 1, 1], [duration, 1, 1])).toThrow('timing');
+});
+
+test('directly solves a real puzzle and brackets only findBestMove with the clock', () => {
+  let clockCalls = 0;
+  const elapsed = measurePuzzle(engine, puzzle, () => ++clockCalls * 10);
+  expect(elapsed).toBe(10);
+  expect(clockCalls).toBe(2);
+  expect(measurePuzzle(engine, puzzle)).toBeGreaterThanOrEqual(0);
+});
+
+test('rejects an invalid position, solution, or incorrect solver result', () => {
+  expect(() => measurePuzzle(engine, { ...puzzle, toMove: 2 })).toThrow('player');
+  expect(() => measurePuzzle(engine, { ...puzzle, solution: 'invalid' })).toThrow('solution');
+  expect(() => measurePuzzle(engine, { ...puzzle, solution: 'e9' })).toThrow('solve');
+});
+
+test('uses identical search options and existing puzzle time budgets', () => {
+  const budgets: number[] = [];
+  const options: unknown[] = [];
+  class RecordingAI extends engine.GogoAI {
+    constructor(value: unknown) { super(value); options.push(value); }
+    findBestMove(position: unknown, timeMs: number) {
+      budgets.push(timeMs);
+      return super.findBestMove(position, timeMs);
+    }
+  }
+  const recordingEngine = { ...engine, GogoAI: RecordingAI };
+  for (const [id, depth] of [['original', 3], ['original', 5], ['original', 7], ['original', 99], ['gen-example', 3], ['gen-example', 5], ['gen-example', 7], ['gen-example', 99]] as const) {
+    measurePuzzle(recordingEngine, { ...puzzle, id, depth });
+  }
+  expect(budgets).toEqual([500, 2000, 8000, 5000, 15000, 15000, 20000, 5000]);
+  expect(options).toEqual(Array(8).fill({ maxDepth: 10, quiescenceDepth: 4 }));
+});

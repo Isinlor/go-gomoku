@@ -22,3 +22,21 @@ jobs:
         run: make install
       - name: Run puzzle tests
         run: npm run test:puzzles
+
+  performance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout new version
+        uses: actions/checkout@v4
+      - name: Checkout master baseline
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          path: .performance-master
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Compare puzzle performance with master
+        run: npm run test:performance -- .performance-master
