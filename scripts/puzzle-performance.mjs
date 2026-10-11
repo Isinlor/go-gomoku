@@ -59,6 +59,8 @@ export function benchmarkPuzzles(master, candidate, log = console.log, measure =
   const puzzles = candidate.PUZZLES;
   assert(puzzles.length > 0, 'No puzzles to benchmark');
   assert.equal(new Set(puzzles.map((puzzle) => puzzle.id)).size, puzzles.length, 'Duplicate puzzle IDs');
+  let masterTotalMs = 0;
+  let newTotalMs = 0;
   for (const puzzle of puzzles) {
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       const masterRuns = [];
@@ -69,7 +71,13 @@ export function benchmarkPuzzles(master, candidate, log = console.log, measure =
       }
       const result = comparePuzzleRuns(masterRuns, newRuns);
       log(`${result.passed ? 'PASS' : 'FAIL'} ${puzzle.id} (attempt ${attempt}/${MAX_ATTEMPTS}): fastest new ${result.newMs.toFixed(3)} ms, slowest master ${result.masterMs.toFixed(3)} ms`);
-      if (result.passed) break;
+      if (result.passed) {
+        // Sum medians rather than the optimistic extremes used for the noise-
+        // tolerant individual regression check.
+        masterTotalMs += masterRuns.sort((a, b) => a - b)[1];
+        newTotalMs += newRuns.sort((a, b) => a - b)[1];
+        break;
+      }
       if (attempt === MAX_ATTEMPTS) {
         log(`Performance regression confirmed after five attempts for ${puzzle.id}.`);
         return 1;
@@ -77,7 +85,9 @@ export function benchmarkPuzzles(master, candidate, log = console.log, measure =
       log(`Possible performance regression; repeating ${puzzle.id} with fresh samples.`);
     }
   }
-  return 0;
+  const passed = newTotalMs <= masterTotalMs * 0.5;
+  log(`${passed ? 'PASS' : 'FAIL'} Total puzzle runtime: new ${newTotalMs.toFixed(3)} ms, master ${masterTotalMs.toFixed(3)} ms; target <= ${(masterTotalMs * 0.5).toFixed(3)} ms (50% reduction).`);
+  return passed ? 0 : 1;
 }
 
 export function runPuzzlePerformance(masterRoot, newRoot = process.cwd(), log = console.log) {

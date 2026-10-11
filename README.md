@@ -51,6 +51,10 @@ version. Retries happen immediately for that puzzle. A puzzle that passes any
 comparison is validated and never rerun. CI fails if a puzzle still regresses
 after its fifth comparison. Incorrect solutions or invalid timings fail
 immediately.
+After every puzzle passes, the script sums each puzzle's median timing from
+its accepted three-run comparison. The candidate total must be at most 50%
+of master's total; improving every puzzle without halving the total still
+fails. The final line reports both totals and the target.
 
 To run locally, use Node 24 and run from the new version's checkout. The benchmark
 needs no installed dependencies or test runner:

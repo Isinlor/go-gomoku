@@ -153,3 +153,28 @@ test('entry point uses the working directory and command-line master checkout', 
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('rejects an aggregate speedup below 50% even when every puzzle improves', () => {
+  const master = {};
+  const candidate = { PUZZLES: [{ id: 'one' }, { id: 'two' }] };
+  const output: string[] = [];
+  const status = benchmarkPuzzles(master, candidate, (line: string) => output.push(line), (engine: unknown) => engine === master ? 10 : 6);
+  expect(status).toBe(1);
+  expect(output.filter(line => line.startsWith('PASS '))).toHaveLength(2);
+  expect(output.join('\n')).toContain('Total puzzle runtime');
+});
+
+test('uses median timings for the 50% aggregate target instead of optimistic extremes', () => {
+  const master = {};
+  const candidate = { PUZZLES: [{ id: 'one' }] };
+  let call = 0;
+  const times = [10, 1, 10, 6, 100, 6];
+  expect(benchmarkPuzzles(master, candidate, () => {}, () => times[call++])).toBe(1);
+});
+
+test('accepts zero total runtime and an exact 50% aggregate reduction', () => {
+  const master = {};
+  const candidate = { PUZZLES: [{ id: 'one' }] };
+  expect(benchmarkPuzzles(master, candidate, () => {}, () => 0)).toBe(0);
+  expect(benchmarkPuzzles(master, candidate, () => {}, (engine: unknown) => engine === master ? 10 : 5)).toBe(0);
+});

@@ -105,6 +105,8 @@ export class GogoAI {
   private scoredGroupPassEpoch = 1;
   private scoredGroupHash = -1n;
   private windowBoard = new Uint8Array(0);
+  private localStoneScores = new Float64Array(0);
+  private localDirty = new Uint8Array(0);
   private windowBlack = new Uint8Array(0);
   private windowWhite = new Uint8Array(0);
   private windowHash = -1n;
@@ -286,6 +288,8 @@ export class GogoAI {
     }
     this.bufferArea = area;
     this.windowBoard = new Uint8Array(area);
+    this.localStoneScores = new Float64Array(area);
+    this.localDirty = new Uint8Array(area);
     this.windowBlack = new Uint8Array(4 * area);
     this.windowWhite = new Uint8Array(4 * area);
     this.windowEvaluation = 0;
@@ -784,6 +788,11 @@ export class GogoAI {
       const oldCell = this.windowBoard[point];
       const cell = board[point];
       if (cell === oldCell) continue;
+      this.localDirty[point] = 1;
+      for (let offset = 0; offset < 4; offset += 1) {
+        const neighbor = meta.neighbors4[point * 4 + offset];
+        if (neighbor !== -1) this.localDirty[neighbor] = 1;
+      }
       const blackDelta = (cell & 1) - (oldCell & 1);
       const whiteDelta = (cell >> 1) - (oldCell >> 1);
       for (let cursor = meta.windowsByPointOffsets[point]; cursor < meta.windowsByPointOffsets[point + 1]; cursor += 1) {
@@ -842,16 +851,21 @@ export class GogoAI {
     for (let point = 0; point < position.area; point += 1) {
       const cell = board[point];
       if (cell === EMPTY) {
+        this.localStoneScores[point] = 0;
         continue;
       }
-      let localLiberties = 0;
-      const neighborBase = point * 4;
-      for (let offset = 0; offset < 4; offset += 1) {
-        const neighbor = neighbors[neighborBase + offset];
-        localLiberties += neighbor !== -1 && board[neighbor] === EMPTY ? 1 : 0;
+      if (this.localDirty[point] !== 0) {
+        let localLiberties = 0;
+        const neighborBase = point * 4;
+        for (let offset = 0; offset < 4; offset += 1) {
+          const neighbor = neighbors[neighborBase + offset];
+          localLiberties += neighbor !== -1 && board[neighbor] === EMPTY ? 1 : 0;
+        }
+        const libertyBucket = Math.min(localLiberties, LOCAL_LIBERTY_WEIGHTS.length - 1);
+        this.localStoneScores[point] = meta.centerBias[point] * CENTER_MULTIPLIER + LOCAL_LIBERTY_WEIGHTS[libertyBucket];
+        this.localDirty[point] = 0;
       }
-      const libertyBucket = Math.min(localLiberties, LOCAL_LIBERTY_WEIGHTS.length - 1);
-      const stoneScore = meta.centerBias[point] * CENTER_MULTIPLIER + LOCAL_LIBERTY_WEIGHTS[libertyBucket];
+      const stoneScore = this.localStoneScores[point];
       score += cell === BLACK ? stoneScore : -stoneScore;
     }
 
