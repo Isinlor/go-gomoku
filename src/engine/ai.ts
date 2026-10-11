@@ -36,6 +36,7 @@ interface SearchState {
   bestScore: number;
   completedDepth: number;
   hintMove: number;
+  provenWin?: boolean;
 }
 
 const WIN_SCORE = 1_000_000_000;
@@ -105,8 +106,6 @@ export class GogoAI {
   private scoredGroupPassEpoch = 1;
   private scoredGroupHash = -1n;
   private windowBoard = new Uint8Array(0);
-  private localStoneScores = new Float64Array(0);
-  private localDirty = new Uint8Array(0);
   private windowBlack = new Uint8Array(0);
   private windowWhite = new Uint8Array(0);
   private windowHash = -1n;
@@ -127,6 +126,7 @@ export class GogoAI {
   private readonly timeoutSignal = new Error('SEARCH_TIMEOUT');
   private proofMode = false;
   private lossProofMode = false;
+  private verifiedWinDepth = 0;
 
   // Transposition table
   private qHash = new BigUint64Array(QTT_SIZE);
@@ -218,7 +218,22 @@ export class GogoAI {
     }
     // === Phase 1: Heuristic Discovery ===
     // Use NMP, LMR, and candidate capping for fast search.
-    this.searchDepths(position, 1, state);
+    this.searchDepths(position, 1, state, this.maxDepth, true);
+
+    if (state.provenWin) {
+      return {
+        move: state.bestMove,
+        score: state.bestScore,
+        depth: state.completedDepth,
+        nodes: this.nodesVisited,
+        timedOut: this.timedOut,
+        forcedDefensiveMove: false,
+        forcedWin: true,
+        forcedLoss: false,
+        heuristicWin: false,
+        heuristicLoss: false,
+      };
+    }
 
     const heuristicWin = this.isForcedWinScore(state.bestScore, state.completedDepth);
     const heuristicLoss = this.isForcedLossScore(state.bestScore, state.completedDepth);
@@ -288,8 +303,6 @@ export class GogoAI {
     }
     this.bufferArea = area;
     this.windowBoard = new Uint8Array(area);
-    this.localStoneScores = new Float64Array(area);
-    this.localDirty = new Uint8Array(area);
     this.windowBlack = new Uint8Array(4 * area);
     this.windowWhite = new Uint8Array(4 * area);
     this.windowEvaluation = 0;
@@ -336,7 +349,7 @@ export class GogoAI {
     }
   }
 
-  private searchDepths(position: GogoPosition, startDepth: number, state: SearchState, endDepth = this.maxDepth): void {
+  private searchDepths(position: GogoPosition, startDepth: number, state: SearchState, endDepth = this.maxDepth, earlyProof = false): void {
     for (let depth = startDepth; depth <= endDepth; depth += 1) {
       try {
         const result = this.searchRoot(position, depth, state.hintMove);
@@ -350,6 +363,12 @@ export class GogoAI {
         if (this.isForcedWinScore(result.score, depth) || this.isForcedLossScore(result.score, depth)) {
           break;
         }
+        // A strong tactical candidate often appears before discovery finds its
+        // mate score. Try a bounded independent proof once, retaining most of
+        // the budget for discovery if it cannot establish a win.
+        if (earlyProof && depth === 3 && depth < endDepth && result.score >= EVAL_WEIGHTS[4] / 2 && this.tryEarlyProof(position, state)) {
+          break;
+        }
       } catch (error) {
         if (error !== this.timeoutSignal) {
           throw error;
@@ -357,6 +376,26 @@ export class GogoAI {
         this.timedOut = true;
         break;
       }
+    }
+  }
+
+  private tryEarlyProof(position: GogoPosition, state: SearchState): boolean {
+    const deadline = this.deadline;
+    const nodes = this.nodesVisited;
+    const history = this.history.slice();
+    const killers = this.killerMoves.slice();
+    try {
+      if (!this.verifyWinningMove(position, state.bestMove, (deadline - this.now()) / 4, this.maxDepth)) return false;
+      state.bestScore = WIN_SCORE - this.verifiedWinDepth;
+      state.completedDepth = this.verifiedWinDepth;
+      state.provenWin = true;
+      return true;
+    } finally {
+      this.deadline = deadline;
+      this.nodesVisited += nodes;
+      this.history.set(history);
+      this.killerMoves.set(killers);
+      this.timedOut = this.now() >= deadline;
     }
   }
 
@@ -788,11 +827,6 @@ export class GogoAI {
       const oldCell = this.windowBoard[point];
       const cell = board[point];
       if (cell === oldCell) continue;
-      this.localDirty[point] = 1;
-      for (let offset = 0; offset < 4; offset += 1) {
-        const neighbor = meta.neighbors4[point * 4 + offset];
-        if (neighbor !== -1) this.localDirty[neighbor] = 1;
-      }
       const blackDelta = (cell & 1) - (oldCell & 1);
       const whiteDelta = (cell >> 1) - (oldCell >> 1);
       for (let cursor = meta.windowsByPointOffsets[point]; cursor < meta.windowsByPointOffsets[point + 1]; cursor += 1) {
@@ -851,21 +885,16 @@ export class GogoAI {
     for (let point = 0; point < position.area; point += 1) {
       const cell = board[point];
       if (cell === EMPTY) {
-        this.localStoneScores[point] = 0;
         continue;
       }
-      if (this.localDirty[point] !== 0) {
-        let localLiberties = 0;
-        const neighborBase = point * 4;
-        for (let offset = 0; offset < 4; offset += 1) {
-          const neighbor = neighbors[neighborBase + offset];
-          localLiberties += neighbor !== -1 && board[neighbor] === EMPTY ? 1 : 0;
-        }
-        const libertyBucket = Math.min(localLiberties, LOCAL_LIBERTY_WEIGHTS.length - 1);
-        this.localStoneScores[point] = meta.centerBias[point] * CENTER_MULTIPLIER + LOCAL_LIBERTY_WEIGHTS[libertyBucket];
-        this.localDirty[point] = 0;
+      let localLiberties = 0;
+      const neighborBase = point * 4;
+      for (let offset = 0; offset < 4; offset += 1) {
+        const neighbor = neighbors[neighborBase + offset];
+        localLiberties += neighbor !== -1 && board[neighbor] === EMPTY ? 1 : 0;
       }
-      const stoneScore = this.localStoneScores[point];
+      const libertyBucket = Math.min(localLiberties, LOCAL_LIBERTY_WEIGHTS.length - 1);
+      const stoneScore = meta.centerBias[point] * CENTER_MULTIPLIER + LOCAL_LIBERTY_WEIGHTS[libertyBucket];
       score += cell === BLACK ? stoneScore : -stoneScore;
     }
 
@@ -1283,22 +1312,26 @@ export class GogoAI {
    * Uses AND/OR threat-space search with a dedicated proof TT.
    * Returns true if the win is provable within the time and depth limits.
    */
-  verifyWinningMove(position: GogoPosition, move: number, timeLimitMs: number): boolean {
+  verifyWinningMove(position: GogoPosition, move: number, timeLimitMs: number, depthLimit = this.maxPly): boolean {
     this.ensureBuffers(position.area);
     this.deadline = this.now() + Math.max(0, timeLimitMs);
     this.nodesVisited = 0;
     this.timedOut = false;
     this.resetProofSearch();
+    this.verifiedWinDepth = 0;
 
     if (!position.play(move)) return false;
     try {
       // Iterative deepening: start shallow and deepen. Earlier iterations
       // populate the proof TT, which acts as a powerful pruning mechanism
       // for deeper iterations.
-      for (let maxDepth = 1; maxDepth <= this.maxPly; maxDepth += 2) {
+      for (let maxDepth = 1; maxDepth <= Math.min(depthLimit, this.maxPly); maxDepth += 2) {
         try {
           const result = this.proofDefend(position, maxDepth, 1);
-          if (result) return true;
+          if (result) {
+            this.verifiedWinDepth = maxDepth;
+            return true;
+          }
         } catch (error) {
           if (error !== this.timeoutSignal) {
             throw error;
@@ -1376,8 +1409,11 @@ export class GogoAI {
 
     const moves = this.moveBuffers[ply];
     const scores = this.scoreBuffers[ply];
-    // Generate only tactical (forcing) moves for the attacker.
-    const count = this.generateOrderedMoves(position, moves, scores, -1, true, ply);
+    // An attacker facing an immediate counter-win must answer it too. Every
+    // other move loses on the defender's next turn; captures and counter-wins
+    // are included by the same complete response generator as defense nodes.
+    const responses = this.findThreatResponses(position, ply);
+    const count = responses >= 0 ? responses : this.generateOrderedMoves(position, moves, scores, -1, true, ply);
 
     for (let i = 0; i < count; i += 1) {
       const m = moves[i];
@@ -1483,7 +1519,10 @@ export class GogoAI {
     // Skip moves already tried in the TT-first and restricted-response stages.
     const moves = this.moveBuffers[ply];
     const scores = this.scoreBuffers[ply];
-    let count = this.generateOrderedMoves(position, moves, scores, -1, false, ply);
+    // Most failed attacks have a cheap forcing refutation. Try these before
+    // scoring all nearby defenses; a successful proof still checks both sets.
+    let count = this.generateOrderedMoves(position, moves, scores, -1, true, ply);
+    let usedOrdered = false;
     let usedFullBoard = false;
 
     for (;;) {
@@ -1505,9 +1544,14 @@ export class GogoAI {
           }
         }
       }
-      if ((!this.lossProofMode && stageLegalCount !== 0) || usedFullBoard) break;
-      count = this.generateFullBoardMoves(position, moves, scores, -1, false, ply);
-      usedFullBoard = true;
+      if ((usedOrdered && !this.lossProofMode && stageLegalCount !== 0) || usedFullBoard) break;
+      if (!usedOrdered) {
+        count = this.generateOrderedMoves(position, moves, scores, -1, false, ply);
+        usedOrdered = true;
+      } else {
+        count = this.generateFullBoardMoves(position, moves, scores, -1, false, ply);
+        usedFullBoard = true;
+      }
     }
 
     // No legal moves → neutral (not proven). Matches search()'s neutral semantics.

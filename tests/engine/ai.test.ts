@@ -3404,7 +3404,7 @@ test('proofDefend: illegal TT move is attempted before ordered generation and sk
   anyAI.generateFullBoardMoves = () => 0;
 
   expect(anyAI.proofDefend(pos, 2, 1)).toBe(false);
-  expect(genCalls).toBe(1);
+  expect(genCalls).toBe(2); // Tactical refutations, then all nearby defenses.
   anyAI.generateOrderedMoves = realGen;
   anyAI.generateFullBoardMoves = realFullGen;
   (pos as any).play = realPlay;

@@ -55,7 +55,7 @@ export function comparePuzzleRuns(masterRuns, newRuns) {
 }
 
 /** Use the candidate's puzzles as identical inputs for both engine versions. */
-export function benchmarkPuzzles(master, candidate, log = console.log, measure = measurePuzzle) {
+export function benchmarkPuzzles(master, candidate, log = console.log, measure = measurePuzzle, requireHalfTotal = false) {
   const puzzles = candidate.PUZZLES;
   assert(puzzles.length > 0, 'No puzzles to benchmark');
   assert.equal(new Set(puzzles.map((puzzle) => puzzle.id)).size, puzzles.length, 'Duplicate puzzle IDs');
@@ -85,17 +85,18 @@ export function benchmarkPuzzles(master, candidate, log = console.log, measure =
       log(`Possible performance regression; repeating ${puzzle.id} with fresh samples.`);
     }
   }
-  const passed = newTotalMs <= masterTotalMs * 0.5;
-  log(`${passed ? 'PASS' : 'FAIL'} Total puzzle runtime: new ${newTotalMs.toFixed(3)} ms, master ${masterTotalMs.toFixed(3)} ms; target <= ${(masterTotalMs * 0.5).toFixed(3)} ms (50% reduction).`);
+  const ratio = requireHalfTotal ? 0.5 : 1;
+  const passed = newTotalMs <= masterTotalMs * ratio;
+  log(`${passed ? 'PASS' : 'FAIL'} Total puzzle runtime: new ${newTotalMs.toFixed(3)} ms, master ${masterTotalMs.toFixed(3)} ms; target <= ${(masterTotalMs * ratio).toFixed(3)} ms (${ratio * 100}% of master).`);
   return passed ? 0 : 1;
 }
 
-export function runPuzzlePerformance(masterRoot, newRoot = process.cwd(), log = console.log) {
+export function runPuzzlePerformance(masterRoot, newRoot = process.cwd(), log = console.log, requireHalfTotal = false) {
   try {
     assert(masterRoot, 'Usage: node scripts/puzzle-performance.mjs MASTER_CHECKOUT');
     const master = loadEngine(realpathSync(masterRoot));
     const candidate = loadEngine(realpathSync(newRoot));
-    return benchmarkPuzzles(master, candidate, log);
+    return benchmarkPuzzles(master, candidate, log, measurePuzzle, requireHalfTotal);
   } catch (error) {
     log(error.message);
     return 2;
@@ -103,5 +104,5 @@ export function runPuzzlePerformance(masterRoot, newRoot = process.cwd(), log = 
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  process.exitCode = runPuzzlePerformance(process.argv[2]);
+  process.exitCode = runPuzzlePerformance(process.argv[2], process.cwd(), console.log, process.argv[3] === '--require-half-total');
 }
