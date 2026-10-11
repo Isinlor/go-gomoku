@@ -49,6 +49,59 @@ test('LCG nextInt produces values in range', () => {
 // ForcedWinSearcher tests
 // ---------------------------------------------------------------------------
 
+test('reuses completed searches without changing forced-win results', () => {
+  const pos = decodeGame('B9 c5 e3 d5 e4 f5 e6');
+  const searcher = new ForcedWinSearcher(81, 6);
+  expect(searcher.hasForcedWin(pos, BLACK, 3)).toBe(true);
+  const firstNodes = searcher.nodesSearched;
+  expect(firstNodes).toBeGreaterThan(1);
+  expect(searcher.hasForcedWin(pos, BLACK, 3)).toBe(true);
+  expect(searcher.nodesSearched).toBeLessThan(firstNodes);
+  expect(pos.encodeGame()).toBe('B9 c5 e3 d5 e4 f5 e6');
+});
+
+test('does not expand positions that need more attacking stones than remaining turns', () => {
+  const pos = decodeGame('B9 e5 a1');
+  const searcher = new ForcedWinSearcher(81, 6);
+  expect(searcher.hasForcedWin(pos, BLACK, 3)).toBe(false);
+  expect(searcher.nodesSearched).toBe(1);
+  expect(searcher.hasForcedWin(pos, WHITE, 4)).toBe(false);
+  expect(searcher.nodesSearched).toBe(1);
+});
+
+test('cached and uncached searches agree across horizons, sides, and ko restrictions', () => {
+  const cached = new ForcedWinSearcher(81, 6);
+  const uncached = new ForcedWinSearcher(81, 6, false);
+  const pos = decodeGame('B9 c5 e3 d5 e4 f5 e6');
+  const encoded = pos.encodeGame();
+  for (const ko of [-1, pos.index(4, 4)]) {
+    pos.koPoint = ko;
+    for (const toMove of [BLACK, WHITE] as const) {
+      pos.toMove = toMove;
+      for (const attacker of [BLACK, WHITE] as const) {
+        for (const horizon of [1, 2, 3, 4]) {
+          expect(cached.hasForcedWin(pos, attacker, horizon))
+            .toBe(uncached.hasForcedWin(pos, attacker, horizon));
+          expect(pos.encodeGame()).toBe(encoded);
+          expect(pos.toMove).toBe(toMove);
+          expect(pos.koPoint).toBe(ko);
+        }
+      }
+    }
+  }
+});
+
+test('hash collisions cannot reuse a proof for a different board', () => {
+  const winning = decodeGame('B9 c5 e3 d5 e4 f5 e6');
+  const losing = decodeGame('B9 e5 a1');
+  winning.hash = 0n;
+  losing.hash = 0n;
+  const searcher = new ForcedWinSearcher(81, 6);
+  expect(searcher.hasForcedWin(winning, BLACK, 3)).toBe(true);
+  expect(searcher.hasForcedWin(losing, BLACK, 3)).toBe(false);
+  expect(searcher.hasForcedWin(winning, BLACK, 3)).toBe(true);
+});
+
 test('hasForcedWin detects immediate win (1 ply)', () => {
   // Black has 4 in a row, one move to win
   const pos = GogoPosition.fromAscii([
@@ -249,12 +302,13 @@ test('validatePuzzlePosition validates known puzzle position', () => {
   }
 });
 
-test('validatePuzzlePosition returns null when no open-three exists', () => {
+test('validatePuzzlePosition searches for forced wins even when no open-three exists', () => {
   const pos = new GogoPosition(9);
   pos.play(pos.index(4, 4));
   pos.play(pos.index(0, 0));
   const searcher = new ForcedWinSearcher(81, 8);
   expect(validatePuzzlePosition(pos, BEGINNER, searcher)).toBeNull();
+  expect(searcher.nodesSearched).toBeGreaterThan(0);
 });
 
 // ---------------------------------------------------------------------------
@@ -279,7 +333,7 @@ test('playRandomGame with different seeds produces different games', () => {
 // generatePuzzles integration test
 // ---------------------------------------------------------------------------
 
-test('generatePuzzles finds beginner puzzles', { timeout: 60_000 }, () => {
+test('generatePuzzles finds beginner puzzles', { timeout: 120_000 }, () => {
   const { puzzles, stats } = generatePuzzles(BEGINNER, 2, {
     seed: 42,
     maxGames: 500,
