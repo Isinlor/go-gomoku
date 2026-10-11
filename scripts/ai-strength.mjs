@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { randomInt } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 import { loadEngine } from './puzzle-performance.mjs';
 
-export const PAIRS = 24;
+export const PAIRS = 48;
 export const ATTEMPTS = 5;
 export const MAX_PLIES = 64;
 const WORK_BUDGET = 12;
@@ -82,10 +83,10 @@ export function playGame(master, candidate, opening, candidateColor, check) {
   return 0; // Move-cap draws are never adjudicated by either AI's evaluation.
 }
 
-export function benchmarkStrength(master, candidate, seed, log, check, play = playGame) {
+export function benchmarkStrength(master, candidate, seed, log, check, play = playGame, attempts = ATTEMPTS) {
   const random = seededRandom(seed);
   log(`AI strength seed: ${seed}`);
-  for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
+  for (let attempt = 1; attempt <= attempts; attempt++) {
     const outcomes = [];
     for (let pair = 0; pair < PAIRS; pair++) {
       check();
@@ -99,11 +100,11 @@ export function benchmarkStrength(master, candidate, seed, log, check, play = pl
       log(`attempt ${attempt} pair ${pair + 1}: ${opening}; candidate color ${firstColor} first; scores ${first}, ${second}`);
     }
     const result = comparePairs(outcomes);
-    log(`${result.passed ? 'PASS' : 'FAIL'} attempt ${attempt}/${ATTEMPTS}: ${result.wins} won, ${result.losses} lost, ${result.ties} tied pairs; p=${result.p.toFixed(6)}`);
+    log(`${result.passed ? 'PASS' : 'FAIL'} attempt ${attempt}/${attempts}: ${result.wins} won, ${result.losses} lost, ${result.ties} tied pairs; p=${result.p.toFixed(6)}`);
     if (result.passed) return 0;
-    if (attempt < ATTEMPTS) log('Possible strength regression; repeating with fresh openings.');
+    if (attempt < attempts) log('Possible strength regression; repeating with fresh openings.');
   }
-  log('Strength regression confirmed after five attempts.');
+  log(attempts === ATTEMPTS ? 'Strength regression confirmed after five attempts.' : 'Possible strength regression in this attempt.');
   return 1;
 }
 
@@ -114,8 +115,8 @@ export function runStrength(masterRoot, candidateRoot = process.cwd(), seed = ra
     assert(masterRoot, 'Usage: node scripts/ai-strength.mjs MASTER_CHECKOUT [SEED]');
     const master = loadEngine(realpathSync(masterRoot));
     const candidate = loadEngine(realpathSync(candidateRoot));
-    const status = benchmarkStrength(master, candidate, seed, log, check);
-    log(`Total strength test time: ${(clock() - start).toFixed(0)} ms`);
+    const status = benchmarkStrength(master, candidate, seed, log, check, playGame, 1);
+    log(`Strength attempt time: ${(clock() - start).toFixed(0)} ms`);
     return status;
   } catch (error) {
     log(error.message);
@@ -123,7 +124,37 @@ export function runStrength(masterRoot, candidateRoot = process.cwd(), seed = ra
   }
 }
 
+/** Each complete attempt, including Node startup, gets its own hard timeout. */
+export function runStrengthChecks(masterRoot, candidateRoot = process.cwd(), seed = randomInt(1, 0x100000000), log = console.log, run = spawnSync) {
+  try {
+    assert(masterRoot, 'Usage: node scripts/ai-strength.mjs MASTER_CHECKOUT [SEED]');
+    const random = seededRandom(seed);
+    log(`AI strength replay seed: ${seed}`);
+    for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
+      const attemptSeed = attempt === 1 ? seed : 1 + random(0xffffffff);
+      log(`Strength attempt ${attempt}/${ATTEMPTS}`);
+      const result = run(process.execPath, [fileURLToPath(import.meta.url), masterRoot, String(attemptSeed), '--attempt'],
+        { cwd: candidateRoot, encoding: 'utf8', timeout: 14_000, killSignal: 'SIGKILL' });
+      if (result.stdout) log(result.stdout.trim());
+      if (result.stderr) log(result.stderr.trim());
+      if (result.error || result.signal || result.status === null) {
+        log('Strength attempt failed or exceeded its process budget (inconclusive).');
+        return 2;
+      }
+      if (result.status === 0) return 0;
+      if (result.status !== 1) return 2;
+      if (attempt < ATTEMPTS) log('Possible strength regression; repeating with fresh openings.');
+    }
+    log('Strength regression confirmed after five attempts.');
+    return 1;
+  } catch (error) {
+    log(error.message);
+    return 2;
+  }
+}
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  process.exitCode = runStrength(process.argv[2], process.cwd(),
+  const run = process.argv[4] === '--attempt' ? runStrength : runStrengthChecks;
+  process.exitCode = run(process.argv[2], process.cwd(),
     process.argv[3] === undefined ? undefined : Number(process.argv[3]));
 }

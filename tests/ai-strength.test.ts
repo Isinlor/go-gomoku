@@ -78,6 +78,9 @@ test('passes ties, swaps colors, shares openings and retries only failed batches
   expect(fail.status).toBe(1);
   expect(fail.history).toHaveLength(PAIRS * 10);
   expect(fail.logs).toContain('confirmed');
+  const singleLogs: string[] = [];
+  expect(benchmarkStrength(engine, engine, 123, (s: string) => singleLogs.push(s), check, () => -1, 1)).toBe(1);
+  expect(singleLogs.join(' ')).toContain('Possible strength regression in this attempt');
 });
 
 test('real deterministic engines tie a color-swapped pair', () => {
@@ -130,7 +133,8 @@ test('runner loads separate checkouts, prints timings, and returns errors withou
   const log = (s: string) => logs.push(s);
   try {
     expect(runStrength(root, other, 123, log)).toBe(0);
-    expect(logs.join('\n')).toContain('Total strength test time');
+    expect(runStrength(root, other, undefined, log)).toBe(0);
+    expect(logs.join('\n')).toContain('Strength attempt time');
     expect(runStrength(undefined, root, 123, log)).toBe(2);
     expect(runStrength('/nonexistent-master', root, 123, log)).toBe(2);
     expect(runStrength(root, root, 0, log)).toBe(2);
@@ -155,9 +159,10 @@ test('entry point applies CLI seed and generates a seed when omitted', async () 
   const log = vi.spyOn(console, 'log').mockImplementation(() => {});
   try {
     process.chdir(root);
-    for (const seed of ['123', undefined]) {
+    for (const seed of ['123', undefined, 'attempt']) {
       process.argv = [process.execPath, script, root];
-      if (seed !== undefined) process.argv.push(seed);
+      if (seed === 'attempt') process.argv.push('123', '--attempt');
+      else if (seed !== undefined) process.argv.push(seed);
       vi.resetModules();
       await import('../scripts/ai-strength.mjs');
       expect(process.exitCode).toBe(0);
@@ -167,4 +172,37 @@ test('entry point applies CLI seed and generates a seed when omitted', async () 
     process.chdir(cwd); process.argv = argv; process.exitCode = code;
     log.mockRestore(); rmSync(root, { recursive: true, force: true });
   }
+});
+
+import { runStrengthChecks } from '../scripts/ai-strength.mjs';
+
+test('gives each subprocess its own 14s timeout and retries only strength failures', () => {
+  const calls: any[] = [], logs: string[] = [];
+  const runner = (...args: any[]) => { calls.push(args); return { status: calls.length === 5 ? 0 : 1, stdout: 'results', stderr: '' }; };
+  expect(runStrengthChecks('master', 'candidate', 123, (s: string) => logs.push(s), runner)).toBe(0);
+  expect(calls).toHaveLength(5);
+  expect(calls.map(c => c[2].timeout)).toEqual(Array(5).fill(14000));
+  expect(calls.every(c => c[2].cwd === 'candidate')).toBe(true);
+  expect(new Set(calls.map(c => c[1][2])).size).toBe(5);
+  expect(calls.every(c => c[1][3] === '--attempt')).toBe(true);
+});
+
+test('confirms five failures but immediately reports subprocess errors as inconclusive', () => {
+  const logs: string[] = [];
+  const log = (s: string) => logs.push(s);
+  expect(runStrengthChecks('master', 'candidate', 123, log, () => ({ status: 1, stdout: '', stderr: '' }))).toBe(1);
+  expect(logs.join(' ')).toContain('confirmed');
+  for (const result of [
+    { status: 2, stdout: '', stderr: 'invalid engine' },
+    { status: null, signal: 'SIGKILL', stdout: '', stderr: '' },
+    { status: null, error: Error('timeout'), stdout: '', stderr: '' },
+    { status: null, stdout: '', stderr: '' },
+  ]) {
+    let calls = 0;
+    expect(runStrengthChecks('master', 'candidate', 123, log, () => { calls++; return result; })).toBe(2);
+    expect(calls).toBe(1);
+  }
+  expect(runStrengthChecks(undefined, 'candidate', 123, log)).toBe(2);
+  expect(runStrengthChecks('master', 'candidate', 0, log)).toBe(2);
+  expect(runStrengthChecks('master', 'candidate', 123, log, () => { throw Error('spawn failed'); })).toBe(2);
 });

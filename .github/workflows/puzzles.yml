@@ -56,5 +56,5 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Compare AI strength with master (including retries, under 15s)
-        run: timeout --signal=KILL 14s npm run test:strength -- .strength-master
+      - name: Compare AI strength with master (under 15s per attempt)
+        run: timeout --signal=KILL 74s npm run test:strength -- .strength-master

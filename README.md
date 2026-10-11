@@ -68,7 +68,7 @@ npm run test:strength -- /path/to/master-checkout
 npm run test:strength -- /path/to/master-checkout 123
 ```
 
-Each attempt plays 24 pairs from fresh legal clustered openings (4–12 opening
+Each attempt plays 48 pairs from fresh legal clustered openings (4–12 opening
 plies) across 9×9, 11×11, and 13×13 boards. Both games in a pair use the same
 opening, swap candidate colors, and randomize which color plays first. Master’s
 board implementation referees both versions, so changes to the rules cannot
@@ -89,8 +89,8 @@ draw = 0, loss = −1). Tied pairs are excluded. For `n` decisive pairs and `L`
 lost pairs, the one-sided exact sign-test p-value is
 `sum(C(n, k), k=L..n) / 2^n`; fail the attempt only when `p <= 0.05`.
 For example, five losses without a won pair have p = 1/32 = 3.125%; four
-have p = 1/16 = 6.25% and pass. With 24 decisive pairs, at least 17 losses
-are needed (p ≈ 3.196%). Both games are one observation, never two independent
+have p = 1/16 = 6.25% and pass. With 48 decisive pairs, at least 31 losses
+are needed (p ≈ 2.973%). Both games are one observation, never two independent
 samples, and there is only one aggregate strength test per attempt.
 
 Under the exact no-change null, both deterministic engines choose identical
@@ -104,15 +104,18 @@ without assuming independence between retries, the final statistical false-fail
 probability is no greater than the first attempt’s. The conservative retry policy
 reduces sensitivity to small regressions.
 
-The **entire comparison, including source loading and all retries**, shares a
-13-second internal deadline. CI additionally kills the command at 14 seconds,
-keeping execution under 15 seconds even if an engine stops checking its clock.
-Checkout and Node setup are outside this execution budget. Exit codes are 0
-(pass), 1 (confirmed strength regression), and 2 (invalid engine/configuration or
-runtime budget exceeded, which is inconclusive); CI’s hard timeout also fails
-the job as an infrastructure/runtime error. A killed or unfinished attempt is
-never accepted as a pass. Locally, use `timeout --signal=KILL 14s npm run
-test:strength -- /path/to/master-checkout` for the same hard cap on Linux.
+Each attempt has its own 13-second internal deadline. The parent runs each
+attempt in a fresh Node process with a **14-second hard timeout**, including
+process startup and source loading. A passing comparison finishes after one
+attempt; up to five failing attempts can take up to 70 seconds plus small
+orchestration overhead. CI also enforces a 74-second total hard cap, within
+the requested 5 × 15-second limit. Checkout and Node setup are outside this
+execution budget. The same per-attempt process limit applies locally.
+
+Exit codes are 0 (pass), 1 (five confirmed strength failures), and 2 (invalid
+engine/configuration or an inconclusive runtime/process error). Runtime errors
+stop immediately rather than being retried as strength regressions. A killed
+or unfinished attempt is never accepted as a pass.
 
 ## Development
 
