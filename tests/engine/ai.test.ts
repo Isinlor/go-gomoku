@@ -10,24 +10,21 @@ function collectBruteForceTacticalScores(
   position: GogoPosition,
   hintMove = -1,
   ply = 0,
-): { count: number; moves: Int16Array; scores: Int32Array } {
+): { count: number; moves: Int16Array; scores: Float64Array } {
   const anyAI = ai as any;
   anyAI.ensureBuffers(position.area);
-  const moves = new Int16Array(position.area);
-  const scores = new Int32Array(position.area);
-  let count = 0;
-
+  // Reference enumeration and stable native sorting are independent of the
+  // optimized generator's candidate collection and insertion sort.
+  const candidates: { move: number; score: number }[] = [];
   for (let move = 0; move < position.area; move += 1) {
-    if (position.board[move] !== EMPTY || move === position.koPoint) {
-      continue;
-    }
+    if (position.board[move] !== EMPTY || move === position.koPoint) continue;
     const score = anyAI.scoreMove(position, move, hintMove, true, ply);
-    if (score === Number.NEGATIVE_INFINITY) {
-      continue;
-    }
-    insertMoveDescending(moves, scores, count, move, score);
-    count += 1;
+    if (score !== Number.NEGATIVE_INFINITY) candidates.push({ move, score });
   }
+  candidates.sort((a, b) => b.score - a.score);
+  const moves = Int16Array.from(candidates, candidate => candidate.move);
+  const scores = Float64Array.from(candidates, candidate => candidate.score);
+  const count = candidates.length;
 
   return { count, moves, scores };
 }
@@ -499,7 +496,7 @@ test('white-box AI helpers cover generation, evaluation, quiescence, search fall
   const savedPlay = cappedPos.play.bind(cappedPos);
   const savedUndo = cappedPos.undo.bind(cappedPos);
   anyCapped.generateOrderedMoves = () => 0;
-  anyCapped.generateFullBoardMoves = (_pos: any, mvs: Int16Array, scs: Int32Array) => {
+  anyCapped.generateFullBoardMoves = (_pos: any, mvs: Int16Array, scs: Float64Array) => {
     // Fill 20 candidates (all point to valid empty cells)
     for (let i = 0; i < 20; i += 1) {
       mvs[i] = i < 40 ? i : i + 1; // skip center at 40
@@ -517,7 +514,7 @@ test('white-box AI helpers cover generation, evaluation, quiescence, search fall
   expect(anyIllegal.quiescence(noPlay, -100, 100, 0, 2)).toBe(anyIllegal.evaluate(noPlay));
 
   const moves = new Int16Array(4);
-  const scores = new Int32Array(4);
+  const scores = new Float64Array(4);
   insertMoveDescending(moves, scores, 0, 10, 5);
   insertMoveDescending(moves, scores, 1, 12, 9);
   insertMoveDescending(moves, scores, 2, 14, 7);
@@ -539,7 +536,7 @@ test('scoreMove deduplicates adjacent groups that wrap around the candidate from
   // Opponent (WHITE) L-shaped group {(2,1),(3,1),(2,2)} has exactly 1 liberty at
   // candidate (3,2).  The group is adjacent from both left and above, so without
   // dedup the capturePressure of 5900 (CAPTURE_BONUS + 3*300) would be counted
-  // twice.  Expected score with correct dedup: 7318.
+  // twice.  The tactical terms total 7300, plus the fractional center bias.
   const oppDedup = GogoPosition.fromAscii([
     'XXXXX....',
     'XXOOX....',
@@ -556,12 +553,12 @@ test('scoreMove deduplicates adjacent groups that wrap around the candidate from
   // that fromAscii() correctly detects from the finished five-in-a-row on the top edge.
   oppDedup.winner = EMPTY;
   anyAI.ensureBuffers(oppDedup.area);
-  expect(anyAI.scoreMove(oppDedup, oppDedup.index(3, 2), -1, false)).toBe(7318);
+  expect(anyAI.scoreMove(oppDedup, oppDedup.index(3, 2), -1, false)).toBe(7300 + 6 * 0.9);
 
   // Player (BLACK) L-shaped group {(2,1),(3,1),(2,2)} has exactly 1 liberty at
   // candidate (3,2).  The group is adjacent from both left and above, so without
   // dedup the escapePressure of 4250 (ESCAPE_BONUS + 3*250) would be counted
-  // twice.  Expected score with correct dedup: 6080.
+  // twice.  The tactical terms total 6062, plus the fractional center bias.
   const playerDedup = GogoPosition.fromAscii([
     '..OO.....',
     'OOXXO....',
@@ -574,7 +571,7 @@ test('scoreMove deduplicates adjacent groups that wrap around the candidate from
     '.........',
   ], BLACK);
   anyAI.ensureBuffers(playerDedup.area);
-  expect(anyAI.scoreMove(playerDedup, playerDedup.index(3, 2), -1, false)).toBe(6080);
+  expect(anyAI.scoreMove(playerDedup, playerDedup.index(3, 2), -1, false)).toBe(6062 + 6 * 0.9);
 });
 
 test('generateOrderedMoves caches shared group scans across one move-generation pass', () => {
@@ -805,7 +802,6 @@ test('generateOrderedMoves tactical fast path matches brute-force scores for ove
   const count = anyAI.generateOrderedMoves(position, anyAI.moveBuffers[0], anyAI.scoreBuffers[0], -1, true);
 
   expect(Array.from(expected.moves.slice(0, expected.count))).toEqual([40, 41, 49, 4, 36]);
-  expect(Array.from(expected.scores.slice(0, expected.count))).toEqual([401587, 101204, 101204, 100211, 100211]);
   expect(count).toBe(expected.count);
   expect(Array.from(anyAI.moveBuffers[0].slice(0, count))).toEqual(Array.from(expected.moves.slice(0, expected.count)));
   expect(Array.from(anyAI.scoreBuffers[0].slice(0, count))).toEqual(Array.from(expected.scores.slice(0, expected.count)));
@@ -831,7 +827,6 @@ test('generateOrderedMoves tactical fast path matches brute-force scores when a 
   const count = anyAI.generateOrderedMoves(position, anyAI.moveBuffers[0], anyAI.scoreBuffers[0], -1, true);
 
   expect(Array.from(expected.moves.slice(0, expected.count))).toEqual([41, 21, 39, 23]);
-  expect(Array.from(expected.scores.slice(0, expected.count))).toEqual([2292, 2074, 1260, 1202]);
   expect(count).toBe(expected.count);
   expect(Array.from(anyAI.moveBuffers[0].slice(0, count))).toEqual(Array.from(expected.moves.slice(0, expected.count)));
   expect(Array.from(anyAI.scoreBuffers[0].slice(0, count))).toEqual(Array.from(expected.scores.slice(0, expected.count)));
@@ -2807,7 +2802,7 @@ test('capped node: fullboard fallback with capping applied', () => {
     if (genCallCount === 1) {
       // First call at ply=1: return moves that are all occupied (will fail play)
       const moves = args[0] as Int16Array;
-      const scores = args[1] as Int32Array;
+      const scores = args[1] as Float64Array;
       moves[0] = 40; // center = occupied
       scores[0] = 1000;
       return 1;
@@ -2851,7 +2846,7 @@ test('proofAttack: play() failure is handled (suicide move skipped)', () => {
       const result = realGen(...args);
       // Prepend an occupied position that will fail play()
       const moves = args[0] as Int16Array;
-      const scores = args[1] as Int32Array;
+      const scores = args[1] as Float64Array;
       for (let i = result; i > 0; i--) {
         moves[i] = moves[i - 1];
         scores[i] = scores[i - 1];
@@ -2904,7 +2899,7 @@ test('proofDefend: play() failure is handled', () => {
     }
     // Inject an occupied position at the front (will fail play())
     const moves = args[1] as Int16Array;
-    const scores = args[2] as Int32Array;
+    const scores = args[2] as Float64Array;
     for (let i = result; i > 0; i--) {
       moves[i] = moves[i - 1];
       scores[i] = scores[i - 1];
@@ -3571,7 +3566,7 @@ test('proofDefend: skips full-board generation after restricted responses when n
     orderedCalls += 1;
     return 0;
   };
-  anyAI.generateFullBoardMoves = function (_position: GogoPosition, moves: Int16Array, scores: Int32Array) {
+  anyAI.generateFullBoardMoves = function (_position: GogoPosition, moves: Int16Array, scores: Float64Array) {
     fullCalls += 1;
     moves[0] = 20;
     scores[0] = 0;

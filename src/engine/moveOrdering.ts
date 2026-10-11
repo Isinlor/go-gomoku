@@ -1,6 +1,6 @@
 export function insertMoveDescending(
   moves: Int16Array,
-  scores: Int32Array,
+  scores: Float64Array | Int32Array,
   count: number,
   move: number,
   score: number,
@@ -17,7 +17,7 @@ export function insertMoveDescending(
 
 export function sortMovesDescending(
   moves: Int16Array,
-  scores: Int32Array,
+  scores: Float64Array | Int32Array,
   count: number,
 ): void {
   for (let i = 1; i < count; i += 1) {

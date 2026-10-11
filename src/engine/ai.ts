@@ -88,7 +88,7 @@ export class GogoAI {
 
   private readonly now: () => number;
   private moveBuffers: Int16Array[] = [];
-  private scoreBuffers: Int32Array[] = [];
+  private scoreBuffers: Float64Array[] = [];
   private history = new Int32Array(0);
   private candidateMarks = new Uint32Array(0);
   private candidateEpoch = 1;
@@ -128,12 +128,12 @@ export class GogoAI {
 
   // Transposition table
   private qHash = new BigUint64Array(QTT_SIZE);
-  private qScore = new Int32Array(QTT_SIZE);
+  private qScore = new Float64Array(QTT_SIZE);
   private qDepth = new Int16Array(QTT_SIZE);
   private qFlag = new Uint8Array(QTT_SIZE);
 
   private ttHash = new BigUint64Array(TT_SIZE);
-  private ttScore = new Int32Array(TT_SIZE);
+  private ttScore = new Float64Array(TT_SIZE);
   private ttDepth = new Int8Array(TT_SIZE);
   private ttFlag = new Uint8Array(TT_SIZE);
   private ttBestMove = new Int16Array(TT_SIZE);
@@ -301,7 +301,7 @@ export class GogoAI {
     this.scoreBuffers = new Array(this.maxPly + 1);
     for (let ply = 0; ply <= this.maxPly; ply += 1) {
       this.moveBuffers[ply] = new Int16Array(area);
-      this.scoreBuffers[ply] = new Int32Array(area);
+      this.scoreBuffers[ply] = new Float64Array(area);
     }
     this.history = new Int32Array(area * 2);
     this.candidateMarks = new Uint32Array(area);
@@ -861,7 +861,7 @@ export class GogoAI {
   private generateOrderedMoves(
     position: GogoPosition,
     moves: Int16Array,
-    scores: Int32Array,
+    scores: Float64Array,
     hintMove: number,
     tacticalOnly: boolean,
     ply = 0,
@@ -919,7 +919,7 @@ export class GogoAI {
   private generateTacticalMoves(
     position: GogoPosition,
     moves: Int16Array,
-    scores: Int32Array,
+    scores: Float64Array,
     hintMove: number,
     ply: number,
   ): number {
@@ -1062,7 +1062,7 @@ export class GogoAI {
   private generateFullBoardMoves(
     position: GogoPosition,
     moves: Int16Array,
-    scores: Int32Array,
+    scores: Float64Array,
     hintMove: number,
     tacticalOnly: boolean,
     ply = 0,
@@ -1192,7 +1192,7 @@ export class GogoAI {
     return this.finalizeMoveScore(position, move, player, pattern + capturePressure + escapePressure, hintMove, ply);
   }
 
-  private insertOrPromoteMove(moves: Int16Array, scores: Int32Array, count: number, move: number, score: number): number {
+  private insertOrPromoteMove(moves: Int16Array, scores: Float64Array, count: number, move: number, score: number): number {
     if (this.candidateMarks[move] !== this.candidateEpoch) {
       this.candidateMarks[move] = this.candidateEpoch;
       insertMoveDescending(moves, scores, count, move, score);
