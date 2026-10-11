@@ -17,3 +17,6 @@ Avoid mocks when testing logic.
 npx playwright install firefox --with-deps  # first time only
 npm run test:e2e
 ```
+
+## New dependencies
+New dependencies - languages, libraries - can be introduced only on explicit request.

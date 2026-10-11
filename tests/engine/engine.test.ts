@@ -3,6 +3,7 @@ import { test, expect } from 'vitest';
 import { BLACK, EMPTY, GogoPosition, WHITE, playerName, encodeMove, decodeMove, decodeGame, computeZobristHashes } from '../../src/engine';
 
 test('constructor, parser, coordinates, and helpers validate inputs', () => {
+  // @ts-expect-error Exercise runtime validation of an unsupported board size.
   expect(() => new GogoPosition(10)).toThrow(/Unsupported board size/);
   expect(() => GogoPosition.fromAscii(['.........'], BLACK)).toThrow(/Unsupported board size/);
   expect(() => GogoPosition.fromAscii(['.........', '........', '.........', '.........', '.........', '.........', '.........', '.........', '.........'])).toThrow(/invalid width/);

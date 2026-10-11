@@ -167,6 +167,7 @@ export function useGame(options: UseGameOptions = {}) {
         game.value.play(result.move);
       }
       aiThinking.value = false;
+      const forcedDefensiveMoveSuffix = result.forcedDefensiveMove ? ', forced defensive move' : '';
       const forcedOutcomeSuffix = result.forcedWin
         ? ', forced win'
         : result.forcedLoss
@@ -176,7 +177,7 @@ export function useGame(options: UseGameOptions = {}) {
             : result.heuristicLoss
               ? ', likely forced loss'
               : '';
-      statusExtra.value = `AI depth ${result.depth}, nodes ${result.nodes}${forcedOutcomeSuffix}`;
+      statusExtra.value = `AI depth ${result.depth}, nodes ${result.nodes}${forcedDefensiveMoveSuffix}${forcedOutcomeSuffix}`;
       refreshGameState();
     };
   }
