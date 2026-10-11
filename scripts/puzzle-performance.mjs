@@ -1,0 +1,97 @@
+import assert from 'node:assert/strict';
+import { realpathSync } from 'node:fs';
+import { createRequire, registerHooks } from 'node:module';
+import { extname, join } from 'node:path';
+import { performance } from 'node:perf_hooks';
+import { fileURLToPath } from 'node:url';
+
+const MAX_ATTEMPTS = 5;
+const RUNS = 3;
+const require = createRequire(import.meta.url);
+
+/** Node 24 strips TypeScript; resolve the engine's extensionless imports. */
+export function loadEngine(root) {
+  const hooks = registerHooks({
+    resolve(specifier, context, nextResolve) {
+      return nextResolve(specifier.startsWith('.') && !extname(specifier) ? `${specifier}.ts` : specifier, context);
+    },
+  });
+  try {
+    const { GogoAI } = require(join(root, 'src/engine/ai.ts'));
+    const { decodeGame, decodeMove } = require(join(root, 'src/engine/gogomoku.ts'));
+    const { PUZZLES } = require(join(root, 'src/engine/puzzles.ts'));
+    return { GogoAI, decodeGame, decodeMove, PUZZLES };
+  } finally {
+    hooks.deregister();
+  }
+}
+
+/** Setup and solution checks are outside the measured solver call. */
+export function measurePuzzle(engine, puzzle, now = () => performance.now()) {
+  const position = engine.decodeGame(puzzle.encoded);
+  assert.equal(position.toMove, puzzle.toMove, `${puzzle.id}: wrong player to move`);
+  const expected = engine.decodeMove(puzzle.solution, position.size);
+  assert.notEqual(expected, -1, `${puzzle.id}: invalid solution`);
+  const ai = new engine.GogoAI({ maxDepth: 10, quiescenceDepth: 4 });
+  const budgets = puzzle.id.startsWith('gen-')
+    ? { 3: 15_000, 5: 15_000, 7: 20_000 }
+    : { 3: 500, 5: 2_000, 7: 8_000 };
+  const budget = budgets[puzzle.depth] ?? 5_000;
+  const start = now();
+  const result = ai.findBestMove(position, budget);
+  const elapsed = now() - start;
+  assert.equal(result.move, expected, `${puzzle.id}: AI failed to solve puzzle`);
+  return elapsed;
+}
+
+export function comparePuzzleRuns(masterRuns, newRuns) {
+  assert(masterRuns.length === RUNS && newRuns.length === RUNS, 'Expected exactly three measurements per version');
+  for (const time of [...masterRuns, ...newRuns]) {
+    assert(Number.isFinite(time) && time >= 0, 'Invalid puzzle timing');
+  }
+  const masterMs = Math.max(...masterRuns);
+  const newMs = Math.min(...newRuns);
+  return { masterMs, newMs, passed: newMs <= masterMs };
+}
+
+/** Use the candidate's puzzles as identical inputs for both engine versions. */
+export function benchmarkPuzzles(master, candidate, log = console.log, measure = measurePuzzle) {
+  const puzzles = candidate.PUZZLES;
+  assert(puzzles.length > 0, 'No puzzles to benchmark');
+  assert.equal(new Set(puzzles.map((puzzle) => puzzle.id)).size, puzzles.length, 'Duplicate puzzle IDs');
+  for (const puzzle of puzzles) {
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      const masterRuns = [];
+      const newRuns = [];
+      for (let run = 0; run < RUNS; run++) {
+        masterRuns.push(measure(master, puzzle));
+        newRuns.push(measure(candidate, puzzle));
+      }
+      const result = comparePuzzleRuns(masterRuns, newRuns);
+      log(`${result.passed ? 'PASS' : 'FAIL'} ${puzzle.id} (attempt ${attempt}/${MAX_ATTEMPTS}): fastest new ${result.newMs.toFixed(3)} ms, slowest master ${result.masterMs.toFixed(3)} ms`);
+      if (result.passed) break;
+      if (attempt === MAX_ATTEMPTS) {
+        log(`Performance regression confirmed after five attempts for ${puzzle.id}.`);
+        return 1;
+      }
+      log(`Possible performance regression; repeating ${puzzle.id} with fresh samples.`);
+    }
+  }
+  return 0;
+}
+
+export function runPuzzlePerformance(masterRoot, newRoot = process.cwd(), log = console.log) {
+  try {
+    assert(masterRoot, 'Usage: node scripts/puzzle-performance.mjs MASTER_CHECKOUT');
+    const master = loadEngine(realpathSync(masterRoot));
+    const candidate = loadEngine(realpathSync(newRoot));
+    return benchmarkPuzzles(master, candidate, log);
+  } catch (error) {
+    log(error.message);
+    return 2;
+  }
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  process.exitCode = runPuzzlePerformance(process.argv[2]);
+}

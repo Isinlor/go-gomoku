@@ -24,13 +24,65 @@ export interface BoardMeta {
   readonly windowsByPointOffsets: Uint16Array;
   readonly windowsByPoint: Int16Array;
   readonly centerBias: Int16Array;
+  readonly zobristStones64: BigUint64Array;
+  readonly zobristBlackToMove64: bigint;
+  /** Zobrist keys for ko point: index 0..area-1 for each square, index area for "no ko". */
+  readonly zobristKo64: BigUint64Array;
 }
 
 const SUPPORTED_SIZES = new Set<number>([9, 11, 13]);
 const META_CACHE = new Map<number, BoardMeta>();
+const LINE_DIRECTIONS = [
+  [1, 0],
+  [0, 1],
+  [1, 1],
+  [1, -1],
+] as const;
 
-function otherPlayer(player: Player): Player {
+type GrowableTypedArray = Int16Array | Uint8Array | Int32Array | BigUint64Array;
+type GrowableTypedArrayConstructor<T extends GrowableTypedArray> = {
+  new(length: number): T;
+};
+
+export function otherPlayer(player: Player): Player {
   return player === BLACK ? WHITE : BLACK;
+}
+
+export function parseSupportedSize(size: number): SupportedSize {
+  if (!SUPPORTED_SIZES.has(size)) {
+    throw new Error(`Unsupported board size: ${size}`);
+  }
+  return size as SupportedSize;
+}
+
+const UINT64_MASK = (1n << 64n) - 1n;
+
+function xorshift64(state: bigint): bigint {
+  state ^= (state << 13n) & UINT64_MASK;
+  state ^= state >> 7n;
+  state ^= (state << 17n) & UINT64_MASK;
+  return state & UINT64_MASK;
+}
+
+function computePositionHashes(position: Pick<GogoPosition, 'area' | 'board' | 'meta' | 'toMove' | 'koPoint'>): bigint {
+  let hash64 = 0n;
+  if (position.toMove === BLACK) {
+    hash64 ^= position.meta.zobristBlackToMove64;
+  }
+  const koIdx = position.koPoint === -1 ? position.area : position.koPoint;
+  hash64 ^= position.meta.zobristKo64[koIdx];
+  for (let idx = 0; idx < position.area; idx += 1) {
+    const cell = position.board[idx];
+    if (cell !== EMPTY) {
+      const keyIndex = idx * 2 + (cell - 1);
+      hash64 ^= position.meta.zobristStones64[keyIndex];
+    }
+  }
+  return hash64;
+}
+
+export function computeZobristHashes(position: GogoPosition): bigint {
+  return computePositionHashes(position);
 }
 
 function createBoardMeta(size: SupportedSize): BoardMeta {
@@ -69,18 +121,11 @@ function createBoardMeta(size: SupportedSize): BoardMeta {
     }
   }
 
-  const directions = [
-    [1, 0],
-    [0, 1],
-    [1, 1],
-    [1, -1],
-  ] as const;
-
   for (let y = 0; y < size; y += 1) {
     for (let x = 0; x < size; x += 1) {
-      for (let dir = 0; dir < directions.length; dir += 1) {
-        const dx = directions[dir][0];
-        const dy = directions[dir][1];
+      for (let dir = 0; dir < LINE_DIRECTIONS.length; dir += 1) {
+        const dx = LINE_DIRECTIONS[dir][0];
+        const dy = LINE_DIRECTIONS[dir][1];
         const endX = x + dx * 4;
         const endY = y + dy * 4;
         if (endX < 0 || endX >= size || endY < 0 || endY >= size) {
@@ -117,6 +162,20 @@ function createBoardMeta(size: SupportedSize): BoardMeta {
     windowsByPoint.set(windowsBucket[i], windowsByPointOffsets[i]);
   }
 
+  let rngState64 = (0x9E3779B97F4A7C15n ^ BigInt(size * 0x12345)) & UINT64_MASK;
+  const zobristStones64 = new BigUint64Array(area * 2);
+  for (let i = 0; i < area * 2; i += 1) {
+    rngState64 = xorshift64(rngState64);
+    zobristStones64[i] = rngState64;
+  }
+  rngState64 = xorshift64(rngState64);
+  const zobristBlackToMove64 = rngState64;
+  const zobristKo64 = new BigUint64Array(area + 1);
+  for (let i = 0; i < area + 1; i += 1) {
+    rngState64 = xorshift64(rngState64);
+    zobristKo64[i] = rngState64;
+  }
+
   return {
     size,
     area,
@@ -130,6 +189,9 @@ function createBoardMeta(size: SupportedSize): BoardMeta {
     windowsByPointOffsets,
     windowsByPoint,
     centerBias,
+    zobristStones64,
+    zobristBlackToMove64,
+    zobristKo64,
   };
 }
 
@@ -143,33 +205,17 @@ function getBoardMeta(size: SupportedSize): BoardMeta {
   return created;
 }
 
-function growInt16Array(current: Int16Array, minimumLength: number): Int16Array {
+function growTypedArray<T extends GrowableTypedArray>(
+  current: T,
+  minimumLength: number,
+  ctor: GrowableTypedArrayConstructor<T>,
+): T {
   let nextLength = current.length === 0 ? 4 : current.length;
   while (nextLength < minimumLength) {
     nextLength <<= 1;
   }
-  const next = new Int16Array(nextLength);
-  next.set(current);
-  return next;
-}
-
-function growUint8Array(current: Uint8Array, minimumLength: number): Uint8Array {
-  let nextLength = current.length === 0 ? 4 : current.length;
-  while (nextLength < minimumLength) {
-    nextLength <<= 1;
-  }
-  const next = new Uint8Array(nextLength);
-  next.set(current);
-  return next;
-}
-
-function growInt32Array(current: Int32Array, minimumLength: number): Int32Array {
-  let nextLength = current.length === 0 ? 4 : current.length;
-  while (nextLength < minimumLength) {
-    nextLength <<= 1;
-  }
-  const next = new Int32Array(nextLength);
-  next.set(current);
+  const next = new ctor(nextLength);
+  next.set(current as never);
   return next;
 }
 
@@ -186,6 +232,7 @@ export class GogoPosition {
   stoneCount = 0;
   lastMove = -1;
   lastCapturedCount = 0;
+  hash = 0n;
 
   private historyMoves: Int16Array;
   private historyPlayers: Uint8Array;
@@ -193,6 +240,7 @@ export class GogoPosition {
   private historyWinner: Uint8Array;
   private historyCaptureStart: Int32Array;
   private historyCaptureCount: Int16Array;
+  private historyHash: BigUint64Array;
   private capturePositions: Int16Array;
   private captureTop = 0;
 
@@ -208,9 +256,7 @@ export class GogoPosition {
   scanGroupSize = 0;
 
   constructor(size: SupportedSize, options: PositionOptions = {}) {
-    if (!SUPPORTED_SIZES.has(size)) {
-      throw new Error(`Unsupported board size: ${size}`);
-    }
+    parseSupportedSize(size);
     this.size = size;
     this.area = size * size;
     this.meta = getBoardMeta(size);
@@ -224,7 +270,10 @@ export class GogoPosition {
     this.historyWinner = new Uint8Array(historyCapacity);
     this.historyCaptureStart = new Int32Array(historyCapacity);
     this.historyCaptureCount = new Int16Array(historyCapacity);
+    this.historyHash = new BigUint64Array(historyCapacity);
     this.capturePositions = new Int16Array(captureCapacity);
+
+    this.hash = this.meta.zobristBlackToMove64 ^ this.meta.zobristKo64[this.area];
 
     this.groupVisitMarks = new Uint32Array(this.area);
     this.libertyMarks = new Uint32Array(this.area);
@@ -235,10 +284,7 @@ export class GogoPosition {
 
   static fromAscii(rows: string[], toMove: Player = BLACK, options: PositionOptions = {}): GogoPosition {
     const size = rows.length;
-    if (!SUPPORTED_SIZES.has(size)) {
-      throw new Error(`Unsupported board size: ${size}`);
-    }
-    const position = new GogoPosition(size as SupportedSize, options);
+    const position = new GogoPosition(parseSupportedSize(size), options);
     position.toMove = toMove;
 
     for (let y = 0; y < size; y += 1) {
@@ -267,7 +313,31 @@ export class GogoPosition {
     }
 
     position.winner = position.detectExistingWinner();
+
+    position.hash = computePositionHashes(position);
+
     return position;
+  }
+
+  clone(): GogoPosition {
+    return GogoPosition.fromAscii(this.toAscii(), this.toMove, {
+      historyCapacity: this.historyMoves.length,
+      captureCapacity: this.capturePositions.length,
+    });
+  }
+
+  toAscii(): string[] {
+    const rows: string[] = [];
+    for (let y = 0; y < this.size; y += 1) {
+      let row = '';
+      const rowBase = y * this.size;
+      for (let x = 0; x < this.size; x += 1) {
+        const cell = this.board[rowBase + x];
+        row += cell === BLACK ? 'X' : cell === WHITE ? 'O' : '.';
+      }
+      rows.push(row);
+    }
+    return rows;
   }
 
   index(x: number, y: number): number {
@@ -333,6 +403,7 @@ export class GogoPosition {
     }
 
     this.ensureHistoryCapacity(this.ply + 1);
+    this.historyHash[this.ply] = this.hash;
     const player = this.toMove;
     const opponent = otherPlayer(player);
     const captureStart = this.captureTop;
@@ -340,6 +411,7 @@ export class GogoPosition {
 
     this.board[index] = player;
     this.stoneCount += 1;
+    this.hash ^= this.meta.zobristStones64[index * 2 + (player - 1)];
 
     const neighbors = this.meta.neighbors4;
     const neighborBase = index * 4;
@@ -363,6 +435,7 @@ export class GogoPosition {
         this.capturePositions[this.captureTop] = point;
         this.captureTop += 1;
         this.board[point] = EMPTY;
+        this.hash ^= this.meta.zobristStones64[point * 2 + (opponent - 1)];
       }
       capturedCount += this.scanGroupSize;
       this.stoneCount -= this.scanGroupSize;
@@ -372,6 +445,7 @@ export class GogoPosition {
     const ownLiberties = this.scanGroup(index, player);
     const ownGroupSize = this.scanGroupSize;
     if (ownLiberties === 0 && !madeFive) {
+      this.hash = this.historyHash[this.ply];
       this.rollbackIllegalMove(index, opponent, captureStart, capturedCount);
       return false;
     }
@@ -389,6 +463,11 @@ export class GogoPosition {
     this.historyCaptureCount[this.ply] = capturedCount;
     this.ply += 1;
 
+    this.hash ^= this.meta.zobristBlackToMove64;
+    // Update ko in hash: XOR out old ko, XOR in new ko
+    const oldKoIdx = this.koPoint === -1 ? this.area : this.koPoint;
+    const newKoIdx = nextKo === -1 ? this.area : nextKo;
+    this.hash ^= this.meta.zobristKo64[oldKoIdx] ^ this.meta.zobristKo64[newKoIdx];
     this.koPoint = nextKo;
     this.toMove = opponent;
     this.winner = madeFive ? player : EMPTY;
@@ -402,6 +481,7 @@ export class GogoPosition {
       return false;
     }
     this.ply -= 1;
+    this.hash = this.historyHash[this.ply];
     const index = this.historyMoves[this.ply];
     const player = this.historyPlayers[this.ply] as Player;
     const opponent = otherPlayer(player);
@@ -498,19 +578,20 @@ export class GogoPosition {
     if (minimumLength <= this.historyMoves.length) {
       return;
     }
-    this.historyMoves = growInt16Array(this.historyMoves, minimumLength);
-    this.historyPlayers = growUint8Array(this.historyPlayers, minimumLength);
-    this.historyKo = growInt16Array(this.historyKo, minimumLength);
-    this.historyWinner = growUint8Array(this.historyWinner, minimumLength);
-    this.historyCaptureStart = growInt32Array(this.historyCaptureStart, minimumLength);
-    this.historyCaptureCount = growInt16Array(this.historyCaptureCount, minimumLength);
+    this.historyMoves = growTypedArray(this.historyMoves, minimumLength, Int16Array);
+    this.historyPlayers = growTypedArray(this.historyPlayers, minimumLength, Uint8Array);
+    this.historyKo = growTypedArray(this.historyKo, minimumLength, Int16Array);
+    this.historyWinner = growTypedArray(this.historyWinner, minimumLength, Uint8Array);
+    this.historyCaptureStart = growTypedArray(this.historyCaptureStart, minimumLength, Int32Array);
+    this.historyCaptureCount = growTypedArray(this.historyCaptureCount, minimumLength, Int16Array);
+    this.historyHash = growTypedArray(this.historyHash, minimumLength, BigUint64Array);
   }
 
   private ensureCaptureCapacity(minimumLength: number): void {
     if (minimumLength <= this.capturePositions.length) {
       return;
     }
-    this.capturePositions = growInt16Array(this.capturePositions, minimumLength);
+    this.capturePositions = growTypedArray(this.capturePositions, minimumLength, Int16Array);
   }
 
   private rollbackIllegalMove(index: number, opponent: Player, captureStart: number, capturedCount: number): void {
@@ -544,16 +625,9 @@ export class GogoPosition {
     const y = this.meta.ys[index];
     const size = this.size;
 
-    const directions = [
-      [1, 0],
-      [0, 1],
-      [1, 1],
-      [1, -1],
-    ] as const;
-
-    for (let directionIndex = 0; directionIndex < directions.length; directionIndex += 1) {
-      const dx = directions[directionIndex][0];
-      const dy = directions[directionIndex][1];
+    for (let directionIndex = 0; directionIndex < LINE_DIRECTIONS.length; directionIndex += 1) {
+      const dx = LINE_DIRECTIONS[directionIndex][0];
+      const dy = LINE_DIRECTIONS[directionIndex][1];
       let count = 1;
 
       let nx = x + dx;

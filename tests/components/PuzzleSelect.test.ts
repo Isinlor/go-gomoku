@@ -37,8 +37,7 @@ describe('PuzzleSelect', () => {
   test('displays correct labels for black and white puzzles', () => {
     const wrapper = mount(PuzzleSelect);
     const options = wrapper.findAll('option');
-    // First real option is black-3-3
-    expect(options[1].text()).toBe('Black (3,3)');
+    expect(options.map((o) => o.text())).toContainEqual('Black (3,3)');
     // Find a white puzzle option
     const whiteIndex = PUZZLES.findIndex((p) => p.toMove === 2);
     expect(options[whiteIndex + 1].text()).toContain('White');

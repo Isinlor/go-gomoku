@@ -30,7 +30,16 @@ export interface Puzzle {
 
 export const PUZZLES: readonly Puzzle[] = [
   // ---- Hand-crafted puzzles -------------------------------------------
-  // Black to move
+  {
+    id: 'black-1-3',
+    encoded: 'B9 b2 a2 c3 b1 d4 c1 e5 f6',
+    toMove: BLACK,
+    solution: 'a1',
+    depth: 1,
+    threshold: 3,
+    wonEncoded: 'B9 b2 a2 c3 b1 d4 c1 e5 f6 a1',
+    winningMoves: ['a1'],
+  },
   {
     id: 'black-3-3',
     encoded: 'B9 c5 e3 d5 e4 f5 e6',

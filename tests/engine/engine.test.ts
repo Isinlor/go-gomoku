@@ -1,24 +1,15 @@
 import { test, expect } from 'vitest';
 
-import { BLACK, EMPTY, GogoPosition, WHITE, playerName, encodeMove, decodeMove, decodeGame } from '../../src/engine';
-
-function position(rows: string[], toMove = BLACK, options = {}) {
-  return GogoPosition.fromAscii(rows, toMove, options);
-}
-
-function rawPosition(rows: string[], toMove = BLACK, options = {}) {
-  const game = position(rows, toMove, options);
-  game.winner = EMPTY;
-  return game;
-}
+import { BLACK, EMPTY, GogoPosition, WHITE, playerName, encodeMove, decodeMove, decodeGame, computeZobristHashes } from '../../src/engine';
 
 test('constructor, parser, coordinates, and helpers validate inputs', () => {
+  // @ts-expect-error Exercise runtime validation of an unsupported board size.
   expect(() => new GogoPosition(10)).toThrow(/Unsupported board size/);
-  expect(() => position(['.........'], BLACK)).toThrow(/Unsupported board size/);
-  expect(() => position(['.........', '........', '.........', '.........', '.........', '.........', '.........', '.........', '.........'])).toThrow(/invalid width/);
-  expect(() => position(['?........', '.........', '.........', '.........', '.........', '.........', '.........', '.........', '.........'])).toThrow(/Unsupported board symbol/);
+  expect(() => GogoPosition.fromAscii(['.........'], BLACK)).toThrow(/Unsupported board size/);
+  expect(() => GogoPosition.fromAscii(['.........', '........', '.........', '.........', '.........', '.........', '.........', '.........', '.........'])).toThrow(/invalid width/);
+  expect(() => GogoPosition.fromAscii(['?........', '.........', '.........', '.........', '.........', '.........', '.........', '.........', '.........'])).toThrow(/Unsupported board symbol/);
 
-  const symbolGame = position([
+  const symbolGame = GogoPosition.fromAscii([
     '+bxoW....',
     '.........',
     '.........',
@@ -46,12 +37,116 @@ test('constructor, parser, coordinates, and helpers validate inputs', () => {
   expect(game.play(game.index(4, 4))).toBe(false);
   game.undo();
   expect(game.undo()).toBe(false);
+  expect(symbolGame.toAscii()).toEqual([
+    '.XXOO....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ]);
+  const cloned = symbolGame.clone();
+  expect(cloned).not.toBe(symbolGame);
+  expect(cloned.toAscii()).toEqual(symbolGame.toAscii());
+  expect(cloned.toMove).toBe(symbolGame.toMove);
+  expect(cloned.hash).toBe(symbolGame.hash);
+  cloned.playXY(8, 8);
+  expect(cloned.at(8, 8)).toBe(BLACK);
+  expect(symbolGame.at(8, 8)).toBe(EMPTY);
   expect(playerName(BLACK)).toBe('black');
   expect(playerName(WHITE)).toBe('white');
 });
 
+test('clone preserves playable state and toAscii serializes mixed, empty, and full boards', () => {
+  const empty = new GogoPosition(9);
+  expect(empty.toAscii()).toEqual(Array.from({ length: 9 }, () => '.........'));
+  const emptyClone = empty.clone();
+  expect(emptyClone).not.toBe(empty);
+  expect(emptyClone.toAscii()).toEqual(empty.toAscii());
+  expect(emptyClone.hash).toBe(empty.hash);
+
+  const mixed13 = GogoPosition.fromAscii([
+    'X.O..........',
+    '.............',
+    '.............',
+    '.............',
+    '.............',
+    '.............',
+    '.............',
+    '.............',
+    '.............',
+    '.............',
+    '.............',
+    '.............',
+    '.............',
+  ], WHITE);
+  expect(mixed13.toAscii()).toEqual([
+    'X.O..........',
+    '.............',
+    '.............',
+    '.............',
+    '.............',
+    '.............',
+    '.............',
+    '.............',
+    '.............',
+    '.............',
+    '.............',
+    '.............',
+    '.............',
+  ]);
+
+  const original = new GogoPosition(9);
+  expect(original.playXY(4, 4)).toBe(true);
+  expect(original.playXY(3, 4)).toBe(true);
+  const cloned = original.clone();
+
+  expect(cloned).not.toBe(original);
+  expect(cloned.toAscii()).toEqual(original.toAscii());
+  expect(cloned.toMove).toBe(original.toMove);
+  expect(cloned.hash).toBe(original.hash);
+  expect(cloned.at(4, 4)).toBe(BLACK);
+  expect(cloned.at(3, 4)).toBe(WHITE);
+  expect(cloned.playXY(2, 4)).toBe(true);
+  expect(cloned.at(2, 4)).toBe(BLACK);
+  expect(original.at(2, 4)).toBe(EMPTY);
+
+  const full = GogoPosition.fromAscii(Array.from({ length: 9 }, () => 'XXXXXXXXX'), BLACK);
+  expect(full.toAscii()).toEqual(Array.from({ length: 9 }, () => 'XXXXXXXXX'));
+  const fullClone = full.clone();
+  expect(fullClone).not.toBe(full);
+  expect(fullClone.toAscii()).toEqual(full.toAscii());
+  expect(fullClone.hash).toBe(full.hash);
+
+  const growth = GogoPosition.fromAscii([
+    '.XXX.....',
+    'XOOX.....',
+    'XO.......',
+    '.X.......',
+    'X........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK, { historyCapacity: 1, captureCapacity: 1 });
+  expect(growth.playXY(2, 2)).toBe(true);
+  const growthClone = growth.clone() as any;
+  expect(growthClone.getMoveAt(0)).toBe(-1);
+  expect(growthClone.toAscii()).toEqual(growth.toAscii());
+  expect(growthClone.toMove).toBe(growth.toMove);
+  expect(growthClone.hash).toBe(growth.hash);
+  const nextPlayer = growthClone.toMove;
+  expect(growthClone.playXY(8, 8)).toBe(true);
+  expect(growthClone.getMoveAt(0)).toBe(growthClone.index(8, 8));
+  expect(growthClone.at(8, 8)).toBe(nextPlayer);
+  expect(growth.at(8, 8)).toBe(EMPTY);
+});
+
 test('existing winner detection and played wins cover vertical and anti-diagonal lines', () => {
-  const detected = position([
+  const detected = GogoPosition.fromAscii([
     'XXXXX....',
     '.........',
     '.........',
@@ -78,7 +173,7 @@ test('existing winner detection and played wins cover vertical and anti-diagonal
   expect(vertical.playXY(8, 8)).toBe(false);
   expect(vertical.hasAnyLegalMove()).toBe(false);
 
-  const antiDiagonal = rawPosition([
+  const antiDiagonal = GogoPosition.fromAscii([
     '.........',
     '...X.....',
     '..X......',
@@ -93,8 +188,26 @@ test('existing winner detection and played wins cover vertical and anti-diagonal
   expect(antiDiagonal.winner).toBe(BLACK);
 });
 
+test('forming six in a row in a single move still counts as a win', () => {
+  const overline = GogoPosition.fromAscii([
+    'XXX.XX...',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+
+  expect(overline.winner).toBe(EMPTY);
+  expect(overline.playXY(3, 0)).toBe(true);
+  expect(overline.winner).toBe(BLACK);
+});
+
 test('captures handle single groups, multiple groups, duplicate adjacency, undo, and capacity growth', () => {
-  const single = position([
+  const single = GogoPosition.fromAscii([
     '.X.......',
     'XOX......',
     '.........',
@@ -113,7 +226,7 @@ test('captures handle single groups, multiple groups, duplicate adjacency, undo,
   expect(single.lastMove).toBe(-1);
   expect(single.lastCapturedCount).toBe(0);
 
-  const multi = position([
+  const multi = GogoPosition.fromAscii([
     '.X.X.....',
     'XO.OX....',
     '.X.X.....',
@@ -129,7 +242,7 @@ test('captures handle single groups, multiple groups, duplicate adjacency, undo,
   expect(multi.at(1, 1)).toBe(EMPTY);
   expect(multi.at(3, 1)).toBe(EMPTY);
 
-  const growth = position([
+  const growth = GogoPosition.fromAscii([
     '.XXX.....',
     'XOOX.....',
     'XO.......',
@@ -157,7 +270,7 @@ test('captures handle single groups, multiple groups, duplicate adjacency, undo,
 });
 
 test('suicide is illegal, winning suicide is legal, and ko forbids immediate recapture only', () => {
-  const suicide = position([
+  const suicide = GogoPosition.fromAscii([
     '.O.......',
     'O.O......',
     '.O.......',
@@ -173,7 +286,7 @@ test('suicide is illegal, winning suicide is legal, and ko forbids immediate rec
   expect(suicide.play(suicidePoint)).toBe(false);
   expect(suicide.at(1, 1)).toBe(EMPTY);
 
-  const winningSuicide = rawPosition([
+  const winningSuicide = GogoPosition.fromAscii([
     '.XXXXO...',
     'OOOOO....',
     '.........',
@@ -184,12 +297,16 @@ test('suicide is illegal, winning suicide is legal, and ko forbids immediate rec
     '.........',
     '.........',
   ], BLACK);
+  expect(winningSuicide.winner).toBe(WHITE);
+  // This test needs a playable board where BLACK can demonstrate the winning-suicide rule
+  // even though fromAscii() correctly detects an existing WHITE five-in-a-row.
+  winningSuicide.winner = EMPTY;
   const winPoint = winningSuicide.index(0, 0);
   expect(winningSuicide.isLegal(winPoint)).toBe(true);
   expect(winningSuicide.play(winPoint)).toBe(true);
   expect(winningSuicide.winner).toBe(BLACK);
 
-  const ko = position([
+  const ko = GogoPosition.fromAscii([
     '..O......',
     '.O.O.....',
     '.XOX.....',
@@ -212,8 +329,80 @@ test('suicide is illegal, winning suicide is legal, and ko forbids immediate rec
   expect(ko.at(2, 1)).toBe(EMPTY);
 });
 
+test('isLegal checks do not mutate position state for legal moves, suicide, or ko recapture', () => {
+  const ko = GogoPosition.fromAscii([
+    '..O......',
+    '.O.O.....',
+    '.XOX.....',
+    '..X......',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  expect(ko.playXY(2, 1)).toBe(true);
+  const koState = {
+    ascii: ko.toAscii(),
+    toMove: ko.toMove,
+    winner: ko.winner,
+    koPoint: ko.koPoint,
+    ply: ko.ply,
+    stoneCount: ko.stoneCount,
+    lastMove: ko.lastMove,
+    lastCapturedCount: ko.lastCapturedCount,
+    hash: ko.hash,
+  };
+
+  expect(ko.isLegal(ko.index(2, 2))).toBe(false);
+  expect(ko.toAscii()).toEqual(koState.ascii);
+  expect(ko.toMove).toBe(koState.toMove);
+  expect(ko.winner).toBe(koState.winner);
+  expect(ko.koPoint).toBe(koState.koPoint);
+  expect(ko.ply).toBe(koState.ply);
+  expect(ko.stoneCount).toBe(koState.stoneCount);
+  expect(ko.lastMove).toBe(koState.lastMove);
+  expect(ko.lastCapturedCount).toBe(koState.lastCapturedCount);
+  expect(ko.hash).toBe(koState.hash);
+
+  expect(ko.isLegal(ko.index(8, 8))).toBe(true);
+  expect(ko.toAscii()).toEqual(koState.ascii);
+  expect(ko.toMove).toBe(koState.toMove);
+  expect(ko.winner).toBe(koState.winner);
+  expect(ko.koPoint).toBe(koState.koPoint);
+  expect(ko.ply).toBe(koState.ply);
+  expect(ko.stoneCount).toBe(koState.stoneCount);
+  expect(ko.lastMove).toBe(koState.lastMove);
+  expect(ko.lastCapturedCount).toBe(koState.lastCapturedCount);
+  expect(ko.hash).toBe(koState.hash);
+
+  const suicide = GogoPosition.fromAscii([
+    '.O.......',
+    'O.O......',
+    '.O.......',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  const suicideSnapshot = suicide.clone();
+
+  expect(suicide.isLegal(suicide.index(1, 1))).toBe(false);
+  expect(suicide.toAscii()).toEqual(suicideSnapshot.toAscii());
+  expect(suicide.toMove).toBe(suicideSnapshot.toMove);
+  expect(suicide.winner).toBe(suicideSnapshot.winner);
+  expect(suicide.koPoint).toBe(suicideSnapshot.koPoint);
+  expect(suicide.ply).toBe(suicideSnapshot.ply);
+  expect(suicide.stoneCount).toBe(suicideSnapshot.stoneCount);
+  expect(suicide.lastMove).toBe(suicideSnapshot.lastMove);
+  expect(suicide.lastCapturedCount).toBe(suicideSnapshot.lastCapturedCount);
+  expect(suicide.hash).toBe(suicideSnapshot.hash);
+});
+
 test('legal move generation and group scanning reflect current state', () => {
-  const game = position([
+  const game = GogoPosition.fromAscii([
     'XX.......',
     'XOO......',
     '.........',
@@ -232,7 +421,7 @@ test('legal move generation and group scanning reflect current state', () => {
   expect(game.scanGroup(game.index(1, 1), WHITE)).toBe(4);
   expect(game.scanGroupSize).toBe(2);
 
-  const won = position([
+  const won = GogoPosition.fromAscii([
     'XXXXX....',
     '.........',
     '.........',
@@ -245,7 +434,7 @@ test('legal move generation and group scanning reflect current state', () => {
   ], BLACK);
   expect(won.generateAllLegalMoves(new Int16Array(won.area))).toBe(0);
 
-  const mixedLegality = position([
+  const mixedLegality = GogoPosition.fromAscii([
     '.O.......',
     'O.O......',
     '.O.......',
@@ -266,6 +455,149 @@ test('legal move generation and group scanning reflect current state', () => {
   noLegal.stoneCount = noLegal.area;
   noLegal.winner = EMPTY;
   expect(noLegal.hasAnyLegalMove()).toBe(false);
+});
+
+test('hash stays consistent through capture, ko updates, undo, and reconstruction', () => {
+  const position = GogoPosition.fromAscii([
+    '..O......',
+    '.O.O.....',
+    '.XOX.....',
+    '..X......',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  const startSnapshot = position.clone();
+
+  expect(position.playXY(2, 1)).toBe(true);
+  expect(position.koPoint).toBe(position.index(2, 2));
+  const afterCaptureHash = position.hash;
+  const rebuiltAfterCapture = GogoPosition.fromAscii(position.toAscii(), position.toMove);
+  expect(rebuiltAfterCapture.koPoint).toBe(-1);
+  expect(rebuiltAfterCapture.hash).not.toBe(afterCaptureHash);
+
+  expect(position.playXY(8, 8)).toBe(true);
+  expect(position.playXY(7, 8)).toBe(true);
+  const rebuiltAfterKoExpires = GogoPosition.fromAscii(position.toAscii(), position.toMove);
+  expect(rebuiltAfterKoExpires.hash).toBe(position.hash);
+
+  expect(position.undo()).toBe(true);
+  expect(position.undo()).toBe(true);
+  expect(position.hash).toBe(afterCaptureHash);
+  expect(position.koPoint).toBe(position.index(2, 2));
+
+  expect(position.undo()).toBe(true);
+  expect(position.toAscii()).toEqual(startSnapshot.toAscii());
+  expect(position.toMove).toBe(startSnapshot.toMove);
+  expect(position.winner).toBe(startSnapshot.winner);
+  expect(position.koPoint).toBe(startSnapshot.koPoint);
+  expect(position.ply).toBe(startSnapshot.ply);
+  expect(position.stoneCount).toBe(startSnapshot.stoneCount);
+  expect(position.lastMove).toBe(startSnapshot.lastMove);
+  expect(position.lastCapturedCount).toBe(startSnapshot.lastCapturedCount);
+  expect(position.hash).toBe(startSnapshot.hash);
+});
+
+test('legal move probes return the exact legal set and leave position state unchanged', () => {
+  const game = GogoPosition.fromAscii([
+    '.O.......',
+    'O.O......',
+    '.O.......',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  const boardBefore = Array.from(game.board);
+  const hashBefore = game.hash;
+  const toMoveBefore = game.toMove;
+  const plyBefore = game.ply;
+  const koBefore = game.koPoint;
+  const lastMoveBefore = game.lastMove;
+  const lastCapturedBefore = game.lastCapturedCount;
+  const legal = new Int16Array(game.area);
+  const count = game.generateAllLegalMoves(legal);
+  const legalMoves = new Set(Array.from(legal.slice(0, count)));
+  const expected = new Set<number>();
+
+  for (let y = 0; y < game.size; y += 1) {
+    for (let x = 0; x < game.size; x += 1) {
+      const move = game.index(x, y);
+      if (game.at(x, y) !== EMPTY) {
+        continue;
+      }
+      if ((x === 0 && y === 0) || (x === 1 && y === 1)) {
+        continue;
+      }
+      expected.add(move);
+    }
+  }
+
+  expect(count).toBe(expected.size);
+  expect(legalMoves).toEqual(expected);
+  expect(game.hasAnyLegalMove()).toBe(true);
+  expect(Array.from(game.board)).toEqual(boardBefore);
+  expect(game.hash).toBe(hashBefore);
+  expect(game.toMove).toBe(toMoveBefore);
+  expect(game.ply).toBe(plyBefore);
+  expect(game.koPoint).toBe(koBefore);
+  expect(game.lastMove).toBe(lastMoveBefore);
+  expect(game.lastCapturedCount).toBe(lastCapturedBefore);
+});
+
+test('generateAllLegalMoves excludes ko recapture and only returns actually legal points', () => {
+  const ko = GogoPosition.fromAscii([
+    '..O......',
+    '.O.O.....',
+    '.XOX.....',
+    '..X......',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+  expect(ko.playXY(2, 1)).toBe(true);
+  const illegalKoRecapture = ko.index(2, 2);
+  expect(ko.koPoint).toBe(illegalKoRecapture);
+
+  const legal = new Int16Array(ko.area);
+  const count = ko.generateAllLegalMoves(legal);
+  const legalMoves = Array.from(legal.slice(0, count));
+
+  expect(legalMoves).not.toContain(illegalKoRecapture);
+  for (const move of legalMoves) {
+    expect(ko.isLegal(move)).toBe(true);
+  }
+});
+
+test('scanGroup returns the full connected group and counts shared liberties once', () => {
+  const game = GogoPosition.fromAscii([
+    '.........',
+    '.XX......',
+    '.X.......',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+
+  const liberties = game.scanGroup(game.index(1, 1), BLACK);
+  const group = Array.from(game.groupBuffer.slice(0, game.scanGroupSize)).sort((a, b) => a - b);
+
+  expect(liberties).toBe(7);
+  expect(game.scanGroupSize).toBe(3);
+  expect(group).toEqual([
+    game.index(1, 1),
+    game.index(2, 1),
+    game.index(1, 2),
+  ].sort((a, b) => a - b));
 });
 
 test('white-box internals cover helper branches that are otherwise hard to trigger', () => {
@@ -304,6 +636,73 @@ test('white-box internals cover helper branches that are otherwise hard to trigg
   expect(game.checkFiveFrom(game.index(3, 3), BLACK)).toBe(false);
   game.board[game.index(4, 4)] = BLACK;
   expect(game.checkFiveFrom(game.index(4, 4), BLACK)).toBe(true);
+});
+
+test('hash tracks ko state and matches reconstructed positions after ko clears', () => {
+  const game = GogoPosition.fromAscii([
+    '..O......',
+    '.O.O.....',
+    '.XOX.....',
+    '..X......',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+
+  expect(game.playXY(2, 1)).toBe(true);
+  const hashWithKo = game.hash;
+  expect(game.koPoint).toBe(game.index(2, 2));
+
+  const rebuiltWithoutKo = GogoPosition.fromAscii([
+    '..O......',
+    '.OXO.....',
+    '.X.X.....',
+    '..X......',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], WHITE);
+  expect(hashWithKo).not.toBe(rebuiltWithoutKo.hash);
+
+  expect(game.playXY(8, 8)).toBe(true);
+  expect(game.playXY(7, 8)).toBe(true);
+  expect(game.koPoint).toBe(-1);
+
+  const rebuiltAfterKoClears = GogoPosition.fromAscii([
+    '..O......',
+    '.OXO.....',
+    '.X.X.....',
+    '..X......',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.......XO',
+  ], WHITE);
+  expect(game.hash).toBe(rebuiltAfterKoClears.hash);
+});
+
+test('computeZobristHashes returns the 64-bit hash', () => {
+  const position = GogoPosition.fromAscii([
+    '.........',
+    '.........',
+    '.........',
+    '....X....',
+    '....O....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK);
+
+  expect(computeZobristHashes(position)).toBe(position.hash);
+
+  position.koPoint = 10;
+  expect(computeZobristHashes(position)).not.toBe(position.hash);
 });
 
 test('encodeMove converts a board index to column-letter + row-number notation', () => {

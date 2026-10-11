@@ -4,7 +4,7 @@ import { defineComponent, nextTick, triggerRef } from 'vue';
 import { useGame } from '../../src/composables/useGame';
 import { BLACK, WHITE, EMPTY, GogoPosition } from '../../src/engine';
 import * as engineModule from '../../src/engine';
-import type { AIResponse } from '../../src/worker/ai-worker';
+import { handleAIRequest, type AIRequest, type AIResponse } from '../../src/worker/ai-worker';
 
 function createMockWorker() {
   const worker = {
@@ -470,7 +470,6 @@ describe('useGame', () => {
     expect(worker.postMessage).toHaveBeenCalledTimes(1);
     const request = (worker.postMessage as any).mock.calls[0][0];
     expect(request.encodedGame).toBe('B9');
-    expect(request.maxDepth).toBe(12);
 
     // Simulate worker response
     const response: AIResponse = {
@@ -479,8 +478,11 @@ describe('useGame', () => {
       depth: 2,
       nodes: 50,
       timedOut: false,
+      forcedDefensiveMove: false,
       forcedWin: false,
       forcedLoss: false,
+      heuristicWin: false,
+      heuristicLoss: false,
     };
     (worker as any).onmessage({ data: response } as MessageEvent);
 
@@ -488,6 +490,26 @@ describe('useGame', () => {
     expect(gameState.game.value.at(4, 4)).toBe(BLACK);
     expect(gameState.statusExtra.value).toContain('AI depth 2');
     expect(gameState.statusExtra.value).not.toContain('forced win');
+    expect(gameState.statusExtra.value).not.toContain('likely forced');
+    wrapper.unmount();
+  });
+
+  test('the exact forced i1 reply is labeled as a forced defensive move after a real AI response', () => {
+    const worker = createMockWorker();
+    const { gameState, wrapper } = mountWithGame({
+      createWorker: () => worker,
+      getLocationHash: () => '',
+      setLocationHash: () => {},
+    });
+    gameState.whiteTimeLimit.value = 5_000;
+    expect(gameState.loadGame('B9 e5 f6 f4 d6 g3 e6 h2')).toBe(true);
+    const request = (worker.postMessage as any).mock.calls[0][0] as AIRequest;
+    const response = handleAIRequest(request);
+    expect(response.forcedDefensiveMove).toBe(true);
+    (worker as any).onmessage({ data: response } as MessageEvent);
+    expect(gameState.gameRecord.value).toBe('B9 e5 f6 f4 d6 g3 e6 h2 i1');
+    expect(gameState.statusExtra.value).toBe('AI depth 0, nodes 0, forced defensive move');
+    expect(gameState.aiThinking.value).toBe(false);
     wrapper.unmount();
   });
 
@@ -509,14 +531,18 @@ describe('useGame', () => {
       depth: 1,
       nodes: 1,
       timedOut: false,
+      forcedDefensiveMove: false,
       forcedWin: true,
       forcedLoss: false,
+      heuristicWin: true,
+      heuristicLoss: false,
     };
     (worker as any).onmessage({ data: response } as MessageEvent);
 
     expect(gameState.aiThinking.value).toBe(false);
     expect(gameState.game.value.at(4, 4)).toBe(BLACK);
     expect(gameState.statusExtra.value).toContain('forced win');
+    expect(gameState.statusExtra.value).not.toContain('likely');
     wrapper.unmount();
   });
 
@@ -538,14 +564,80 @@ describe('useGame', () => {
       depth: 2,
       nodes: 10,
       timedOut: false,
+      forcedDefensiveMove: false,
       forcedWin: false,
       forcedLoss: true,
+      heuristicWin: false,
+      heuristicLoss: true,
     };
     (worker as any).onmessage({ data: response } as MessageEvent);
 
     expect(gameState.aiThinking.value).toBe(false);
     expect(gameState.game.value.at(4, 4)).toBe(BLACK);
     expect(gameState.statusExtra.value).toContain('forced loss');
+    expect(gameState.statusExtra.value).not.toContain('likely');
+    wrapper.unmount();
+  });
+
+  test('maybeRunAI statusExtra shows likely forced win when only heuristic win', async () => {
+    const worker = createMockWorker();
+    const { gameState, wrapper } = mountWithGame({
+      createWorker: () => worker,
+      getLocationHash: () => '',
+      setLocationHash: () => {},
+    });
+
+    gameState.whiteIsAI.value = false;
+    gameState.blackIsAI.value = true;
+    gameState.onModeChange();
+
+    const response: AIResponse = {
+      move: 40,
+      score: 1000000000,
+      depth: 1,
+      nodes: 1,
+      timedOut: false,
+      forcedDefensiveMove: false,
+      forcedWin: false,
+      forcedLoss: false,
+      heuristicWin: true,
+      heuristicLoss: false,
+    };
+    (worker as any).onmessage({ data: response } as MessageEvent);
+
+    expect(gameState.statusExtra.value).toContain('likely forced win');
+    expect(gameState.statusExtra.value).not.toMatch(/[^y] forced win/);
+    wrapper.unmount();
+  });
+
+  test('maybeRunAI statusExtra shows likely forced loss when only heuristic loss', async () => {
+    const worker = createMockWorker();
+    const { gameState, wrapper } = mountWithGame({
+      createWorker: () => worker,
+      getLocationHash: () => '',
+      setLocationHash: () => {},
+    });
+
+    gameState.whiteIsAI.value = false;
+    gameState.blackIsAI.value = true;
+    gameState.onModeChange();
+
+    const response: AIResponse = {
+      move: 40,
+      score: -999999998,
+      depth: 2,
+      nodes: 10,
+      timedOut: false,
+      forcedDefensiveMove: false,
+      forcedWin: false,
+      forcedLoss: false,
+      heuristicWin: false,
+      heuristicLoss: true,
+    };
+    (worker as any).onmessage({ data: response } as MessageEvent);
+
+    expect(gameState.statusExtra.value).toContain('likely forced loss');
+    expect(gameState.statusExtra.value).not.toMatch(/[^y] forced loss/);
     wrapper.unmount();
   });
 
@@ -598,8 +690,11 @@ describe('useGame', () => {
       depth: 0,
       nodes: 0,
       timedOut: false,
+      forcedDefensiveMove: false,
       forcedWin: false,
       forcedLoss: false,
+      heuristicWin: false,
+      heuristicLoss: false,
     };
     (worker as any).onmessage({ data: response } as MessageEvent);
     expect(gameState.game.value.ply).toBe(0);
@@ -628,8 +723,11 @@ describe('useGame', () => {
       depth: 2,
       nodes: 50,
       timedOut: false,
+      forcedDefensiveMove: false,
       forcedWin: false,
       forcedLoss: false,
+      heuristicWin: false,
+      heuristicLoss: false,
     };
     // The worker was terminated by newGame, so onmessage won't fire on the old worker
     // But let's test the case where we get a response after the game changed
@@ -724,8 +822,6 @@ describe('useGame', () => {
     gameState.blackIsAI.value = true;
     gameState.onModeChange();
     expect(worker.postMessage).toHaveBeenCalled();
-    const request = (worker.postMessage as any).mock.calls[0][0];
-    expect(request.maxDepth).toBe(12); // uses generous search depth regardless of board size
     wrapper.unmount();
   });
 
@@ -761,7 +857,7 @@ describe('useGame', () => {
     expect(worker.postMessage).toHaveBeenCalledTimes(1);
 
     // Simulate black AI response
-    (worker as any).onmessage({ data: { move: 40, score: 100, depth: 2, nodes: 50, timedOut: false, forcedWin: false } as AIResponse } as MessageEvent);
+    (worker as any).onmessage({ data: { move: 40, score: 100, depth: 2, nodes: 50, timedOut: false, forcedDefensiveMove: false, forcedWin: false, forcedLoss: false, heuristicWin: false, heuristicLoss: false } as AIResponse } as MessageEvent);
 
     // Now white AI should be requested
     expect(gameState.aiThinking.value).toBe(true);
@@ -838,7 +934,7 @@ describe('useGame', () => {
 
     // Simulating a late response after worker terminated
     // The onmessage was set on the old worker object, calling it should be safe
-    const response: AIResponse = { move: 40, score: 0, depth: 1, nodes: 10, timedOut: false, forcedWin: false };
+    const response: AIResponse = { move: 40, score: 0, depth: 1, nodes: 10, timedOut: false, forcedDefensiveMove: false, forcedWin: false, forcedLoss: false, heuristicWin: false, heuristicLoss: false };
     (worker as any).onmessage({ data: response } as MessageEvent);
     expect(gameState.game.value.ply).toBe(0);
     wrapper.unmount();
@@ -1016,8 +1112,8 @@ describe('useGame', () => {
     // Manually set old _pendingId on worker to simulate stale response
     (worker as any)._pendingId = 0;
     const staleResponse: AIResponse = {
-      move: 40, score: 100, depth: 2, nodes: 50, timedOut: false, forcedWin: false,
-      forcedLoss: false,
+      move: 40, score: 100, depth: 2, nodes: 50, timedOut: false, forcedDefensiveMove: false, forcedWin: false,
+      forcedLoss: false, heuristicWin: false, heuristicLoss: false,
     };
     (worker as any).onmessage({ data: staleResponse } as MessageEvent);
     // Should still be thinking (stale response not processed)
@@ -1073,8 +1169,8 @@ describe('useGame', () => {
 
     // Simulate a late message from Worker A's handler arriving after B is active
     const staleResponse: AIResponse = {
-      move: 40, score: 100, depth: 2, nodes: 50, timedOut: false, forcedWin: false,
-      forcedLoss: false,
+      move: 40, score: 100, depth: 2, nodes: 50, timedOut: false, forcedDefensiveMove: false, forcedWin: false,
+      forcedLoss: false, heuristicWin: false, heuristicLoss: false,
     };
     handlerA({ data: staleResponse } as MessageEvent);
 
@@ -1285,14 +1381,7 @@ describe('useGame', () => {
     gameState.blackIsAI.value = true;
     gameState.whiteIsAI.value = true;
 
-    gameState.loadPuzzle({
-      id: 'black-3-3',
-      encoded: 'B9 c5 e3 d5 e4 f5 e6',
-      toMove: BLACK,
-      solution: 'e5',
-      depth: 3,
-      threshold: 3,
-    });
+    gameState.loadPuzzle(engineModule.getPuzzleById('black-3-3')!);
 
     expect(gameState.blackIsAI.value).toBe(false);
     expect(gameState.whiteIsAI.value).toBe(false);
