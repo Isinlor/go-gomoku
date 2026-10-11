@@ -12,6 +12,7 @@
     "test": "vitest run",
     "coverage": "vitest run --coverage --exclude tests/engine/puzzles.test.ts",
     "test:puzzles": "vitest run --config vitest.puzzles.config.ts",
+    "test:strength": "node scripts/ai-strength.mjs",
     "test:performance": "node scripts/puzzle-performance.mjs",
     "check": "npm run coverage",
     "stream:boards": "npx tsx scripts/stream-boards.ts",

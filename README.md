@@ -59,6 +59,61 @@ needs no installed dependencies or test runner:
 npm run test:performance -- /path/to/master-checkout
 ```
 
+The Puzzles workflow also compares AI strength against `master`, without installing
+dependencies. Run it locally with Node 24:
+
+```bash
+npm run test:strength -- /path/to/master-checkout
+# Reproduce a reported seed:
+npm run test:strength -- /path/to/master-checkout 123
+```
+
+Each attempt plays 24 pairs from fresh legal clustered openings (4–12 opening
+plies) across 9×9, 11×11, and 13×13 boards. Both games in a pair use the same
+opening, swap candidate colors, and randomize which color plays first. Master’s
+board implementation referees both versions, so changes to the rules cannot
+quietly change the comparison. Each game has fresh AI instances, a maximum of
+64 additional plies, and search options `maxDepth: 3`, `quiescenceDepth: 2`.
+No-move positions and move-cap games are draws; illegal AI replies are errors.
+The seed, openings, game results, pair totals, and runtime are logged.
+
+Search uses the existing injectable clock: each clock call advances one virtual
+unit, with a budget of 12 units per move. This is a deterministic **search-check
+budget**, not 12 milliseconds or a fixed node count. It keeps CPU scheduling
+out of move choices and measures strength at a small search budget, complementing
+the existing wall-clock performance tests. A passed run is a fast regression
+screen, not proof of equal strength at deeper searches or an Elo estimate.
+
+A pair contributes the sign of the sum of its two candidate results (win = +1,
+draw = 0, loss = −1). Tied pairs are excluded. For `n` decisive pairs and `L`
+lost pairs, the one-sided exact sign-test p-value is
+`sum(C(n, k), k=L..n) / 2^n`; fail the attempt only when `p <= 0.05`.
+For example, five losses without a won pair have p = 1/32 = 3.125%; four
+have p = 1/16 = 6.25% and pass. With 24 decisive pairs, at least 17 losses
+are needed (p ≈ 3.196%). Both games are one observation, never two independent
+samples, and there is only one aggregate strength test per attempt.
+
+Under the exact no-change null, both deterministic engines choose identical
+moves in each color-swapped game: every pair ties and the statistical false-fail
+probability is **zero**. More generally, under independent, exchangeable decisive
+pair signs, the binomial tail guarantees a per-attempt false-fail probability
+at most 5% (discreteness makes it conservative). This broader assumption is
+stronger than simply having equal Elo. Retries use fresh openings and stop on
+any passing attempt; only five failed attempts confirm a regression. Even
+without assuming independence between retries, the final statistical false-fail
+probability is no greater than the first attempt’s. The conservative retry policy
+reduces sensitivity to small regressions.
+
+The **entire comparison, including source loading and all retries**, shares a
+13-second internal deadline. CI additionally kills the command at 14 seconds,
+keeping execution under 15 seconds even if an engine stops checking its clock.
+Checkout and Node setup are outside this execution budget. Exit codes are 0
+(pass), 1 (confirmed strength regression), and 2 (invalid engine/configuration or
+runtime budget exceeded, which is inconclusive); CI’s hard timeout also fails
+the job as an infrastructure/runtime error. A killed or unfinished attempt is
+never accepted as a pass. Locally, use `timeout --signal=KILL 14s npm run
+test:strength -- /path/to/master-checkout` for the same hard cap on Linux.
+
 ## Development
 
 ```bash

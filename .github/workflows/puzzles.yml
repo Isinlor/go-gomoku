@@ -40,3 +40,21 @@ jobs:
           node-version: 24
       - name: Compare puzzle performance with master
         run: npm run test:performance -- .performance-master
+
+  strength:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout new version
+        uses: actions/checkout@v4
+      - name: Checkout master baseline
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          path: .strength-master
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Compare AI strength with master (including retries, under 15s)
+        run: timeout --signal=KILL 14s npm run test:strength -- .strength-master
