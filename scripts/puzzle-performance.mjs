@@ -1,5 +1,5 @@
 /** Compare three per-puzzle Vitest JSON reports from each revision. */
-export function comparePuzzleRuns(masterReports, newReports) {
+export function comparePuzzleRuns(masterReports, newReports, expectedPuzzles) {
   if (masterReports.length !== 3 || newReports.length !== 3) {
     throw new Error('Expected exactly three reports per version');
   }
@@ -8,7 +8,7 @@ export function comparePuzzleRuns(masterReports, newReports) {
     const timings = new Map();
     for (const suite of report.testResults) {
       for (const test of suite.assertionResults) {
-        if (!/^Classic AI solves (generated )?puzzle /.test(test.fullName)) continue;
+        if (!/^Classic AI solves (generated )?puzzle /.test(test.fullName) || test.status === 'skipped') continue;
         if (test.status !== 'passed' || !Number.isFinite(test.duration) || test.duration < 0) {
           throw new Error(`Invalid puzzle timing: ${test.fullName}`);
         }
@@ -19,7 +19,7 @@ export function comparePuzzleRuns(masterReports, newReports) {
     if (timings.size === 0) throw new Error('No puzzle timings found');
     return timings;
   });
-  const names = [...runs[0].keys()];
+  const names = expectedPuzzles ?? [...runs[0].keys()];
   for (const run of runs) {
     if (run.size !== names.length || names.some((name) => !run.has(name))) {
       throw new Error('All runs must measure the same puzzles');

@@ -35,7 +35,7 @@ test('requires exactly three reports from each version', () => {
 test('rejects failed runs, missing puzzles and empty selections', () => {
   expect(() => comparePuzzleRuns([{ ...report(1), success: false }, ...runs(1, 1)], runs(1, 1, 1))).toThrow('failed');
   expect(() => comparePuzzleRuns([report(1, name, 'failed'), ...runs(1, 1)], runs(1, 1, 1))).toThrow('timing');
-  expect(() => comparePuzzleRuns([report(1, name, 'skipped'), ...runs(1, 1)], runs(1, 1, 1))).toThrow('timing');
+  expect(() => comparePuzzleRuns([report(1, name, 'skipped'), ...runs(1, 1)], runs(1, 1, 1))).toThrow('No puzzle');
   expect(() => comparePuzzleRuns(runs(1, 1, 1), [report(1, generated), ...runs(1, 1)])).toThrow('same puzzles');
   expect(() => comparePuzzleRuns(runs(1, 1, 1), [report(1, 'unrelated'), ...runs(1, 1)])).toThrow('No puzzle');
   expect(() => comparePuzzleRuns(runs(1, 1, 1), runs(1, 1, 1).map((r) => ({ ...r, testResults: [] })))).toThrow('No puzzle');
@@ -49,4 +49,15 @@ test('rejects duplicate puzzle names', () => {
   const duplicate = report(1);
   duplicate.testResults[0].assertionResults.push({ fullName: name, status: 'passed', duration: 1 });
   expect(() => comparePuzzleRuns([duplicate, ...runs(1, 1)], runs(1, 1, 1))).toThrow('Duplicate');
+});
+
+
+test('ignores skipped puzzles already validated in an earlier attempt', () => {
+  const selected = runs(1, 1, 1);
+  selected.forEach(r => r.testResults[0].assertionResults.push({ fullName: generated, status: 'skipped' }));
+  expect(comparePuzzleRuns(selected, runs(1, 1, 1))).toHaveLength(1);
+});
+
+test('rejects a selected puzzle missing from all six reports', () => {
+  expect(() => comparePuzzleRuns(runs(1, 1, 1), runs(1, 1, 1), [name, generated])).toThrow('same puzzles');
 });
