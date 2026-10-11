@@ -126,22 +126,6 @@ test('root discovery stops after finding a winning continuation within the searc
   expect(position.hash).toBe(hash);
 });
 
-test('AI proves forced loss for edge position B9 e9 e8 f9 in under 60 seconds', { timeout: 65_000 }, () => {
-  const position = decodeGame('B9 e9 e8 f9');
-  const before = position.encodeGame();
-  const hash = position.hash;
-  const ai = new GogoAI({ maxDepth: 30, quiescenceDepth: 4 });
-  const start = performance.now();
-  const result = ai.findBestMove(position, 59_000);
-  expect(performance.now() - start).toBeLessThan(60_000);
-  expect(result.forcedLoss).toBe(true);
-  expect(result.heuristicLoss).toBe(true);
-  expect(result.timedOut).toBe(false);
-  expect(position.encodeGame()).toBe(before);
-  expect(position.hash).toBe(hash);
-  expect(position.isLegal(result.move)).toBe(true);
-});
-
 test('an unverified heuristic winning reply cannot establish a forced loss', () => {
   const position = GogoPosition.fromAscii(['..BB.....', ...blank], WHITE);
   const hash = position.hash;

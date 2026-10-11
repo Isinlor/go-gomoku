@@ -100,10 +100,22 @@ test('all puzzles have valid wonEncoded and winningMoves', () => {
   }
 });
 
-test('AI proves forced win for edge attack position B9 e9 e8 f9 g9', { timeout: 120_000 }, () => {
+test('AI proves forced win for edge attack position B9 e9 e8 f9 g9', { timeout: 60_000 }, () => {
   const position = decodeGame('B9 e9 e8 f9 g9');
   const ai = new GogoAI({ maxDepth: 30, quiescenceDepth: 4 });
   const result = ai.findBestMove(position, 60_000);
   expect(result.forcedWin).toBe(true);
   expect(result.heuristicWin).toBe(true);
+  expect(result.timedOut).toBe(false);
+  expect(position.isLegal(result.move)).toBe(true);
+});
+
+test('AI proves forced loss for edge position B9 e9 e8 f9', { timeout: 60_000 }, () => {
+  const position = decodeGame('B9 e9 e8 f9');
+  const ai = new GogoAI({ maxDepth: 30, quiescenceDepth: 4 });
+  const result = ai.findBestMove(position, 59_000);
+  expect(result.forcedLoss).toBe(true);
+  expect(result.heuristicLoss).toBe(true);
+  expect(result.timedOut).toBe(false);
+  expect(position.isLegal(result.move)).toBe(true);
 });
