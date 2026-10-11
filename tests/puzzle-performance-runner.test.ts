@@ -1,27 +1,26 @@
 // @vitest-environment node
-import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
+import { runPuzzlePerformance } from '../scripts/puzzle-performance.mjs';
 
-// A lightweight reporter fixture exercises the actual shell orchestration and
+// A lightweight reporter fixture exercises the actual Node orchestration and
 // comparator without spending minutes solving puzzles in every unit test run.
-function check(scenario: string) {
+function createFixture(scenario: string) {
   const root = mkdtempSync(join(tmpdir(), 'puzzle-performance-'));
-  try {
-    mkdirSync(join(root, 'master'));
-    mkdirSync(join(root, 'scripts'));
-    mkdirSync(join(root, 'node_modules/vitest'), { recursive: true });
-    symlinkSync(resolve('scripts/puzzle-performance.mjs'), join(root, 'scripts/puzzle-performance.mjs'));
-    writeFileSync(join(root, 'node_modules/vitest/vitest.mjs'), `
+  writeFileSync(join(root, 'scenario'), scenario);
+  mkdirSync(join(root, 'master'));
+  mkdirSync(join(root, 'node_modules/vitest'), { recursive: true });
+  writeFileSync(join(root, 'node_modules/vitest/vitest.mjs'), `
       import { readFileSync, writeFileSync, existsSync } from 'node:fs';
       const countFile = 'count';
       const count = existsSync(countFile) ? Number(readFileSync(countFile, 'utf8')) + 1 : 1;
       writeFileSync(countFile, String(count));
-      if (process.env.SCENARIO === 'solver-error') process.exit(3);
+      const scenario = readFileSync('scenario', 'utf8');
+      if (scenario === 'solver-error') process.exit(3);
       const master = process.argv[process.argv.indexOf('--root') + 1].endsWith('/master');
-      const scenario = process.env.SCENARIO;
       const pattern = new RegExp(process.argv[process.argv.indexOf('--testNamePattern') + 1]);
       const names = ['Classic AI solves puzzle example', 'Classic AI solves generated puzzle retry.two+[1]', 'Classic AI solves puzzle retry-three'];
       const history = existsSync('history') ? JSON.parse(readFileSync('history', 'utf8')) : [];
@@ -38,12 +37,23 @@ function check(scenario: string) {
       writeFileSync('history', JSON.stringify(history));
       const report = { success: scenario !== 'invalid', testResults: [{ assertionResults }] };
       const output = process.argv.find(arg => arg.startsWith('--outputFile=')).slice('--outputFile='.length);
-      writeFileSync(output, JSON.stringify(report));
-    `);
-    const result = spawnSync('bash', [resolve('scripts/check-puzzle-performance.sh'), join(root, 'master')], {
-      cwd: root, env: { ...process.env, SCENARIO: scenario }, encoding: 'utf8',
-    });
-    return { status: result.status, output: result.stdout + result.stderr, runs: Number(readFileSync(join(root, 'count'), 'utf8')), history: result.status === 3 ? [] : JSON.parse(readFileSync(join(root, 'history'), 'utf8')) };
+      writeFileSync('report-path', output);
+      writeFileSync(output, scenario === 'bad-json' ? 'invalid JSON' : JSON.stringify(report));
+  `);
+  return root;
+}
+
+function check(scenario: string) {
+  const root = createFixture(scenario);
+  try {
+    const output: string[] = [];
+    const status = runPuzzlePerformance(join(root, 'master'), root, (line: string) => output.push(line));
+    const reportPath = join(root, 'report-path');
+    if (existsSync(reportPath)) expect(existsSync(readFileSync(reportPath, 'utf8'))).toBe(false);
+    return {
+      status, output: output.join('\n'), runs: Number(readFileSync(join(root, 'count'), 'utf8')),
+      history: existsSync(join(root, 'history')) ? JSON.parse(readFileSync(join(root, 'history'), 'utf8')) : [],
+    };
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -73,7 +83,7 @@ test('fails after five failed comparisons without retrying indefinitely', () => 
 
 test('invalid reports and solver errors fail without retrying', () => {
   expect(check('invalid')).toMatchObject({ status: 2, runs: 6 });
-  expect(check('solver-error')).toMatchObject({ status: 3, runs: 1 });
+  expect(check('solver-error')).toMatchObject({ status: 2, runs: 1 });
 });
 
 
@@ -95,5 +105,55 @@ test('never reruns a validated puzzle, even while other puzzles need two or thre
   expect([...counts.values()]).toEqual([6, 12, 18]);
   for (const [name, count] of counts) {
     expect(result.history.filter((run: { fullName: string; master: boolean }) => run.fullName === name && run.master)).toHaveLength(count / 2);
+  }
+});
+
+
+test('malformed JSON fails immediately and removes temporary reports', () => {
+  expect(check('bad-json')).toMatchObject({ status: 2, runs: 1 });
+});
+
+test('missing arguments and nonexistent checkouts return a usage or configuration error', () => {
+  const messages: string[] = [];
+  const log = (message: string) => messages.push(message);
+  expect(runPuzzlePerformance(undefined, process.cwd(), log)).toBe(2);
+  expect(messages.join(' ')).toContain('Usage:');
+  expect(runPuzzlePerformance('/nonexistent-master-checkout', process.cwd(), log)).toBe(2);
+});
+
+test('the Node CLI runs the same orchestration', () => {
+  const root = createFixture('pass');
+  try {
+    const result = spawnSync(process.execPath, [resolve('scripts/puzzle-performance.mjs'), join(root, 'master')], {
+      cwd: root, encoding: 'utf8',
+    });
+    expect(result.status).toBe(0);
+    expect(Number(readFileSync(join(root, 'count'), 'utf8'))).toBe(6);
+    expect(result.stdout).toContain('PASS');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('the entry point uses the working directory and command-line master checkout', async () => {
+  const root = createFixture('pass');
+  const originalCwd = process.cwd();
+  const originalArgv = process.argv;
+  const originalExitCode = process.exitCode;
+  const script = resolve('scripts/puzzle-performance.mjs');
+  const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+  try {
+    process.chdir(root);
+    process.argv = [process.execPath, script, join(root, 'master')];
+    vi.resetModules();
+    await import('../scripts/puzzle-performance.mjs');
+    expect(process.exitCode).toBe(0);
+    expect(Number(readFileSync(join(root, 'count'), 'utf8'))).toBe(6);
+  } finally {
+    process.chdir(originalCwd);
+    process.argv = originalArgv;
+    process.exitCode = originalExitCode;
+    log.mockRestore();
+    rmSync(root, { recursive: true, force: true });
   }
 });
