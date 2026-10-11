@@ -12,6 +12,7 @@
     "test": "vitest run",
     "coverage": "vitest run --coverage --exclude tests/engine/puzzles.test.ts",
     "test:puzzles": "vitest run --config vitest.puzzles.config.ts",
+    "test:performance": "bash scripts/check-puzzle-performance.sh",
     "check": "npm run coverage",
     "stream:boards": "npx tsx scripts/stream-boards.ts",
     "archive": "git archive -o latest-code.zip HEAD",

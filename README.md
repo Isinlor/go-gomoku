@@ -38,6 +38,21 @@ npm run coverage
 
 The coverage command is configured with 100% thresholds for lines, branches, and functions.
 
+The Puzzles workflow also compares performance against `master` on the same
+runner. It alternates master and candidate runs, measuring every original and
+generated puzzle three times per version. Each puzzle passes when its fastest
+candidate time is no slower than its slowest master time (equality passes).
+If any puzzle regresses, the complete comparison runs once more with fresh
+samples; CI fails if that second comparison also regresses. Puzzle failures and
+invalid or mismatched timing reports fail immediately.
+
+To run locally, install dependencies in both checkouts, then run from the new
+version's checkout:
+
+```bash
+npm run test:performance -- /path/to/master-checkout
+```
+
 ## Development
 
 ```bash
