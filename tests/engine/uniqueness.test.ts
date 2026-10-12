@@ -99,31 +99,12 @@ test('removeIsolatedStones filters out only the isolated stones', () => {
 });
 
 test('removeIsolatedStones handles vertical, horizontal, and diagonal adjacency correctly', () => {
-  // Only diagonal neighbors → stones are NOT isolated (diagonal counts)
-  const diagStones = [
-    [0, 0, BLACK],
-    [1, 1, WHITE],
-  ] as const;
-  const diagResult = removeIsolatedStones(diagStones);
-  expect(diagResult).toHaveLength(2);
-
-  // All four diagonal directions
-  expect(removeIsolatedStones([[0, 0, BLACK], [1, 1, WHITE]])).toHaveLength(2);   // SE
-  expect(removeIsolatedStones([[1, 0, BLACK], [0, 1, WHITE]])).toHaveLength(2);   // SW
-  expect(removeIsolatedStones([[0, 1, BLACK], [1, 0, WHITE]])).toHaveLength(2);   // NE
-  expect(removeIsolatedStones([[1, 1, BLACK], [0, 0, WHITE]])).toHaveLength(2);   // NW
-
-  // Truly isolated: no orthogonal or diagonal neighbor
-  const isolated = [[0, 0, BLACK], [3, 3, WHITE]] as const;
-  expect(removeIsolatedStones(isolated)).toHaveLength(0);
-
-  // Vertical neighbor
-  const vertStones = [
-    [2, 2, BLACK],
-    [2, 3, WHITE],
-  ] as const;
-  const vertResult = removeIsolatedStones(vertStones);
-  expect(vertResult).toHaveLength(2);
+  // Nonzero coordinates keep broken coordinate packing from looking correct.
+  for (const [dx, dy] of [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 1], [1, -1], [1, 0], [1, 1]]) {
+    const adjacent = [[4, 4, BLACK], [4 + dx, 4 + dy, WHITE]] as const;
+    expect(removeIsolatedStones([...adjacent, [0, 0, BLACK]])).toEqual(adjacent);
+  }
+  expect(removeIsolatedStones([[0, 0, BLACK], [3, 3, WHITE]])).toEqual([]);
 });
 
 // ─── computeCanonicalKey ─────────────────────────────────────────────────────
