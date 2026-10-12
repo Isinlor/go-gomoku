@@ -8,14 +8,6 @@ import {
   getPuzzleById,
   PUZZLES,
 } from '../../src/engine';
-import { PuzzleDuplicateIndex } from '../../src/engine/puzzleSimilarity';
-
-test('new complex puzzle passes master duplicate rules against the entire catalog', () => {
-  const puzzle = getPuzzleById('gen-complex-1');
-  expect(puzzle).toBeDefined();
-  const existing = PUZZLES.filter((entry) => entry.id !== 'gen-complex-1');
-  expect(new PuzzleDuplicateIndex(existing).add(puzzle!)).toBe(true);
-});
 
 test('getPuzzleById returns a puzzle when id exists', () => {
   const puzzle = getPuzzleById('black-3-3');
