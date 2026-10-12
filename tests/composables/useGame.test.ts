@@ -195,9 +195,13 @@ describe('useGame', () => {
 
     gameState.whiteIsAI.value = false;
     gameState.playMove(40);
-    expect(gameState.game.value.ply).toBe(1);
+    gameState.playMove(30);
+    expect(gameState.gameRecord.value).toBe('B9 e5 d4');
     gameState.undo();
-    expect(gameState.game.value.ply).toBe(0);
+    expect(gameState.game.value.ply).toBe(1);
+    expect(gameState.gameRecord.value).toBe('B9 e5');
+    expect(gameState.game.value.at(4, 4)).toBe(BLACK);
+    expect(gameState.game.value.at(3, 3)).toBe(EMPTY);
     wrapper.unmount();
   });
 
