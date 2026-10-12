@@ -8,7 +8,7 @@ export default defineConfig({
     include: ['tests/**/*.test.ts'],
     coverage: {
       provider: 'v8',
-      include: ['src/**/*.{ts,vue}', 'scripts/puzzle-performance.mjs'],
+      include: ['src/**/*.{ts,vue}', 'scripts/puzzle-performance.mjs', 'scripts/ai-strength.mjs'],
       exclude: [
         'src/env.d.ts',
         'src/engine/index.ts',
