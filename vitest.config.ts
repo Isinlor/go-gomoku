@@ -7,7 +7,7 @@ export default defineConfig({
     environment: 'happy-dom',
     include: ['tests/**/*.test.ts'],
     testTimeout: 250,
-    slowTestThreshold: 250,
+    slowTestThreshold: 100,
     tags: [{
       name: 'slow',
       description: 'Exhaustive search or real process integration with CI timing headroom',
