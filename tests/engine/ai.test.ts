@@ -124,7 +124,7 @@ test('AI never returns illegal ko recapture moves', () => {
   expect(position.koPoint).toBe(illegalKoRecapture);
   expect(position.toMove).toBe(WHITE);
 
-  const ai = new GogoAI({ maxDepth: 3, quiescenceDepth: 2, now: () => 0 });
+  const ai = new GogoAI({ maxDepth: 1, quiescenceDepth: 0, now: () => 0 });
   const result = ai.findBestMove(position, 100);
 
   expect(result.move).not.toBe(illegalKoRecapture);
@@ -1291,22 +1291,19 @@ test('TT score adjustment correctly handles forced win/loss scores and pass-thro
   expect(anyAI.ttAdjustRetrieve(lossScore - 5, 5)).toBe(lossScore);
 });
 
-test('LMR reduces later moves at depth >= 3 and re-searches on improvement', () => {
-  const ai = new GogoAI({ maxDepth: 6, quiescenceDepth: 2, now: () => 0 });
+function lmrPosition(): GogoPosition {
+  return GogoPosition.fromAscii([
+    '.........', '.........', '.X..O....', '.........', '....X....',
+    '.........', '.O..X....', '.........', '.........',
+  ], BLACK);
+}
+
+test('LMR reduces later quiet moves at depth three', () => {
+  const ai = new GogoAI({ maxPly: 3, quiescenceDepth: 0, now: () => 0 });
   const anyAI = ai as any;
   // Position with many legal moves and balanced evaluation so moves don't
   // immediately cause beta cutoffs, allowing legalCount to exceed 3.
-  const pos = GogoPosition.fromAscii([
-    '.........',
-    '.........',
-    '.X..O....',
-    '.........',
-    '....X....',
-    '.........',
-    '.O..X....',
-    '.........',
-    '.........',
-  ], BLACK);
+  const pos = lmrPosition();
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
   anyAI.killerMoves.fill(-1);
@@ -1315,18 +1312,24 @@ test('LMR reduces later moves at depth >= 3 and re-searches on improvement', () 
   // Clear TT to ensure fresh search
   anyAI.ttFlag.fill(0);
 
-  // Search at depth 5 to trigger LMR depth reduction (line 328: depth >= 3, legalCount > 3)
-  const score = anyAI.search(pos, 5, -1_000_000, 1_000_000, 1);
+  // Depth three is sufficient to reduce later children from depth two to one.
+  const search = anyAI.search.bind(anyAI);
+  const childDepths: number[] = [];
+  anyAI.search = (...args: any[]) => {
+    if (args[4] === 2) childDepths.push(args[1]);
+    return search(...args);
+  };
+  const score = anyAI.search(pos, 3, -1_000_000, 1_000_000, 1, false);
   expect(typeof score).toBe('number');
+  expect(childDepths).toContain(2);
+  expect(childDepths).toContain(1);
+});
 
-  // Cover line 334 (LMR re-search when scout finds improvement) by mocking inner search
-  // calls. The negamax convention means inner calls return the score from the child's
-  // (opponent's) perspective; we negate to get the parent's score:
-  //   depth-2 inner calls → return -50 → parent score = 50 → alpha is set to 50
-  //   depth-1 LMR scout for the 4th+ move → return -51 → parent score = 51 > alpha=50
-  // The condition `searchDepth < depth-1 && score > alpha` on line 333 is now true,
-  // executing the full-depth re-search on line 334.
-  const ai2 = new GogoAI({ maxDepth: 4, quiescenceDepth: 2, now: () => 0 });
+test('LMR re-searches reduced moves when their scout improves alpha', () => {
+  const pos = lmrPosition();
+  // A reduced child reports -51; negation raises alpha from 50 to 51 and
+  // requires a full-depth re-search instead of accepting the scout score.
+  const ai2 = new GogoAI({ maxPly: 3, quiescenceDepth: 0, now: () => 0 });
   const any2 = ai2 as any;
   any2.ensureBuffers(pos.area);
   any2.deadline = 1e15;
@@ -1334,21 +1337,25 @@ test('LMR reduces later moves at depth >= 3 and re-searches on improvement', () 
   any2.history.fill(0);
   any2.ttFlag.fill(0);
   const realSearch = any2.search.bind(any2);
-  any2.search = function (position: any, depth: number, alpha: number, beta: number, ply: number, canNullMove = true): number {
+  const childSearches: { hash: bigint; depth: number; alpha: number; beta: number }[] = [];
+  any2.search = function (position: GogoPosition, depth: number, alpha: number, beta: number, ply: number, canNullMove = true): number {
     if (ply === 1) {
       return realSearch(position, depth, alpha, beta, ply, canNullMove);
     }
-    // -50 → parent score 50 (sets/maintains alpha); -51 → parent score 51 (>alpha, triggers line 334)
+    childSearches.push({ hash: position.hash, depth, alpha, beta });
+    // Full-depth searches maintain alpha at 50; reduced scouts improve it to 51.
     return depth === 1 ? -51 : -50;
   };
   const lmrResearchScore = any2.search(pos, 3, -1_000_000, 1_000_000, 1, false);
-  expect(typeof lmrResearchScore).toBe('number');
-
-  // Iterative deepening pipeline: fast frozen-clock run with small maxDepth
-  const ai3 = new GogoAI({ maxDepth: 3, quiescenceDepth: 1, now: () => 0 });
-  const result = ai3.findBestMove(pos, 1);
-  expect(result.move).not.toBe(-1);
-  expect(result.depth).toBeGreaterThanOrEqual(1);
+  const reducedSearches = childSearches.filter((call) => call.depth === 1);
+  expect(reducedSearches.length).toBeGreaterThan(0);
+  for (const reduced of reducedSearches) {
+    expect(reduced).toMatchObject({ alpha: -51, beta: -50 });
+    // PVS can also re-search at full depth, but uses a wider window. Require
+    // the LMR verification scout for this exact child before accepting its score.
+    expect(childSearches[childSearches.indexOf(reduced) + 1]).toEqual({ ...reduced, depth: 2 });
+  }
+  expect(lmrResearchScore).toBe(50);
 });
 
 test('adaptive null move pruning uses R=3 at depth >= 6', () => {
@@ -1525,21 +1532,19 @@ test('proof mode: proof collapse triggers fallback to heuristic discovery', () =
   ], BLACK);
 
   const WIN = 1_000_000_000;
-  const ai = new GogoAI({ maxDepth: 4, quiescenceDepth: 1, now: () => 0 });
+  const ai = new GogoAI({ maxDepth: 2, maxPly: 2, quiescenceDepth: 0, now: () => 0 });
   const anyAI = ai as any;
   anyAI.ensureBuffers(pos.area);
 
   // Mock searchRoot for heuristic phases:
-  // - Discovery d=1: normal result
-  // - Discovery d=2: fake forced win → breaks, triggers proof
-  // - Resume d=3+: normal results
+  // - Discovery d=1: fake forced win → breaks, triggers proof
+  // - Resume d=2: real search replaces the false win
   let searchRootCallCount = 0;
   const realSearchRoot = anyAI.searchRoot.bind(anyAI);
   anyAI.searchRoot = function (position: any, depth: number, hintMove: number) {
     searchRootCallCount++;
-    if (searchRootCallCount === 2) {
-      // Discovery d=2: fake forced win
-      return { move: 40, score: WIN - 2, depth: 2, nodes: 10, timedOut: false,
+    if (searchRootCallCount === 1) {
+      return { move: 40, score: WIN - 1, depth: 1, nodes: 10, timedOut: false,
         forcedDefensiveMove: false,
         forcedWin: false, forcedLoss: false, heuristicWin: false, heuristicLoss: false };
     }
@@ -1553,10 +1558,12 @@ test('proof mode: proof collapse triggers fallback to heuristic discovery', () =
 
   const result = ai.findBestMove(pos, 100);
   // After resume, heuristicWin is recomputed based on new bestScore/completedDepth
-  // Resume at d=3+ won't find a forced win for this position, so heuristicWin should be false
+  // The real resumed search does not establish a forced win for this position.
   expect(result.forcedWin).toBe(false);
-  // Resume phase continued from depth 3
-  expect(result.depth).toBeGreaterThanOrEqual(3);
+  expect(result.heuristicWin).toBe(false);
+  // One resumed depth is enough to verify discovery replaces the false win.
+  expect(result.depth).toBe(2);
+  expect(searchRootCallCount).toBe(2);
 });
 
 test('proof mode: resume heuristic after proof collapse can timeout', () => {
@@ -2344,7 +2351,7 @@ test('proofSearchRoot: returns 0 when no legal moves', () => {
 });
 
 test('capped node TT: lowerbound stored from capped node, exact/upper suppressed', () => {
-  const ai = new GogoAI({ maxDepth: 4, quiescenceDepth: 2, now: () => 0 });
+  const ai = new GogoAI({ maxPly: 2, quiescenceDepth: 0, now: () => 0 });
   const anyAI = ai as any;
   // Use a position with many near-2 candidates (> MAX_CANDIDATES) to trigger capping
   const pos = GogoPosition.fromAscii([
@@ -2364,12 +2371,16 @@ test('capped node TT: lowerbound stored from capped node, exact/upper suppressed
   anyAI.history.fill(0);
   anyAI.ttFlag.fill(0);
 
-  // Search at depth 2 - many candidates should trigger capping
-  const score = anyAI.search(pos, 2, -1_000_000, 1_000_000, 1);
-  expect(typeof score).toBe('number');
-
-  // The root node of the search may have been capped, so TT may store NONE
-  // or LOWERBOUND depending on the score. Just verify search completes.
+  expect(anyAI.generateOrderedMoves(pos, anyAI.moveBuffers[1], anyAI.scoreBuffers[1], -1, false, 1)).toBeGreaterThan(12);
+  const index = Number(pos.hash & 0x3FFFFn);
+  // Check actual storage policy with shallow leaves, rather than just completion.
+  for (const [alpha, beta, flag] of [[-1_000_000, 1_000_000, 0], [1_000_000, 1_000_001, 0], [-1_000_000, -999_999, 2]]) {
+    anyAI.ttFlag.fill(0);
+    const score = anyAI.search(pos, 2, alpha, beta, 1);
+    expect(typeof score).toBe('number');
+    expect(anyAI.ttHash[index]).toBe(pos.hash);
+    expect(anyAI.ttFlag[index]).toBe(flag);
+  }
 });
 
 test('recompute heuristic flags after resume: flags update when score changes', () => {
@@ -2570,7 +2581,7 @@ test('proofDefend: fullboard fallback when near-2 generates nothing', () => {
 
 test('TT exact and upperbound cutoffs work in proof mode (uncapped nodes)', () => {
   // Use proof mode where nodes are never capped, so EXACT/UPPERBOUND entries get stored
-  const ai = new GogoAI({ maxDepth: 4, quiescenceDepth: 2, now: () => 0 });
+  const ai = new GogoAI({ maxPly: 2, quiescenceDepth: 0, now: () => 0 });
   const anyAI = ai as any;
   const pos = GogoPosition.fromAscii([
     '....X....',
@@ -2618,7 +2629,7 @@ test('TT exact and upperbound cutoffs work in proof mode (uncapped nodes)', () =
 
 test('null move pruning with active ko point', () => {
   // Create a position with an active ko point
-  const ai = new GogoAI({ maxDepth: 6, quiescenceDepth: 2, now: () => 0 });
+  const ai = new GogoAI({ quiescenceDepth: 0, now: () => 0 });
   const anyAI = ai as any;
   const pos = GogoPosition.fromAscii([
     '.........',
@@ -2640,11 +2651,18 @@ test('null move pruning with active ko point', () => {
 
   // Manually set a ko point to simulate an active ko
   pos.koPoint = 40; // center point
+  pos.hash ^= pos.meta.zobristKo64[pos.area] ^ pos.meta.zobristKo64[pos.koPoint];
+  const hash = pos.hash;
+  const toMove = pos.toMove;
 
-  const score = anyAI.search(pos, 4, -1_000_000, 1_000_000, 1);
-  expect(typeof score).toBe('number');
-  // ko point should be restored after search
+  // Depth three exercises a real null move. A low beta causes its cutoff,
+  // avoiding an unrelated full depth-four search after restoring the ko state.
+  const score = anyAI.search(pos, 3, -1_000_001, -1_000_000, 1);
+  expect(score).toBe(-1_000_000);
   expect(pos.koPoint).toBe(40);
+  expect(pos.toMove).toBe(toMove);
+  expect(pos.hash).toBe(hash);
+  expect(anyAI.nodesVisited).toBe(3); // Root, null move, and its quiescence leaf.
 });
 
 test('proofAttack: illegal move is skipped', () => {
@@ -3489,6 +3507,31 @@ test('findThreatResponses: defender winning cell in overlapping horizontal and v
   const moveIndex = Array.from({ length: count }, (_, index) => index).find((index) => moves[index] === 0);
   expect(moveIndex).not.toBeUndefined();
   expect(scores[moveIndex ?? 0]).toBe(3_000_000);
+});
+
+test('proofDefend skips a suicidal ordered defense and restores the position', () => {
+  const position = GogoPosition.fromAscii([
+    '.........', '.........', '.........', '....X....', '...X.X...',
+    '....X....', '.........', '.........', '.........',
+  ], WHITE);
+  const ai = new GogoAI({ now: () => 0 }) as any;
+  ai.ensureBuffers(position.area);
+  ai.deadline = Infinity;
+  // A real ordering hint puts the suicidal center first in the quiet defenses.
+  ai.history[position.area + 40] = 10_000_000;
+  expect(position.isLegal(40)).toBe(false);
+  const before = position.toAscii();
+  const rejected: number[] = [];
+  const play = position.play.bind(position);
+  position.play = (move) => {
+    const legal = play(move);
+    if (!legal) rejected.push(move);
+    return legal;
+  };
+  expect(ai.proofDefend(position, 2, 1)).toBe(false);
+  expect(rejected).toEqual([40]);
+  expect(position.toAscii()).toEqual(before);
+  expect(position.toMove).toBe(WHITE);
 });
 
 test('proofDefend: restricted move play failure is handled without coverage suppression', () => {

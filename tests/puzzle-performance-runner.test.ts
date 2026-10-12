@@ -3,8 +3,12 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { expect, test, vi } from 'vitest';
+import { stripTypeScriptTypes } from 'node:module';
+import { beforeAll, expect, test, vi } from 'vitest';
 import { benchmarkPuzzles, loadEngine, runPuzzlePerformance } from '../scripts/puzzle-performance.mjs';
+
+// Native compiler initialization is shared setup, rather than first-test work.
+beforeAll(() => { stripTypeScriptTypes('const warmup: number = 0;'); });
 
 // Deterministic measurements test retry decisions without relying on CPU noise.
 function check(scenario: string) {
@@ -96,7 +100,7 @@ function createFixture(wrongMove = false) {
   return root;
 }
 
-test('loads TypeScript directly, including extensionless and explicit imports', () => {
+test('loads TypeScript directly, including extensionless and explicit imports', { tags: ['slow'] }, () => {
   const root = createFixture();
   try {
     const engine = loadEngine(root);
@@ -121,7 +125,8 @@ test('configuration errors and incorrect solutions fail immediately', () => {
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test('CLI runs directly from source without installed dependencies or test files', () => {
+// Real Node startup and scheduling on CI are outside the test's control.
+test('CLI runs directly from source without installed dependencies or test files', { tags: ['slow'] }, () => {
   const root = createFixture(true);
   try {
     const result = spawnSync(process.execPath, [resolve('scripts/puzzle-performance.mjs'), root], { cwd: root, encoding: 'utf8' });

@@ -21,4 +21,4 @@ jobs:
       - name: Install dependencies
         run: make install
       - name: Test with coverage
-        run: npm run coverage
+        run: npm run coverage -- --reporter=verbose

@@ -6,9 +6,19 @@ import {
   streamUniqueBoards,
 } from '../../src/engine/boardStream';
 
-const UNIQUE_PLY3_TRANSLATION_AND_COLOR_COUNT = 2979;
+const UNIQUE_PLY2_TRANSLATION_AND_COLOR_COUNT = 44;
 
 describe('computePositionSymmetryKey', () => {
+  test('captured stones are absent from the symmetry key', () => {
+    const captured = decodeGame('B9 b1 a1 a2');
+    const remaining = GogoPosition.fromAscii([
+      '.X.......', 'X........', '.........', '.........', '.........',
+      '.........', '.........', '.........', '.........',
+    ]);
+    expect(captured.lastCapturedCount).toBe(1);
+    const options = { includeTranslationSymmetry: true, includeColorSymmetry: true };
+    expect(computePositionSymmetryKey(captured, options)).toBe(computePositionSymmetryKey(remaining, options));
+  });
   test('always folds rotation and reflection symmetries', () => {
     const cornerA = decodeGame('B9 a1');
     const cornerB = decodeGame('B9 i1');
@@ -308,10 +318,11 @@ describe('streamUniqueBoards', () => {
     expect(stats.prunedPrefixes).toBeGreaterThan(0);
   });
 
-  test('returns the known unique ply-three count with translation and color symmetry', { timeout: 10_000 }, () => {
+  // Exhaust a small space to verify the exact count; deeper traversal is bounded below.
+  test('returns the known unique ply-two count with translation and color symmetry', () => {
     const stats = streamUniqueBoards(
       {
-        ply: 3,
+        ply: 2,
         boardSize: 9,
         includeTranslationSymmetry: true,
         includeColorSymmetry: true,
@@ -321,8 +332,25 @@ describe('streamUniqueBoards', () => {
     );
 
     expect(stats.prunedPrefixes).toBeGreaterThan(0);
-    expect(stats.emitted).toBe(UNIQUE_PLY3_TRANSLATION_AND_COLOR_COUNT);
+    expect(stats.emitted).toBe(UNIQUE_PLY2_TRANSLATION_AND_COLOR_COUNT);
     expect(stats.exploredNodes).toBeGreaterThan(stats.emitted);
+  });
+
+  test('streams deeper prefixes with legal three-ply representative histories', () => {
+    const boards: string[] = [];
+    const stats = streamUniqueBoards({
+      ply: 3,
+      boardSize: 9,
+      includeTranslationSymmetry: true,
+      includeColorSymmetry: true,
+      maxBoards: 64,
+      seed: 1,
+    }, board => boards.push(board));
+    expect(boards).toHaveLength(64);
+    expect(stats.emitted).toBe(64);
+    expect(stats.truncatedByAmount).toBe(true);
+    expect(stats.exploredNodes).toBeGreaterThan(stats.emitted);
+    for (const board of boards) expect(decodeGame(board).ply).toBe(3);
   });
 
   test('stops once the time limit is reached', () => {

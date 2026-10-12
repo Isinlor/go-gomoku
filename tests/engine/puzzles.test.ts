@@ -23,6 +23,14 @@ function assertAISolves(puzzle: Puzzle, ai: GogoAI, timeMs: number): void {
 
   const result = ai.findBestMove(position, timeMs);
   expect(result.move).toBe(expectedIndex);
+  // Keep the full expert regression in the existing puzzle benchmarks.
+  if (puzzle.id === 'gen-expert-1') {
+    expect(result.forcedWin).toBe(true);
+    expect(result.heuristicWin).toBe(false);
+    expect(result.depth).toBe(9);
+    expect(result.score).toBe(1_000_000_000 - 9);
+    expect(result.timedOut).toBe(false);
+  }
 }
 
 // Classic AI tests — scale time by puzzle difficulty

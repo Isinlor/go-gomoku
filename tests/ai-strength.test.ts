@@ -1,6 +1,10 @@
 // @vitest-environment node
-import { expect, test } from 'vitest';
+import { beforeAll, expect, test } from 'vitest';
+import { stripTypeScriptTypes } from 'node:module';
 import { strengthEvidence, benchmarkStrength } from '../scripts/ai-strength.mjs';
+
+// Initialize Node's native compiler once; each integration still loads fresh files.
+beforeAll(() => { stripTypeScriptTypes('const warmup: number = 0;'); });
 
 test('updates bounded-score loss evidence, with draws neutral', () => {
   let evidence = 1;
@@ -104,10 +108,10 @@ test.each([0, 1])('swaps colors on identical openings, randomizing pair order (%
   const reports: any[] = [];
   sampleStrength(engine, engine, s => reports.push(s), () => coin, (_m, _c, opening, color) => {
     calls.push({ opening, color });
-    return 0;
+    return -1; // Seven pairs exercise both orders; the full cap is checked by workers.
   });
-  expect(reports).toHaveLength(128);
-  expect(reports.at(-1)).toEqual({ pairs: 128, score: 0, evidence: 1 });
+  expect(reports).toHaveLength(7);
+  expect(reports.at(-1).score).toBe(-7);
   for (let i = 0; i < calls.length; i += 2) {
     expect(calls[i].opening).toBe(calls[i + 1].opening);
     expect([calls[i].color, calls[i + 1].color]).toEqual([coin + 1, 2 - coin]);
@@ -201,42 +205,66 @@ function fixture(aiBody = 'return { move: 0 };') {
   return root;
 }
 
-test('real Node worker loads both checkouts without dependencies and sends results', async () => {
+test('loads both checkouts without dependencies and sends results', { tags: ['slow'] }, () => {
   const root = fixture();
   const reports: any[] = [];
   try {
     startStrengthWorker({ masterRoot: root, candidateRoot: root }, s => reports.push(s));
     expect(reports).toHaveLength(128);
-    expect((await runStrengthIteration(root, root)).pairs).toBe(128);
-    expect(await runStrength(root, root, () => {})).toBe(0);
     const loadCalls: string[] = [];
     startStrengthWorker({ masterRoot: 'm', candidateRoot: 'c' }, () => {}, (path) => { loadCalls.push(path); return loadEngine(root); });
     expect(loadCalls).toEqual(['m', 'c']);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test('CLI errors and worker search errors return exit code 2', async () => {
+// Real worker/process integrations need headroom for CI startup and scheduling.
+test('real Node worker sends complete iteration results', { tags: ['slow'] }, async () => {
+  const root = fixture();
+  try {
+    expect((await runStrengthIteration(root, root)).pairs).toBe(128);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('real Node worker passes the strength benchmark', { tags: ['slow'] }, async () => {
+  const root = fixture();
+  try {
+    expect(await runStrength(root, root, () => {})).toBe(0);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test.each([undefined, '/nonexistent-strength-master'])('invalid master path %s returns exit code 2', async (master) => {
+  const root = fixture();
+  try {
+    expect(await runStrength(master, root, () => {})).toBe(2);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('worker search errors return exit code 2', { tags: ['slow'] }, async () => {
   const root = fixture('return { move: -1 };');
   const logs: string[] = [];
   try {
-    expect(await runStrength(undefined, root, s => logs.push(s))).toBe(2);
-    expect(await runStrength('/nonexistent-strength-master', root, s => logs.push(s))).toBe(2);
     expect(await runStrength(root, root, s => logs.push(s))).toBe(2);
     expect(logs.join(' ')).toContain('illegal move');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('CLI search errors return exit code 2', { tags: ['slow'] }, () => {
+  const root = fixture('return { move: -1 };');
+  try {
     const cli = spawnSync(process.execPath, [resolve('scripts/ai-strength.mjs'), root], { cwd: root, encoding: 'utf8' });
     expect(cli.status).toBe(2);
     expect(cli.stdout).toContain('illegal move');
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test('a genuinely stuck search cannot escape the watchdog', async () => {
+test('a genuinely stuck search cannot escape the watchdog', { tags: ['slow'] }, async () => {
   const root = fixture('while (true) {}');
   try {
     await expect(runStrengthIteration(root, root, undefined, 100)).rejects.toThrow('No complete');
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test('CLI entry defaults to cwd and uses the supplied master path', async () => {
+test('CLI entry defaults to cwd and uses the supplied master path', { tags: ['slow'] }, async () => {
   const root = fixture();
   const originalCwd = process.cwd();
   const originalArgv = process.argv;

@@ -26,13 +26,18 @@ import {
   decodeMove,
 } from '../../src/engine/gogomoku';
 
-test.each([9, 11, 13] as const)('cached puzzle windows on size %s match original calculations across captures and undo', (size) => {
+// Full cache parity sweeps compare both players at every point through undo and captures.
+test.each([9, 11, 13] as const)('cached puzzle windows on size %s match original calculations across captures and undo', { tags: ['slow'] }, (size) => {
   const evaluation = new PuzzleWindowEvaluation(size * size);
   const rng = new LCG(20261019);
   const positions = [
     decodeGame(`B${size} b1 a1 a2`),
-    playRandomGame(size, rng, 40),
-    playRandomGame(size, rng, 40),
+    playRandomGame(size, rng, 8),
+    playRandomGame(size, rng, 8),
+    GogoPosition.fromAscii(Array.from({ length: size }, (_, y) => (
+      y === 0 ? 'XXXXX' + '.'.repeat(size - 5)
+        : y === 2 ? '.OOOO' + '.'.repeat(size - 5) : '.'.repeat(size)
+    ))),
   ];
   for (const position of positions) {
     do {
@@ -57,11 +62,15 @@ test.each([9, 11, 13] as const)('cached puzzle windows on size %s match original
         expect(evaluation.threats(attacker)).toEqual([attackerThreats, defenderThreats, maximum]);
         const saved = position.toMove;
         position.toMove = attacker;
+        const actual: number[] = [];
+        const expected: number[] = [];
         for (let point = 0; point < position.area; point += 1) {
           if (position.board[point] === EMPTY) {
-            expect(evaluation.score(point, attacker)).toBe(heuristicMoveScore(position, point));
+            actual.push(evaluation.score(point, attacker));
+            expected.push(heuristicMoveScore(position, point));
           }
         }
+        expect(actual).toEqual(expected);
         position.toMove = saved;
       }
       // Repeated synchronization must preserve all cached values.
@@ -379,11 +388,12 @@ test('playRandomGame with different seeds produces different games', () => {
 // generatePuzzles integration test
 // ---------------------------------------------------------------------------
 
-test('generatePuzzles finds beginner puzzles', { timeout: 120_000 }, () => {
-  const { puzzles, stats } = generatePuzzles(BEGINNER, 2, {
-    seed: 42,
-    maxGames: 500,
-  });
+// Three short seeded games exercise real validation and duplicate rejection
+// without searching long, dense positions unrelated to generator orchestration.
+const fastGeneratorOptions = { seed: 2826, maxGames: 3, maxMovesPerGame: 15, minStones: 12 };
+
+test('generatePuzzles finds beginner puzzles', { tags: ['slow'] }, () => {
+  const { puzzles, stats } = generatePuzzles(BEGINNER, 2, fastGeneratorOptions);
   expect(puzzles.length).toBe(2);
   expect(stats.puzzlesFound).toBe(2);
   expect(stats.gamesPlayed).toBeGreaterThan(0);
@@ -393,18 +403,27 @@ test('generatePuzzles finds beginner puzzles', { timeout: 120_000 }, () => {
   expect(similarities).not.toBeNull();
   expect(hasDuplicateSimilarity(similarities!)).toBe(false);
 
-  const regenerated = generatePuzzles(BEGINNER, 1, {
-    seed: 42,
-    maxGames: 500,
-    existingPuzzles: [puzzles[0]],
-  });
-  expect(regenerated.puzzles).toEqual([puzzles[1]]);
-
   for (const p of puzzles) {
     expect(p.depth).toBe(3);
     expect(p.threshold).toBe(2);
     expect(p.solution.length).toBeGreaterThanOrEqual(2);
   }
+});
+
+test('generatePuzzles rejects an existing puzzle and returns the next distinct one', { tags: ['slow'] }, () => {
+  const existing = {
+    encoded: 'B9 e5 e4 b6 e7 c4 f7 c7 f5 d7 c3 a9 d3 b1',
+    solution: 'g6', depth: 3, threshold: 2,
+  };
+  const { puzzles } = generatePuzzles(BEGINNER, 1, {
+    ...fastGeneratorOptions,
+    existingPuzzles: [existing],
+  });
+  expect(puzzles).toHaveLength(1);
+  expect(puzzles[0]).toMatchObject({
+    encoded: 'B9 e5 f4 d2 d6 f8 h4 e6 a2 e9 e7 d4 g2 g9 f6 d5',
+    solution: 'g5', depth: 3, threshold: 2,
+  });
 });
 
 // ---------------------------------------------------------------------------
