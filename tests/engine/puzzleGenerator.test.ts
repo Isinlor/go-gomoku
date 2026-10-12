@@ -31,8 +31,12 @@ test.each([9, 11, 13] as const)('cached puzzle windows on size %s match original
   const rng = new LCG(20261019);
   const positions = [
     decodeGame(`B${size} b1 a1 a2`),
-    playRandomGame(size, rng, 40),
-    playRandomGame(size, rng, 40),
+    playRandomGame(size, rng, 12),
+    playRandomGame(size, rng, 12),
+    GogoPosition.fromAscii(Array.from({ length: size }, (_, y) => (
+      y === 0 ? 'XXXXX' + '.'.repeat(size - 5)
+        : y === 2 ? '.OOOO' + '.'.repeat(size - 5) : '.'.repeat(size)
+    ))),
   ];
   for (const position of positions) {
     do {
@@ -57,11 +61,15 @@ test.each([9, 11, 13] as const)('cached puzzle windows on size %s match original
         expect(evaluation.threats(attacker)).toEqual([attackerThreats, defenderThreats, maximum]);
         const saved = position.toMove;
         position.toMove = attacker;
+        const actual: number[] = [];
+        const expected: number[] = [];
         for (let point = 0; point < position.area; point += 1) {
           if (position.board[point] === EMPTY) {
-            expect(evaluation.score(point, attacker)).toBe(heuristicMoveScore(position, point));
+            actual.push(evaluation.score(point, attacker));
+            expected.push(heuristicMoveScore(position, point));
           }
         }
+        expect(actual).toEqual(expected);
         position.toMove = saved;
       }
       // Repeated synchronization must preserve all cached values.
@@ -379,15 +387,11 @@ test('playRandomGame with different seeds produces different games', () => {
 // generatePuzzles integration test
 // ---------------------------------------------------------------------------
 
-// Start at seed 42's sixth game, avoiding five fruitless games while still
-// exercising random generation and real validation of two distinct puzzles.
-// Four CI samples: 9.965–11.139 s. The log-normal prediction limit is 20.9 s
-// at a 0.01/11 tail probability; round up for the two real validation searches.
-test('generatePuzzles finds beginner puzzles', { tags: ['slow'], timeout: 30_000 }, () => {
-  const { puzzles, stats } = generatePuzzles(BEGINNER, 2, {
-    seed: 1302382268,
-    maxGames: 2,
-  });
+// Three short seeded games exercise real validation and duplicate rejection
+// without searching long, dense positions unrelated to generator orchestration.
+test('generatePuzzles finds beginner puzzles', { tags: ['slow'] }, () => {
+  const options = { seed: 2826, maxGames: 3, maxMovesPerGame: 15, minStones: 12 };
+  const { puzzles, stats } = generatePuzzles(BEGINNER, 2, options);
   expect(puzzles.length).toBe(2);
   expect(stats.puzzlesFound).toBe(2);
   expect(stats.gamesPlayed).toBeGreaterThan(0);
@@ -398,8 +402,7 @@ test('generatePuzzles finds beginner puzzles', { tags: ['slow'], timeout: 30_000
   expect(hasDuplicateSimilarity(similarities!)).toBe(false);
 
   const regenerated = generatePuzzles(BEGINNER, 1, {
-    seed: 1302382268,
-    maxGames: 2,
+    ...options,
     existingPuzzles: [puzzles[0]],
   });
   expect(regenerated.puzzles).toEqual([puzzles[1]]);

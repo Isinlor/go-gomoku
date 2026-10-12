@@ -1292,7 +1292,7 @@ test('TT score adjustment correctly handles forced win/loss scores and pass-thro
 });
 
 test('LMR reduces later moves at depth >= 3 and re-searches on improvement', () => {
-  const ai = new GogoAI({ maxDepth: 6, quiescenceDepth: 2, now: () => 0 });
+  const ai = new GogoAI({ maxPly: 3, quiescenceDepth: 0, now: () => 0 });
   const anyAI = ai as any;
   // Position with many legal moves and balanced evaluation so moves don't
   // immediately cause beta cutoffs, allowing legalCount to exceed 3.
@@ -1315,9 +1315,17 @@ test('LMR reduces later moves at depth >= 3 and re-searches on improvement', () 
   // Clear TT to ensure fresh search
   anyAI.ttFlag.fill(0);
 
-  // Search at depth 5 to trigger LMR depth reduction (line 328: depth >= 3, legalCount > 3)
-  const score = anyAI.search(pos, 5, -1_000_000, 1_000_000, 1);
+  // Depth three is sufficient to reduce later children from depth two to one.
+  const search = anyAI.search.bind(anyAI);
+  const childDepths: number[] = [];
+  anyAI.search = (...args: any[]) => {
+    if (args[4] === 2) childDepths.push(args[1]);
+    return search(...args);
+  };
+  const score = anyAI.search(pos, 3, -1_000_000, 1_000_000, 1, false);
   expect(typeof score).toBe('number');
+  expect(childDepths).toContain(2);
+  expect(childDepths).toContain(1);
 
   // Cover line 334 (LMR re-search when scout finds improvement) by mocking inner search
   // calls. The negamax convention means inner calls return the score from the child's
@@ -3496,6 +3504,31 @@ test('findThreatResponses: defender winning cell in overlapping horizontal and v
   const moveIndex = Array.from({ length: count }, (_, index) => index).find((index) => moves[index] === 0);
   expect(moveIndex).not.toBeUndefined();
   expect(scores[moveIndex ?? 0]).toBe(3_000_000);
+});
+
+test('proofDefend skips a suicidal ordered defense and restores the position', () => {
+  const position = GogoPosition.fromAscii([
+    '.........', '.........', '.........', '....X....', '...X.X...',
+    '....X....', '.........', '.........', '.........',
+  ], WHITE);
+  const ai = new GogoAI({ now: () => 0 }) as any;
+  ai.ensureBuffers(position.area);
+  ai.deadline = Infinity;
+  // A real ordering hint puts the suicidal center first in the quiet defenses.
+  ai.history[position.area + 40] = 10_000_000;
+  expect(position.isLegal(40)).toBe(false);
+  const before = position.toAscii();
+  const rejected: number[] = [];
+  const play = position.play.bind(position);
+  position.play = (move) => {
+    const legal = play(move);
+    if (!legal) rejected.push(move);
+    return legal;
+  };
+  expect(ai.proofDefend(position, 2, 1)).toBe(false);
+  expect(rejected).toEqual([40]);
+  expect(position.toAscii()).toEqual(before);
+  expect(position.toMove).toBe(WHITE);
 });
 
 test('proofDefend: restricted move play failure is handled without coverage suppression', () => {

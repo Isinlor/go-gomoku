@@ -11,7 +11,7 @@ export default defineConfig({
     tags: [{
       name: 'slow',
       description: 'Exhaustive search or real process integration with CI timing headroom',
-      timeout: 5_000,
+      timeout: 1_000,
     }],
     coverage: {
       provider: 'v8',

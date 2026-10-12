@@ -1,20 +1,25 @@
 import { expect, test } from 'vitest';
 import { GogoAI, GogoPosition, PUZZLES, decodeGame, decodeMove } from '../../src/engine';
 
-// Keep the real nine-ply expert proof: a shallow fixture would miss this regression.
-// Five CI samples: 3.985–5.118 s. The log-normal prediction limit is 10.5 s
-// at a 0.01/11 tail probability; round up for the full clock-free proof.
-test('a promising shallow move is independently proved without finishing heuristic discovery', { tags: ['slow'], timeout: 15_000 }, () => {
-  const puzzle = PUZZLES.find(p => p.id === 'gen-expert-1')!;
+// A five-ply win still requires independent proof beyond depth-three discovery.
+test('a promising shallow move is independently proved without finishing heuristic discovery', { tags: ['slow'] }, () => {
+  const puzzle = PUZZLES.find(p => p.id === 'black-5-3')!;
   const position = decodeGame(puzzle.encoded);
   const before = position.encodeGame();
-  const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4, now: () => 0 });
+  const ai = new GogoAI({ maxDepth: 6, quiescenceDepth: 0, now: () => 0 }) as any;
+  const searchRoot = ai.searchRoot.bind(ai);
+  const discoveryDepths: number[] = [];
+  ai.searchRoot = (...args: any[]) => {
+    discoveryDepths.push(args[1]);
+    return searchRoot(...args);
+  };
   const result = ai.findBestMove(position, 20000);
   expect(result.move).toBe(decodeMove(puzzle.solution, position.size));
   expect(result.forcedWin).toBe(true);
   expect(result.heuristicWin).toBe(false);
-  expect(result.depth).toBe(9);
-  expect(result.score).toBe(1_000_000_000 - 9);
+  expect(discoveryDepths).toEqual([1, 2, 3]);
+  expect(result.depth).toBe(5);
+  expect(result.score).toBe(1_000_000_000 - 5);
   expect(result.timedOut).toBe(false);
   expect(position.encodeGame()).toBe(before);
 });
@@ -67,15 +72,23 @@ test('unexpected proof errors restore discovery state before propagating', () =>
   expect(Array.from(ai.history)).toEqual(Array(position.area * 2).fill(7));
 });
 
-// Search the same expert position to depth four after its speculative proof fails.
 test('discovery continues when the early proof depth limit cannot establish the win', { tags: ['slow'] }, () => {
-  const puzzle = PUZZLES.find(p => p.id === 'gen-expert-1')!;
+  const puzzle = PUZZLES.find(p => p.id === 'black-5-3')!;
   const position = decodeGame(puzzle.encoded);
   const before = position.encodeGame();
-  const result = new GogoAI({ maxDepth: 4, quiescenceDepth: 4, now: () => 0 }).findBestMove(position, 20000);
+  const ai = new GogoAI({ maxDepth: 4, quiescenceDepth: 0, now: () => 0 }) as any;
+  const earlyProof = ai.tryEarlyProof.bind(ai);
+  const proofs: boolean[] = [];
+  ai.tryEarlyProof = (...args: any[]) => {
+    const proved = earlyProof(...args);
+    proofs.push(proved);
+    return proved;
+  };
+  const result = ai.findBestMove(position, 20000);
+  expect(proofs).toEqual([false]);
   expect(result.depth).toBe(4);
   expect(result.move).toBe(decodeMove(puzzle.solution, position.size));
-  expect(result.score).toBeCloseTo(-404.5, 8);
+  expect(result.score).toBeCloseTo(499261.9, 8);
   expect(result.forcedWin).toBe(false);
   expect(result.timedOut).toBe(false);
   expect(position.encodeGame()).toBe(before);
