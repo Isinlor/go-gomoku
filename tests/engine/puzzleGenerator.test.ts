@@ -3,6 +3,7 @@ import { hasDuplicateSimilarity, puzzleSimilarities } from '../../src/engine/puz
 
 import {
   ForcedWinSearcher,
+  PuzzleWindowEvaluation,
   heuristicMoveScore,
   heuristicBestMove,
   isGameHistoryClean,
@@ -24,6 +25,50 @@ import {
   decodeGame,
   decodeMove,
 } from '../../src/engine/gogomoku';
+
+test.each([9, 11, 13] as const)('cached puzzle windows on size %s match original calculations across captures and undo', (size) => {
+  const evaluation = new PuzzleWindowEvaluation(size * size);
+  const rng = new LCG(20261019);
+  const positions = [
+    decodeGame(`B${size} b1 a1 a2`),
+    playRandomGame(size, rng, 40),
+    playRandomGame(size, rng, 40),
+  ];
+  for (const position of positions) {
+    do {
+      evaluation.sync(position);
+      for (const attacker of [BLACK, WHITE] as const) {
+        const defender = attacker === BLACK ? WHITE : BLACK;
+        let attackerThreats = 0;
+        let defenderThreats = 0;
+        let maximum = 0;
+        for (let wi = 0; wi < position.meta.windowCount; wi += 1) {
+          let ours = 0;
+          let theirs = 0;
+          for (let step = 0; step < 5; step += 1) {
+            const color = position.board[position.meta.windows[wi * 5 + step]];
+            ours += color === attacker ? 1 : 0;
+            theirs += color === defender ? 1 : 0;
+          }
+          attackerThreats += ours === 4 && theirs === 0 ? 1 : 0;
+          defenderThreats += theirs === 4 && ours === 0 ? 1 : 0;
+          maximum = Math.max(maximum, ours);
+        }
+        expect(evaluation.threats(attacker)).toEqual([attackerThreats, defenderThreats, maximum]);
+        const saved = position.toMove;
+        position.toMove = attacker;
+        for (let point = 0; point < position.area; point += 1) {
+          if (position.board[point] === EMPTY) {
+            expect(evaluation.score(point, attacker)).toBe(heuristicMoveScore(position, point));
+          }
+        }
+        position.toMove = saved;
+      }
+      // Repeated synchronization must preserve all cached values.
+      evaluation.sync(position);
+    } while (position.undo());
+  }
+});
 
 // ---------------------------------------------------------------------------
 // LCG tests
