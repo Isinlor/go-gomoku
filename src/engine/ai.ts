@@ -350,6 +350,7 @@ export class GogoAI {
   }
 
   private searchDepths(position: GogoPosition, startDepth: number, state: SearchState, endDepth = this.maxDepth, earlyProof = false): void {
+    let earlyProofTried = false;
     for (let depth = startDepth; depth <= endDepth; depth += 1) {
       try {
         const result = this.searchRoot(position, depth, state.hintMove);
@@ -364,10 +365,11 @@ export class GogoAI {
           break;
         }
         // A strong tactical candidate often appears before discovery finds its
-        // mate score. Try a bounded independent proof once, retaining most of
-        // the budget for discovery if it cannot establish a win.
-        if (earlyProof && depth === 3 && depth < endDepth && result.score >= EVAL_WEIGHTS[4] / 2 && this.tryEarlyProof(position, state)) {
-          break;
+        // mate score. Try a bounded independent proof at the first promising
+        // depth, retaining most of the budget for discovery if it cannot win.
+        if (earlyProof && !earlyProofTried && depth >= 3 && depth < endDepth && result.score >= EVAL_WEIGHTS[4] / 2) {
+          earlyProofTried = true;
+          if (this.tryEarlyProof(position, state)) break;
         }
       } catch (error) {
         if (error !== this.timeoutSignal) {
@@ -1282,7 +1284,7 @@ export class GogoAI {
 
   // === AND/OR Threat-Space Prover ===
   // Dedicated prover for forced-win verification using attacker/defender recursion.
-  // Attacker generates only forcing threats; defender generates all legal refutations.
+  // Attacker tries threats and longer tactical setups; defender checks refutations.
   // This is much faster than full negamax for proving tactical wins.
   private proofTTHash = new BigUint64Array(TT_SIZE);
   // 1 = proven win, -1 = no forcing win within stored depth, 0 = unknown
@@ -1348,7 +1350,7 @@ export class GogoAI {
 
   /**
    * Attacker (OR node): try to find at least one forcing move that wins.
-   * Generates only tactical/forcing moves. If any wins, return true.
+   * Includes quiet setup moves when the horizon permits. If any wins, return true.
    */
   private proofAttack(position: GogoPosition, depthLeft: number, ply: number): boolean {
     this.checkTime(false);
@@ -1407,13 +1409,19 @@ export class GogoAI {
       }
     }
 
+    // With one attacking turn left, only completing an existing four can win.
+    if (depthLeft <= 2) return false;
+
     const moves = this.moveBuffers[ply];
     const scores = this.scoreBuffers[ply];
     // An attacker facing an immediate counter-win must answer it too. Every
     // other move loses on the defender's next turn; captures and counter-wins
     // are included by the same complete response generator as defense nodes.
     const responses = this.findThreatResponses(position, ply);
-    const count = responses >= 0 ? responses : this.generateOrderedMoves(position, moves, scores, -1, true, ply);
+    // Longer wins can need quiet setup moves before the forcing sequence.
+    // Keep exhaustive loss verification on its bounded threat-only path.
+    // With at most two attacking turns, a four or tactical capture is needed.
+    const count = responses >= 0 ? responses : this.generateOrderedMoves(position, moves, scores, -1, this.lossProofMode || depthLeft <= 4, ply);
 
     for (let i = 0; i < count; i += 1) {
       const m = moves[i];
