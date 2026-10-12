@@ -1,4 +1,5 @@
 import { test, expect } from 'vitest';
+import { hasDuplicateSimilarity, puzzleSimilarities } from '../../src/engine/puzzleSimilarity';
 
 import {
   ForcedWinSearcher,
@@ -342,6 +343,17 @@ test('generatePuzzles finds beginner puzzles', { timeout: 120_000 }, () => {
   expect(stats.puzzlesFound).toBe(2);
   expect(stats.gamesPlayed).toBeGreaterThan(0);
   expect(stats.positionsChecked).toBeGreaterThan(0);
+
+  const similarities = puzzleSimilarities(puzzles[0], puzzles[1]);
+  expect(similarities).not.toBeNull();
+  expect(hasDuplicateSimilarity(similarities!)).toBe(false);
+
+  const regenerated = generatePuzzles(BEGINNER, 1, {
+    seed: 42,
+    maxGames: 500,
+    existingPuzzles: [puzzles[0]],
+  });
+  expect(regenerated.puzzles).toEqual([puzzles[1]]);
 
   for (const p of puzzles) {
     expect(p.depth).toBe(3);
