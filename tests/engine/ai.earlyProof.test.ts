@@ -56,6 +56,7 @@ test('a speculative timeout leaves time for discovery and restores the position'
   expect(ai.deadline).toBe(1000);
   expect(ai.timedOut).toBe(false);
   expect(state).not.toHaveProperty('provenWin');
+  expect(ai.forcingProofMode).toBe(false);
   expect(position.encodeGame()).toBe(before);
 });
 
@@ -68,6 +69,7 @@ test('unexpected proof errors restore discovery state before propagating', () =>
   position.play = () => { throw new Error('broken position'); };
   const state = { bestMove: 40, bestScore: 500000, completedDepth: 3, hintMove: 40 };
   expect(() => ai.tryEarlyProof(position, state)).toThrow('broken position');
+  expect(ai.forcingProofMode).toBe(false);
   expect(ai.deadline).toBe(1000);
   expect(Array.from(ai.history)).toEqual(Array(position.area * 2).fill(7));
 });
@@ -92,4 +94,39 @@ test('discovery continues when the early proof depth limit cannot establish the 
   expect(result.forcedWin).toBe(false);
   expect(result.timedOut).toBe(false);
   expect(position.encodeGame()).toBe(before);
+});
+
+test.each([['gen-expert-1', 50_000], ['gen-complex-1', 56_000]] as const)('complex puzzle %s retains early proof with bounded search work', { timeout: 5_000 }, (id, nodeLimit) => {
+  const puzzle = PUZZLES.find(p => p.id === id)!;
+  const position = decodeGame(puzzle.encoded);
+  const result = new GogoAI({ maxDepth: 10, quiescenceDepth: 4, now: () => 0 }).findBestMove(position, 20_000);
+  expect(result.move).toBe(decodeMove(puzzle.solution, position.size));
+  expect(result.forcedWin).toBe(true);
+  expect(result.heuristicWin).toBe(false);
+  expect(result.nodes).toBeLessThan(nodeLimit);
+  expect(position.encodeGame()).toBe(puzzle.encoded);
+});
+
+test.each(['depth limit', 'timeout'])('quiet setup proof still succeeds after the forcing pass reaches its %s', { timeout: 5_000 }, (reason) => {
+  const puzzle = PUZZLES.find(p => p.id === 'gen-complex-1')!;
+  const position = decodeGame(puzzle.encoded);
+  let clock = 0;
+  const ai = new GogoAI({ now: () => {
+    if (reason === 'timeout' && ai.forcingProofMode) clock = 6_000;
+    return clock;
+  } }) as any;
+  const generate = ai.generateOrderedMoves.bind(ai);
+  const modes: boolean[] = [];
+  ai.generateOrderedMoves = (...args: any[]) => {
+    if (args[5] % 2 === 0) modes.push(args[4]);
+    return generate(...args);
+  };
+  expect(ai.verifyWinningMove(position, decodeMove(puzzle.solution, position.size), 20_000, puzzle.depth)).toBe(true);
+  expect(modes[0]).toBe(true);
+  expect(modes).toContain(false);
+  expect(ai.timedOut).toBe(false);
+  expect(ai.deadline).toBe(20_000);
+  expect(position.encodeGame()).toBe(puzzle.encoded);
+  // Reusing the engine must not leave a restricted search mode active.
+  expect(ai.forcingProofMode).toBe(false);
 });

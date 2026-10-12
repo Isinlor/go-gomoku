@@ -126,6 +126,7 @@ export class GogoAI {
   private readonly timeoutSignal = new Error('SEARCH_TIMEOUT');
   private proofMode = false;
   private lossProofMode = false;
+  private forcingProofMode = false;
   private verifiedWinDepth = 0;
 
   // Transposition table
@@ -1323,27 +1324,35 @@ export class GogoAI {
     this.verifiedWinDepth = 0;
 
     if (!position.play(move)) return false;
+    const deadline = this.deadline;
     try {
-      // Iterative deepening: start shallow and deepen. Earlier iterations
-      // populate the proof TT, which acts as a powerful pruning mechanism
-      // for deeper iterations.
-      for (let maxDepth = 1; maxDepth <= Math.min(depthLimit, this.maxPly); maxDepth += 2) {
-        try {
-          const result = this.proofDefend(position, maxDepth, 1);
-          if (result) {
-            this.verifiedWinDepth = maxDepth;
-            return true;
+      // Forcing sequences are much cheaper to prove than quiet setups. Give
+      // them a bounded first pass, reserving most of the budget for broader wins.
+      for (const forcingOnly of [true, false]) {
+        this.forcingProofMode = forcingOnly;
+        this.deadline = forcingOnly ? deadline - Math.max(0, timeLimitMs) * 3 / 4 : deadline;
+        // Restricted failures cannot refute quiet setups. Invalidate their
+        // depths before broadening; proven wins and independently checked
+        // move hints remain useful. Both proof probes require positive depth.
+        if (!forcingOnly) this.proofTTDepth.fill(0);
+        for (let maxDepth = 1; maxDepth <= Math.min(depthLimit, this.maxPly); maxDepth += 2) {
+          try {
+            if (this.proofDefend(position, maxDepth, 1)) {
+              this.verifiedWinDepth = maxDepth;
+              return true;
+            }
+          } catch (error) {
+            if (error !== this.timeoutSignal) throw error;
+            if (forcingOnly) break;
+            this.timedOut = true;
+            return false;
           }
-        } catch (error) {
-          if (error !== this.timeoutSignal) {
-            throw error;
-          }
-          this.timedOut = true;
-          return false;
         }
       }
       return false;
     } finally {
+      this.forcingProofMode = false;
+      this.deadline = deadline;
       position.undo();
     }
   }
@@ -1421,7 +1430,7 @@ export class GogoAI {
     // Longer wins can need quiet setup moves before the forcing sequence.
     // Keep exhaustive loss verification on its bounded threat-only path.
     // With at most two attacking turns, a four or tactical capture is needed.
-    const count = responses >= 0 ? responses : this.generateOrderedMoves(position, moves, scores, -1, this.lossProofMode || depthLeft <= 4, ply);
+    const count = responses >= 0 ? responses : this.generateOrderedMoves(position, moves, scores, -1, this.lossProofMode || this.forcingProofMode || depthLeft <= 4, ply);
 
     for (let i = 0; i < count; i += 1) {
       const m = moves[i];
