@@ -1337,15 +1337,25 @@ test('LMR re-searches reduced moves when their scout improves alpha', () => {
   any2.history.fill(0);
   any2.ttFlag.fill(0);
   const realSearch = any2.search.bind(any2);
-  any2.search = function (position: any, depth: number, alpha: number, beta: number, ply: number, canNullMove = true): number {
+  const childSearches: { hash: bigint; depth: number; alpha: number; beta: number }[] = [];
+  any2.search = function (position: GogoPosition, depth: number, alpha: number, beta: number, ply: number, canNullMove = true): number {
     if (ply === 1) {
       return realSearch(position, depth, alpha, beta, ply, canNullMove);
     }
-    // -50 → parent score 50 (sets/maintains alpha); -51 → parent score 51 (>alpha, triggers line 334)
+    childSearches.push({ hash: position.hash, depth, alpha, beta });
+    // Full-depth searches maintain alpha at 50; reduced scouts improve it to 51.
     return depth === 1 ? -51 : -50;
   };
   const lmrResearchScore = any2.search(pos, 3, -1_000_000, 1_000_000, 1, false);
-  expect(typeof lmrResearchScore).toBe('number');
+  const reducedSearches = childSearches.filter((call) => call.depth === 1);
+  expect(reducedSearches.length).toBeGreaterThan(0);
+  for (const reduced of reducedSearches) {
+    expect(reduced).toMatchObject({ alpha: -51, beta: -50 });
+    // PVS can also re-search at full depth, but uses a wider window. Require
+    // the LMR verification scout for this exact child before accepting its score.
+    expect(childSearches[childSearches.indexOf(reduced) + 1]).toEqual({ ...reduced, depth: 2 });
+  }
+  expect(lmrResearchScore).toBe(50);
 });
 
 test('adaptive null move pruning uses R=3 at depth >= 6', () => {
