@@ -1,3 +1,5 @@
+# https://isinlor.github.io/go-gomoku
+
 # GoGomoku engine + browser AI
 
 This package implements a browser-safe GoGomoku core with a Vue-based UI:
