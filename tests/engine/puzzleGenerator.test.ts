@@ -400,3 +400,56 @@ test('difficulty constants have correct values', () => {
   expect(INTERMEDIATE).toEqual({ n: 5, m: 4, k: 2 });
   expect(ADVANCED).toEqual({ n: 7, m: 4, k: 2 });
 });
+
+test('single-horizon move proofs agree with shortest-depth checks and restore state', () => {
+  for (const encoded of ['B9 c5 e3 d5 e4 f5 e6', 'B9 e5 a1', 'B9 a1 a9 b1 b9 c1 c9 d1 d9', 'B9 e5 e6 f6 d5 d6 b3 d4']) {
+    const pos = decodeGame(encoded);
+    const searcher = new ForcedWinSearcher(pos.area, 6);
+    const moves = new Int16Array(pos.area);
+    const count = pos.generateAllLegalMoves(moves);
+    for (const horizon of [1, 3, 4, 5]) {
+      for (let i = 0; i < count; i += 1) {
+        const before = [pos.encodeGame(), pos.hash, pos.koPoint, pos.toMove, pos.winner];
+        const expected = searcher.forcedWinDepthForMove(pos, moves[i], horizon) !== -1;
+        expect(searcher.hasForcedWinAfterMove(pos, moves[i], horizon)).toBe(expected);
+        expect([pos.encodeGame(), pos.hash, pos.koPoint, pos.toMove, pos.winner]).toEqual(before);
+      }
+    }
+    expect(searcher.hasForcedWinAfterMove(pos, -1, 3)).toBe(false);
+    expect(searcher.hasForcedWinAfterMove(pos, moves[0], 0)).toBe(false);
+  }
+});
+
+test('reuses a proven shorter win at a longer horizon but never at a shorter horizon', () => {
+  const position = decodeGame('B9 c5 e3 d5 e4 f5 e6');
+  const searcher = new ForcedWinSearcher(position.area, 8);
+  expect(searcher.hasForcedWin(position, BLACK, 3)).toBe(true);
+  expect(searcher.hasForcedWin(position, BLACK, 5)).toBe(true);
+  expect(searcher.nodesSearched).toBe(1);
+  expect(searcher.hasForcedWin(position, BLACK, 1)).toBe(false);
+});
+
+test('one attacking turn cannot win by adding stones to a blocked four', () => {
+  const position = decodeGame('B9 a1 e1 b1 h9 c1 h8 d1 i9');
+  const searcher = new ForcedWinSearcher(position.area, 4);
+  for (const horizon of [1, 2]) {
+    expect(searcher.hasForcedWin(position, BLACK, horizon)).toBe(false);
+    expect(searcher.nodesSearched).toBe(1);
+  }
+});
+
+test('winning-line extraction starts with the already-proven solution and restores the board', () => {
+  const pos = GogoPosition.fromAscii([
+    '.........', '.........', '.........', '.........',
+    '..XXXX...', '.........', '.........', '.........', '.........',
+  ], BLACK);
+  const board = Array.from(pos.board);
+  const hash = pos.hash;
+  const searcher = new ForcedWinSearcher(pos.area, 4);
+  const solution = pos.index(6, 4);
+  expect(searcher.findWinningLine(pos, 1, solution)).toEqual([solution]);
+  expect(Array.from(pos.board)).toEqual(board);
+  expect(pos.hash).toBe(hash);
+  expect(pos.ply).toBe(0);
+  expect(searcher.findWinningLine(pos, 1, pos.index(2, 4))).toEqual([pos.index(1, 4)]);
+});

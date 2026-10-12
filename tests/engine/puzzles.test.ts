@@ -128,3 +128,27 @@ test('AI proves forced loss for edge position B9 e9 e8 f9', { timeout: 60_000 },
   expect(result.timedOut).toBe(false);
   expect(position.isLegal(result.move)).toBe(true);
 });
+
+// Themed experts must pass the same complete validator as generated puzzles.
+// Keeping proofs in this suite avoids putting expensive searches in coverage.
+test.each(['gen-expert-ko', 'gen-expert-sacrifice', 'gen-expert-endgame'])(
+  'new expert %s satisfies every fundamental rule', { timeout: 900_000 }, async (id) => {
+    const { EXPERT, ForcedWinSearcher, validatePuzzlePosition } = await import('../../src/engine/puzzleGenerator');
+    const puzzle = getPuzzleById(id)!;
+    expect(puzzle).toBeDefined();
+    const position = decodeGame(puzzle.encoded);
+    const validated = validatePuzzlePosition(position, EXPERT, new ForcedWinSearcher(position.area, 15));
+    expect(validated).not.toBeNull();
+    expect(validated!.solution).toBe(puzzle.solution);
+    expect(validated!.winningMoves).toEqual(puzzle.winningMoves);
+    expect(validated!.wonEncoded).toBe(puzzle.wonEncoded);
+    const solution = decodeMove(puzzle.solution, position.size);
+    const shallow = new GogoAI({ maxDepth: 4, quiescenceDepth: 0, maxPly: 6 })
+      .findBestMove(position, 5_000);
+    expect(shallow.timedOut).toBe(false);
+    expect(shallow.depth).toBe(4);
+    expect(shallow.move).not.toBe(solution);
+    const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4 });
+    expect(ai.verifyWinningMove(position, solution, 20_000, 9)).toBe(true);
+  },
+);
