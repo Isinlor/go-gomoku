@@ -67,55 +67,6 @@ needs no installed dependencies or test runner:
 npm run test:performance -- /path/to/master-checkout
 ```
 
-The Puzzles workflow also runs `test:strength` against a separate checkout of
-`master`, without installing dependencies. Both engines get **5 ms per move**
-with their default search options. They play from randomly selected legal
-six-move central openings on 9×9 boards. Each opening is played twice, swapping
-colors; the order of the two games is randomized. Both engines receive their
-own version's position objects and fresh AI instances for each game. Both are
-warmed before scoring, with randomized warmup order. Games use master's rules;
-illegal moves or disagreement between the engines' rules are setup/protocol
-errors, rather than evidence of a strength regression. No wall-clock overrun
-forfeits are applied, since normal search deadline overshoot is noisy.
-
-One comparison runs in a worker with a **14-second watchdog**, including engine
-loading, warmup, opening generation, and games. Shutdown has one second of
-headroom below 15 seconds. It runs up to 128 pairs, adapting the number of games
-to actual runtime by stopping at the watchdog. Only complete pairs count;
-an interrupted pair is discarded. Games end at a win, no legal moves, or 120
-additional plies (a draw). The watchdog can interrupt even a stuck synchronous
-search. No completed pairs or worker errors fail immediately with exit code 2.
-A statistical pass exits with 0; a confirmed strength regression exits with 1.
-
-For each pair, let `S` be the candidate's mean game result: win = +1, draw = 0,
-loss = −1. Start three loss evidence processes at 1 and update each with
-`E_b *= (1 − b S)`, for stakes `b = 0.2, 0.5, 0.8`, after each completed pair.
-The reported evidence `E` is their mean. Mixing stakes provides sensitivity to
-several regression sizes without choosing one after observing the results. Fail
-that comparison as soon as `E >= 20`; otherwise pass when the budget ends.
-Seven consecutive pairs lost in both colors cross the threshold, while
-equal-score pairs leave evidence unchanged. A failed comparison is retried from scratch, using fresh openings and randomized order,
-up to five comparisons. Any pass ends the test. Thus a passing comparison fits
-within 15 seconds and five failing comparisons fit within 75 seconds, excluding
-other CI steps.
-
-**Analytical false-failure bound:** under unchanged, exchangeable engines,
-assume `E[S | previous pairs] >= 0`. Each `E_b`, and hence their mean `E`, is
-a nonnegative supermartingale starting at 1, because each multiplier has
-conditional expectation at most 1.
-Ville's inequality gives `P(ever E >= 20) <= 1/20 = 5%`. This bound includes
-adaptive stopping, any number of pairs, and discarding an unfinished final
-pair; no fixed-sample p-value or repeated-testing correction is needed. The
-claim assumes equal engine treatment and exchangeable timing noise, as the
-performance comparison does. Persistent version-specific runner bias violates
-that assumption. Requiring five failures cannot increase the 5% bound; we do
-not assume independent retries or claim a `0.05^5` bound.
-
-This is a quick head-to-head smoke test for substantial regressions at a short
-time control. A pass means insufficient evidence of a regression, not proof
-of equal strength. It does not measure small Elo differences, long time
-controls, or strength on larger boards; those require a longer tournament.
-
 Run locally with Node 24 from the candidate checkout:
 
 ```bash
