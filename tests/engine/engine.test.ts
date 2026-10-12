@@ -2,6 +2,25 @@ import { test, expect } from 'vitest';
 
 import { BLACK, EMPTY, GogoPosition, WHITE, playerName, encodeMove, decodeMove, decodeGame, computeZobristHashes } from '../../src/engine';
 
+test.each([9, 11, 13] as const)('out-of-board coordinates cannot read or play another square on a board of size %s', (size) => {
+  const game = new GogoPosition(size);
+  game.playXY(4, 4);
+  const board = Array.from(game.board);
+  const hash = game.hash;
+  const record = game.encodeGame();
+  const player = game.toMove;
+
+  for (const [x, y] of [[-1, 0], [size, 0], [0, -1], [0, size]]) {
+    expect(game.index(x, y)).toBe(-1);
+    expect(game.at(x, y)).toBe(EMPTY);
+    expect(game.playXY(x, y)).toBe(false);
+    expect(Array.from(game.board)).toEqual(board);
+    expect(game.hash).toBe(hash);
+    expect(game.encodeGame()).toBe(record);
+    expect(game.toMove).toBe(player);
+  }
+});
+
 test('constructor, parser, coordinates, and helpers validate inputs', () => {
   // @ts-expect-error Exercise runtime validation of an unsupported board size.
   expect(() => new GogoPosition(10)).toThrow(/Unsupported board size/);

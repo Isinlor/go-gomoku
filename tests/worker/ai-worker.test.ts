@@ -22,7 +22,7 @@ describe('handleAIRequest', () => {
   test('returns a valid result for an empty board', () => {
     const request: AIRequest = {
       encodedGame: 'B9',
-      timeLimitMs: 100,
+      timeLimitMs: 1_000,
       maxDepth: 2,
       quiescenceDepth: 2,
       maxPly: 64,
@@ -30,11 +30,54 @@ describe('handleAIRequest', () => {
     const response = handleAIRequest(request);
     expect(response.move).toBe(40); // center of 9x9
     expect(response.depth).toBeGreaterThanOrEqual(1);
-    expect(typeof response.score).toBe('number');
-    expect(typeof response.nodes).toBe('number');
-    expect(typeof response.timedOut).toBe('boolean');
-    expect(typeof response.forcedWin).toBe('boolean');
+    expect(response.nodes).toBeGreaterThan(0);
+    expect(response.timedOut).toBe(false);
+    expect(response.forcedWin).toBe(false);
     expect(response.forcedDefensiveMove).toBe(false);
+  });
+
+  test('preserves the score and proof of an immediate win', () => {
+    const response = handleAIRequest({
+      encodedGame: 'B9 a1 a6 b1 b6 c1 c6 d1 d6',
+      timeLimitMs: 1_000,
+      maxDepth: 2,
+      quiescenceDepth: 0,
+      maxPly: 64,
+    });
+    expect(response).toMatchObject({
+      move: 4, // e1 completes Black's five-in-a-row.
+      score: 999_999_999,
+      depth: 1,
+      timedOut: false,
+      forcedDefensiveMove: false,
+      forcedWin: true,
+      forcedLoss: false,
+      heuristicWin: true,
+      heuristicLoss: false,
+    });
+    expect(response.nodes).toBeGreaterThan(0);
+  });
+
+  test('reports an exhausted search budget with a legal fallback and no proof', () => {
+    const response = handleAIRequest({
+      encodedGame: 'B9',
+      timeLimitMs: 0,
+      maxDepth: 2,
+      quiescenceDepth: 2,
+      maxPly: 64,
+    });
+    expect(response).toEqual({
+      move: 40,
+      score: 0,
+      depth: 0,
+      nodes: 0,
+      timedOut: true,
+      forcedDefensiveMove: false,
+      forcedWin: false,
+      forcedLoss: false,
+      heuristicWin: false,
+      heuristicLoss: false,
+    });
   });
 
   test('returns move -1 for a terminal position', () => {
@@ -46,7 +89,18 @@ describe('handleAIRequest', () => {
       maxPly: 64,
     };
     const response = handleAIRequest(request);
-    expect(response.move).toBe(-1);
+    expect(response).toEqual({
+      move: -1,
+      score: -1_000_000_000,
+      depth: 0,
+      nodes: 0,
+      timedOut: false,
+      forcedDefensiveMove: false,
+      forcedWin: false,
+      forcedLoss: true,
+      heuristicWin: false,
+      heuristicLoss: true,
+    });
   });
 
   test('handles a position with some moves played', () => {

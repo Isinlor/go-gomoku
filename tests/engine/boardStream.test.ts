@@ -353,10 +353,29 @@ describe('streamUniqueBoards', () => {
     for (const board of boards) expect(decodeGame(board).ply).toBe(3);
   });
 
-  test('stops once the time limit is reached', () => {
+  test('a positive time budget allows a board to be emitted before expiry', () => {
     const boards: string[] = [];
-    let nowCall = 0;
-    const times = [0, 0, 2, 2, 2];
+    const stats = streamUniqueBoards({
+      ply: 1,
+      boardSize: 9,
+      maxBoards: 1,
+      timeLimitMs: 100,
+      now: () => 0,
+      seed: 3,
+      includeTranslationSymmetry: true,
+      includeColorSymmetry: true,
+    }, board => boards.push(board));
+
+    expect(boards).toHaveLength(1);
+    expect(decodeGame(boards[0]).ply).toBe(1);
+    expect(stats.emitted).toBe(1);
+    expect(stats.truncatedByTime).toBe(false);
+    expect(stats.truncatedByAmount).toBe(true);
+  });
+
+  test('stops emitting boards when the time budget expires after useful work', () => {
+    const boards: string[] = [];
+    let now = 0;
 
     const stats = streamUniqueBoards(
       {
@@ -365,17 +384,20 @@ describe('streamUniqueBoards', () => {
         includeTranslationSymmetry: true,
         includeColorSymmetry: true,
         timeLimitMs: 1,
-        now: () => times[nowCall++] ?? 2,
+        now: () => now,
         seed: 3,
       },
       (board) => {
         boards.push(board);
+        now = 2;
       },
     );
 
     expect(stats.truncatedByTime).toBe(true);
-    expect(stats.emitted).toBe(boards.length);
-    expect(boards.length).toBeLessThan(44);
+    expect(stats.truncatedByAmount).toBe(false);
+    expect(stats.emitted).toBe(1);
+    expect(boards).toHaveLength(1);
+    expect(decodeGame(boards[0]).ply).toBe(2);
   });
 
   test('supports a zero seed and a zero amount limit', () => {
