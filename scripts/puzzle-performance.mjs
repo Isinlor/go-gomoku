@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { realpathSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { createRequire, registerHooks } from 'node:module';
 import { extname, join } from 'node:path';
 import { performance } from 'node:perf_hooks';
@@ -20,16 +20,32 @@ export function loadEngine(root) {
     const { GogoAI } = require(join(root, 'src/engine/ai.ts'));
     const { decodeGame, decodeMove } = require(join(root, 'src/engine/gogomoku.ts'));
     const { PUZZLES } = require(join(root, 'src/engine/puzzles.ts'));
-    return { GogoAI, decodeGame, decodeMove, PUZZLES };
+    // The master checkout may predate the non-puzzle collection. Its engine
+    // still runs the candidate's cases with the same options and assertions.
+    const gamePositionsPath = join(root, 'src/engine/gamePositions.ts');
+    const GAME_POSITIONS = existsSync(gamePositionsPath) ? require(gamePositionsPath).GAME_POSITIONS : [];
+    return { GogoAI, decodeGame, decodeMove, PUZZLES, GAME_POSITIONS };
   } finally {
     hooks.deregister();
   }
 }
 
-/** Setup and solution checks are outside the measured solver call. */
+/** Setup and result checks are outside the measured solver call for both case types. */
 export function measurePuzzle(engine, puzzle, now = () => performance.now()) {
   const position = engine.decodeGame(puzzle.encoded);
   assert.equal(position.toMove, puzzle.toMove, `${puzzle.id}: wrong player to move`);
+  if ('expectedResult' in puzzle) {
+    const ai = new engine.GogoAI(puzzle.searchOptions);
+    const start = now();
+    const result = ai.findBestMove(position, puzzle.timeMs);
+    const elapsed = now() - start;
+    assert(position.isLegal(result.move), `${puzzle.id}: illegal move`);
+    assert.equal(position.encodeGame(), puzzle.encoded, `${puzzle.id}: search changed position`);
+    for (const [field, expected] of Object.entries(puzzle.expectedResult)) {
+      assert.equal(result[field], expected, `${puzzle.id}: incorrect SearchResult.${field}`);
+    }
+    return elapsed;
+  }
   const expected = engine.decodeMove(puzzle.solution, position.size);
   assert.notEqual(expected, -1, `${puzzle.id}: invalid solution`);
   const ai = new engine.GogoAI({ maxDepth: 10, quiescenceDepth: 4 });
@@ -54,9 +70,9 @@ export function comparePuzzleRuns(masterRuns, newRuns) {
   return { masterMs, newMs, passed: newMs <= masterMs };
 }
 
-/** Use the candidate's puzzles as identical inputs for both engine versions. */
+/** Use the candidate's puzzles and game positions as identical inputs for both engines. */
 export function benchmarkPuzzles(master, candidate, log = console.log, measure = measurePuzzle) {
-  const puzzles = candidate.PUZZLES;
+  const puzzles = [...candidate.PUZZLES, ...(candidate.GAME_POSITIONS ?? [])];
   assert(puzzles.length > 0, 'No puzzles to benchmark');
   assert.equal(new Set(puzzles.map((puzzle) => puzzle.id)).size, puzzles.length, 'Duplicate puzzle IDs');
   let masterTotalMs = 0;

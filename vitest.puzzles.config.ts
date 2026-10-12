@@ -4,6 +4,6 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     environment: 'node',
-    include: ['tests/engine/puzzles.test.ts'],
+    include: ['tests/engine/puzzles.test.ts', 'tests/engine/gamePositions.test.ts'],
   },
 });

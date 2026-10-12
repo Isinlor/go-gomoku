@@ -78,25 +78,34 @@ test('rejects empty or duplicate puzzle lists', () => {
 
 // A tiny TypeScript engine exercises Node's real loader and CLI without Vitest
 // subprocesses, compilation, timing-dependent expectations, or dependencies.
-function createFixture(wrongMove = false) {
+function createFixture(wrongMove = false, withGamePositions = false) {
   const root = mkdtempSync(join(tmpdir(), 'direct-puzzle-performance-'));
   const engine = join(root, 'src/engine');
   mkdirSync(engine, { recursive: true });
   writeFileSync(join(engine, 'gogomoku.ts'), `
     export const SOLUTION: number = 0;
-    export function decodeGame(encoded: string) { return { toMove: 1, size: 9 }; }
+    export function decodeGame(encoded: string) { return { toMove: 1, size: 9, isLegal: (move: number) => move === 0, encodeGame: () => encoded }; }
     export function decodeMove(move: string, size: number) { return SOLUTION; }
   `);
   writeFileSync(join(engine, 'ai.ts'), `
     import { SOLUTION } from './gogomoku.ts';
     export class GogoAI {
-      findBestMove(position: unknown, timeMs: number) { return { move: ${wrongMove ? 1 : 'SOLUTION'} }; }
+      findBestMove(position: unknown, timeMs: number) { return { move: ${wrongMove ? 1 : 'SOLUTION'}, forcedWin: true, timedOut: false }; }
     }
   `);
   writeFileSync(join(engine, 'puzzles.ts'), `
     import { SOLUTION } from './gogomoku';
     export const PUZZLES = [{ id: 'example', encoded: 'B9', toMove: 1, solution: 'a1', depth: 3 }];
   `);
+  if (withGamePositions) {
+    writeFileSync(join(engine, 'gamePositions.ts'), `
+      export const GAME_POSITIONS = [{
+        id: 'edge', encoded: 'B9', toMove: 1,
+        searchOptions: { maxDepth: 30, quiescenceDepth: 4 }, timeMs: 59000,
+        expectedResult: { forcedWin: true, timedOut: false },
+      }];
+    `);
+  }
   return root;
 }
 
@@ -185,4 +194,34 @@ test('reports zero total runtimes', () => {
   const output: string[] = [];
   expect(benchmarkPuzzles({}, { PUZZLES: [{ id: 'one' }] }, (line: string) => output.push(line), () => 0)).toBe(0);
   expect(output.at(-1)).toBe('Total puzzle runtime: new 0.000 ms, master 0.000 ms.');
+});
+
+test('benchmarks candidate game positions alongside puzzles with identical inputs for master', () => {
+  const puzzle = { id: 'puzzle' };
+  const position = { id: 'edge', expectedResult: { forcedLoss: true } };
+  const master = {};
+  const candidate = { PUZZLES: [puzzle], GAME_POSITIONS: [position] };
+  const history: unknown[] = [];
+  expect(benchmarkPuzzles(master, candidate, () => {}, (_engine: unknown, input: unknown) => {
+    history.push(input);
+    return 1;
+  })).toBe(0);
+  expect(history).toEqual([...Array(6).fill(puzzle), ...Array(6).fill(position)]);
+  expect(() => benchmarkPuzzles(master, { PUZZLES: [puzzle], GAME_POSITIONS: [puzzle] })).toThrow('Duplicate');
+});
+
+test('loads and runs candidate game positions against a master without the collection', { tags: ['slow'] }, () => {
+  const master = createFixture();
+  const candidate = createFixture(false, true);
+  const messages: string[] = [];
+  try {
+    expect(loadEngine(master).GAME_POSITIONS).toEqual([]);
+    expect(loadEngine(candidate).GAME_POSITIONS[0].id).toBe('edge');
+    expect(runPuzzlePerformance(master, candidate, (line: string) => messages.push(line))).toBe(0);
+    expect(messages.filter(line => line.startsWith('PASS '))).toHaveLength(2);
+    expect(messages.some(line => line.startsWith('PASS edge '))).toBe(true);
+  } finally {
+    rmSync(master, { recursive: true, force: true });
+    rmSync(candidate, { recursive: true, force: true });
+  }
 });
