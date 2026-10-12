@@ -10,7 +10,7 @@
     "build": "vue-tsc --noEmit -p tsconfig.build.json && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "coverage": "vitest run --coverage --exclude tests/engine/puzzles.test.ts",
+    "coverage": "vitest run --coverage --exclude tests/engine/puzzles.test.ts --exclude tests/engine/gamePositions.test.ts",
     "test:puzzles": "vitest run --config vitest.puzzles.config.ts",
     "test:performance": "node scripts/puzzle-performance.mjs",
     "check": "npm run coverage",

@@ -51,3 +51,34 @@ test('uses identical search options and existing puzzle time budgets', () => {
   expect(budgets).toEqual([500, 2000, 8000, 5000, 15000, 15000, 20000, 5000]);
   expect(options).toEqual(Array(8).fill({ maxDepth: 10, quiescenceDepth: 4 }));
 });
+
+// A shallow real search keeps framework checks fast in the coverage suite.
+const gamePosition = {
+  id: 'search-contract', encoded: puzzle.encoded, toMove: puzzle.toMove,
+  searchOptions: { maxDepth: 10, quiescenceDepth: 4 }, timeMs: 500,
+  expectedResult: { forcedWin: true, timedOut: false },
+};
+
+test('measures game positions with their own search settings and SearchResult assertions', () => {
+  const budgets: number[] = [];
+  const options: unknown[] = [];
+  class RecordingAI extends engine.GogoAI {
+    constructor(value: unknown) { super(value); options.push(value); }
+    findBestMove(position: unknown, timeMs: number) {
+      budgets.push(timeMs);
+      return super.findBestMove(position, timeMs);
+    }
+  }
+  let clockCalls = 0;
+  expect(measurePuzzle({ ...engine, GogoAI: RecordingAI }, gamePosition, () => ++clockCalls * 10)).toBe(10);
+  expect(clockCalls).toBe(2);
+  expect(budgets).toEqual([500]);
+  expect(options).toEqual([gamePosition.searchOptions]);
+  expect(measurePuzzle(engine, gamePosition)).toBeGreaterThanOrEqual(0);
+});
+
+test('rejects incorrect game-position SearchResult assertions', () => {
+  expect(() => measurePuzzle(engine, { ...gamePosition, toMove: 2 })).toThrow('player');
+  expect(() => measurePuzzle(engine, { ...gamePosition, expectedResult: { forcedLoss: true } })).toThrow('forcedLoss');
+  expect(() => measurePuzzle(engine, { ...gamePosition, expectedResult: { move: -1 } })).toThrow('move');
+});
