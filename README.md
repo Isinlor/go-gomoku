@@ -68,41 +68,52 @@ npm run test:strength -- /path/to/master-checkout
 npm run test:strength -- /path/to/master-checkout 123
 ```
 
-Each attempt plays 48 pairs from fresh legal clustered openings (4–12 opening
+Each attempt plays 32 pairs from fresh legal clustered openings (4–12 opening
 plies) across 9×9, 11×11, and 13×13 boards. Both games in a pair use the same
 opening, swap candidate colors, and randomize which color plays first. Master’s
 board implementation referees both versions, so changes to the rules cannot
 quietly change the comparison. Each game has fresh AI instances, a maximum of
-64 additional plies, and search options `maxDepth: 3`, `quiescenceDepth: 2`.
+64 additional plies, and search options `maxDepth: 10`, `quiescenceDepth: 4`.
 No-move positions and move-cap games are draws; illegal AI replies are errors.
 The seed, openings, game results, pair totals, and runtime are logged.
 
-Search uses the existing injectable clock: each clock call advances one virtual
-unit, with a budget of 12 units per move. This is a deterministic **search-check
-budget**, not 12 milliseconds or a fixed node count. It keeps CPU scheduling
-out of move choices and measures strength at a small search budget, complementing
-the existing wall-clock performance tests. A passed run is a fast regression
-screen, not proof of equal strength at deeper searches or an Elo estimate.
+Both versions receive a fixed **2 milliseconds per move**, passed directly to
+`findBestMove`. They use their normal wall clocks; no artificial clock or work
+budget is injected. A faster engine can search further within the same time.
+There are 32 × 2 × 64 = 4096 possible searched moves per attempt, so the nominal
+search budget at the move cap is 8.192 seconds, leaving room for setup, search
+overshoot, and result checks within 15 seconds. The engine checks time
+periodically, so a call may exceed 2ms; the attempt deadlines bound total time.
+A passed run is a fast regression screen, not an Elo estimate or proof of equal
+strength at larger time controls. The seed reproduces openings and game order;
+move choices can vary with CPU scheduling.
 
 A pair contributes the sign of the sum of its two candidate results (win = +1,
 draw = 0, loss = −1). Tied pairs are excluded. For `n` decisive pairs and `L`
 lost pairs, the one-sided exact sign-test p-value is
 `sum(C(n, k), k=L..n) / 2^n`; fail the attempt only when `p <= 0.05`.
 For example, five losses without a won pair have p = 1/32 = 3.125%; four
-have p = 1/16 = 6.25% and pass. With 48 decisive pairs, at least 31 losses
-are needed (p ≈ 2.973%). Both games are one observation, never two independent
+have p = 1/16 = 6.25% and pass. With 32 decisive pairs, at least 22 losses
+are needed (p ≈ 2.505%). Both games are one observation, never two independent
 samples, and there is only one aggregate strength test per attempt.
 
-Under the exact no-change null, both deterministic engines choose identical
-moves in each color-swapped game: every pair ties and the statistical false-fail
-probability is **zero**. More generally, under independent, exchangeable decisive
-pair signs, the binomial tail guarantees a per-attempt false-fail probability
-at most 5% (discreteness makes it conservative). This broader assumption is
-stronger than simply having equal Elo. Retries use fresh openings and stop on
-any passing attempt; only five failed attempts confirm a regression. Even
-without assuming independence between retries, the final statistical false-fail
-probability is no greater than the first attempt’s. The conservative retry policy
-reduces sensitivity to small regressions.
+Under no change, assume independent pair outcomes and timing noise that is
+exchangeable between the two identical engines. Each pair starts with fresh
+AI instances; colors are swapped and game order is randomized to avoid a fixed
+seat/order advantage. Conditional on a pair being decisive, a loss and a win
+then have equal probability. Thus `L ~ Binomial(n, 1/2)` and the exact tail
+threshold gives a per-attempt false-fail probability at most 5%; discreteness
+makes it conservative. Timing noise means identical engines need not tie.
+This analytical bound assumes fair, independent noise, as the performance
+comparison assumes exchangeable timing measurements; it does not cover systematic
+version-specific scheduling bias. There is no separate per-board test or
+multiple-testing penalty: all board sizes feed one aggregate comparison.
+
+Retries use fresh openings and stop on any passing attempt; only five failed
+attempts confirm a regression. Even without assuming independence between
+retries, the final statistical false-fail probability is no greater than the
+first attempt’s. The conservative retry policy reduces sensitivity to small
+regressions.
 
 Each attempt has its own 13-second internal deadline. The parent runs each
 attempt in a fresh Node process with a **14-second hard timeout**, including

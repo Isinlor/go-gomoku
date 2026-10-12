@@ -83,11 +83,24 @@ test('passes ties, swaps colors, shares openings and retries only failed batches
   expect(singleLogs.join(' ')).toContain('Possible strength regression in this attempt');
 });
 
-test('real deterministic engines tie a color-swapped pair', () => {
-  const opening = makeOpening(engine, seededRandom(123), 9);
-  const first = playGame(engine, engine, opening, 1, check);
-  const second = playGame(engine, engine, opening, 2, check);
-  expect(first + second).toBe(0);
+test('both engines use the same fixed milliseconds per move and their real clocks', () => {
+  const budgets: number[] = [], options: unknown[] = [];
+  class RecordingAI extends engine.GogoAI {
+    constructor(value: unknown) { super(value); options.push(value); }
+    findBestMove(position: any, milliseconds: number) {
+      budgets.push(milliseconds);
+      // Exercise the real solver, but fix the reply so this plumbing test
+      // cannot depend on how far the search gets on a busy runner.
+      return { ...super.findBestMove(position, milliseconds), move: 24 };
+    }
+  }
+  const recording = { ...engine, GogoAI: RecordingAI };
+  // The fixed legal reply completes black’s five in both games.
+  const opening = 'B9 c3 c7 d3 d7 e3 e7 f3 f7';
+  expect(playGame(recording, recording, opening, 1, check)).toBe(1);
+  expect(playGame(recording, recording, opening, 2, check)).toBe(-1);
+  expect(budgets).toEqual([2, 2]);
+  expect(options).toEqual(Array(4).fill({ maxDepth: 10, quiescenceDepth: 4 }));
 });
 
 // Tiny deterministic rules exercise draw and invalid-engine paths without clocks or mocks.

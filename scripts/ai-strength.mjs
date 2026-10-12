@@ -6,10 +6,10 @@ import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 import { loadEngine } from './puzzle-performance.mjs';
 
-export const PAIRS = 48;
+export const PAIRS = 32;
 export const ATTEMPTS = 5;
 export const MAX_PLIES = 64;
-const WORK_BUDGET = 12;
+export const MOVE_TIME_MS = 2;
 
 /** Each color-swapped pair is ONE observation; ties carry no evidence. */
 export function comparePairs(outcomes) {
@@ -61,18 +61,15 @@ export function makeOpening(engine, random, size) {
   return position.encodeGame();
 }
 
-/** Use master rules as referee and a deterministic search-check budget. */
+/** Use master rules as referee and the same fixed wall time per move. */
 export function playGame(master, candidate, opening, candidateColor, check) {
   const position = master.decodeGame(opening);
-  let ticks = 0;
-  const now = () => { check(); return ++ticks; };
-  const options = { maxDepth: 3, quiescenceDepth: 2, now };
+  const options = { maxDepth: 10, quiescenceDepth: 4 };
   const ais = [null, new (candidateColor === 1 ? candidate : master).GogoAI(options),
     new (candidateColor === 2 ? candidate : master).GogoAI(options)];
   for (let ply = 0; ply < MAX_PLIES; ply++) {
     check();
-    ticks = 0;
-    const result = ais[position.toMove].findBestMove(position, WORK_BUDGET);
+    const result = ais[position.toMove].findBestMove(position, MOVE_TIME_MS);
     if (result.move === -1) {
       assert(!position.hasAnyLegalMove(), 'AI returned no move in a playable position');
       return 0;
