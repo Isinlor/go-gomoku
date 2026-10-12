@@ -18,6 +18,7 @@ import {
   type GeneratorStats,
 } from '../src/engine/puzzleGenerator';
 import { BLACK } from '../src/engine/gogomoku';
+import { PUZZLES } from '../src/engine/puzzles';
 
 const difficultyMap: Record<string, PuzzleDifficulty> = {
   beginner: BEGINNER,
@@ -48,6 +49,7 @@ function formatStats(s: GeneratorStats): string {
 
 const { puzzles, stats } = generatePuzzles(difficulty, countArg, {
   seed: seedArg,
+  existingPuzzles: PUZZLES,
   maxGames: 500_000,
   onProgress: (s: GeneratorStats) => {
     console.log(`  [progress] ${formatStats(s)}`);
