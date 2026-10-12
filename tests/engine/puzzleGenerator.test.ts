@@ -336,7 +336,9 @@ test('playRandomGame with different seeds produces different games', () => {
 
 // Start at seed 42's sixth game, avoiding five fruitless games while still
 // exercising random generation and real validation of two distinct puzzles.
-test('generatePuzzles finds beginner puzzles', { tags: ['slow'], timeout: 15_000 }, () => {
+// Four CI samples: 9.965–11.139 s. The log-normal prediction limit is 20.9 s
+// at a 0.01/11 tail probability; round up for the two real validation searches.
+test('generatePuzzles finds beginner puzzles', { tags: ['slow'], timeout: 30_000 }, () => {
   const { puzzles, stats } = generatePuzzles(BEGINNER, 2, {
     seed: 1302382268,
     maxGames: 2,

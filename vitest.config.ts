@@ -10,7 +10,7 @@ export default defineConfig({
     slowTestThreshold: 250,
     tags: [{
       name: 'slow',
-      description: 'Measured integration or exhaustive search exceeding 250 ms',
+      description: 'Exhaustive search or real process integration with CI timing headroom',
       timeout: 5_000,
     }],
     coverage: {

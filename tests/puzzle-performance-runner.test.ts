@@ -121,7 +121,8 @@ test('configuration errors and incorrect solutions fail immediately', () => {
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test('CLI runs directly from source without installed dependencies or test files', () => {
+// Real Node startup and scheduling on CI are outside the test's control.
+test('CLI runs directly from source without installed dependencies or test files', { tags: ['slow'] }, () => {
   const root = createFixture(true);
   try {
     const result = spawnSync(process.execPath, [resolve('scripts/puzzle-performance.mjs'), root], { cwd: root, encoding: 'utf8' });

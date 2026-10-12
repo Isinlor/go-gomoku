@@ -213,14 +213,15 @@ test('loads both checkouts without dependencies and sends results', () => {
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test('real Node worker sends complete iteration results', async () => {
+// Real worker/process integrations need headroom for CI startup and scheduling.
+test('real Node worker sends complete iteration results', { tags: ['slow'] }, async () => {
   const root = fixture();
   try {
     expect((await runStrengthIteration(root, root)).pairs).toBe(128);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test('real Node worker passes the strength benchmark', async () => {
+test('real Node worker passes the strength benchmark', { tags: ['slow'] }, async () => {
   const root = fixture();
   try {
     expect(await runStrength(root, root, () => {})).toBe(0);
@@ -234,7 +235,7 @@ test.each([undefined, '/nonexistent-strength-master'])('invalid master path %s r
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test('worker search errors return exit code 2', async () => {
+test('worker search errors return exit code 2', { tags: ['slow'] }, async () => {
   const root = fixture('return { move: -1 };');
   const logs: string[] = [];
   try {
@@ -243,7 +244,7 @@ test('worker search errors return exit code 2', async () => {
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test('CLI search errors return exit code 2', () => {
+test('CLI search errors return exit code 2', { tags: ['slow'] }, () => {
   const root = fixture('return { move: -1 };');
   try {
     const cli = spawnSync(process.execPath, [resolve('scripts/ai-strength.mjs'), root], { cwd: root, encoding: 'utf8' });
@@ -252,14 +253,14 @@ test('CLI search errors return exit code 2', () => {
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test('a genuinely stuck search cannot escape the watchdog', async () => {
+test('a genuinely stuck search cannot escape the watchdog', { tags: ['slow'] }, async () => {
   const root = fixture('while (true) {}');
   try {
     await expect(runStrengthIteration(root, root, undefined, 100)).rejects.toThrow('No complete');
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test('CLI entry defaults to cwd and uses the supplied master path', async () => {
+test('CLI entry defaults to cwd and uses the supplied master path', { tags: ['slow'] }, async () => {
   const root = fixture();
   const originalCwd = process.cwd();
   const originalArgv = process.argv;

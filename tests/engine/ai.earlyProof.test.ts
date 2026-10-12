@@ -2,7 +2,9 @@ import { expect, test } from 'vitest';
 import { GogoAI, GogoPosition, PUZZLES, decodeGame, decodeMove } from '../../src/engine';
 
 // Keep the real nine-ply expert proof: a shallow fixture would miss this regression.
-test('a promising shallow move is independently proved without finishing heuristic discovery', { tags: ['slow'] }, () => {
+// Five CI samples: 3.985–5.118 s. The log-normal prediction limit is 10.5 s
+// at a 0.01/11 tail probability; round up for the full clock-free proof.
+test('a promising shallow move is independently proved without finishing heuristic discovery', { tags: ['slow'], timeout: 15_000 }, () => {
   const puzzle = PUZZLES.find(p => p.id === 'gen-expert-1')!;
   const position = decodeGame(puzzle.encoded);
   const before = position.encodeGame();
