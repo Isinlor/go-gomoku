@@ -21,6 +21,68 @@ test.each([9, 11, 13] as const)('out-of-board coordinates cannot read or play an
   }
 });
 
+test('growing move history preserves the game record and undo state', () => {
+  const game = new GogoPosition(9, { historyCapacity: 1 });
+  expect(game.playXY(4, 4)).toBe(true);
+  const before = game.toAscii();
+  const hash = game.hash;
+
+  expect(game.playXY(3, 3)).toBe(true);
+  expect(game.encodeGame()).toBe('B9 e5 d4');
+  expect(game.getMoveAt(1)).toBe(30);
+  expect(game.undo()).toBe(true);
+  expect(game.toAscii()).toEqual(before);
+  expect(game.hash).toBe(hash);
+  expect(game.encodeGame()).toBe('B9 e5');
+  expect(game.undo()).toBe(true);
+  expect(game.toAscii()).toEqual(Array(9).fill('.........'));
+  expect(game.encodeGame()).toBe('B9');
+  expect(game.toMove).toBe(BLACK);
+});
+
+test('an empty suicide point does not prevent a draw when no legal move remains', () => {
+  const game = GogoPosition.fromAscii([
+    '.XXXOXXXX', 'XXOXXXXOX', 'OXXXXOXXX', 'XXXOXXXXO', 'XOXXXXOXX',
+    'XXXXOXXXX', 'XXOXXXXOX', 'OXXXXOXXX', 'XXXOXXXXO',
+  ], BLACK);
+  expect(game.winner).toBe(EMPTY);
+  expect(game.at(0, 0)).toBe(EMPTY);
+  expect(game.isLegal(0)).toBe(false);
+  expect(game.hasAnyLegalMove()).toBe(false);
+  expect(game.generateAllLegalMoves(new Int16Array(game.area))).toBe(0);
+});
+
+test('a single-stone capture allows a snapback that captures two stones', () => {
+  const game = GogoPosition.fromAscii([
+    'OXX......', '.O.......', 'XO.......', 'O........',
+    ...Array(5).fill('.........'),
+  ], BLACK);
+  expect(game.playXY(0, 1)).toBe(true);
+  expect(game.lastCapturedCount).toBe(1);
+  expect(game.koPoint).toBe(-1);
+  expect(game.playXY(0, 0)).toBe(true);
+  expect(game.lastCapturedCount).toBe(2);
+  expect(game.at(0, 0)).toBe(WHITE);
+  expect(game.at(0, 1)).toBe(EMPTY);
+  expect(game.at(0, 2)).toBe(EMPTY);
+});
+
+test('positions with different legal ko recaptures have different hashes', () => {
+  const restricted = GogoPosition.fromAscii([
+    ...Array(7).fill('.........'), '.......OX', '......O.O',
+  ], BLACK);
+  expect(restricted.playXY(7, 8)).toBe(true);
+  expect(restricted.koPoint).toBe(80);
+
+  // The same board without the history-defined ko allows White's recapture.
+  const unrestricted = GogoPosition.fromAscii(restricted.toAscii(), restricted.toMove);
+  expect(unrestricted.board).toEqual(restricted.board);
+  expect(unrestricted.toMove).toBe(restricted.toMove);
+  expect(restricted.isLegal(80)).toBe(false);
+  expect(unrestricted.isLegal(80)).toBe(true);
+  expect(restricted.hash).not.toBe(unrestricted.hash);
+});
+
 test('constructor, parser, coordinates, and helpers validate inputs', () => {
   // @ts-expect-error Exercise runtime validation of an unsupported board size.
   expect(() => new GogoPosition(10)).toThrow(/Unsupported board size/);
