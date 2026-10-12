@@ -9,6 +9,7 @@ import {
   type SupportedSize,
 } from './gogomoku';
 import { GogoAI } from './ai';
+import { PuzzleDuplicateIndex, type ComparablePuzzle } from './puzzleSimilarity';
 import { insertMoveDescending, sortMovesDescending } from './moveOrdering';
 
 /**
@@ -167,6 +168,24 @@ export class ForcedWinSearcher {
     return this.search(pos, attacker, maxPly, 0);
   }
 
+  /** Prove a move within a horizon without searching every shorter horizon. */
+  hasForcedWinAfterMove(pos: GogoPosition, move: number, maxPly: number): boolean {
+    if (maxPly < 1) {
+      return false;
+    }
+    const attacker = pos.toMove;
+    if (!pos.play(move)) {
+      return false;
+    }
+    // The attacker can only finish on odd plies. An even horizon adds no turn.
+    const remaining = maxPly - 1 - (maxPly % 2 === 0 ? 1 : 0);
+    try {
+      return this.hasForcedWin(pos, attacker, remaining);
+    } finally {
+      pos.undo();
+    }
+  }
+
   /**
    * For a given move by the current player, what is the shortest forced-win
    * ply count?  Returns -1 when no forced win exists within `maxPly`.
@@ -200,9 +219,10 @@ export class ForcedWinSearcher {
   /**
    * Find the winning line (principal variation) from a position where a forced
    * win is known to exist. Returns an array of moves from the position to the
-   * winning state. The first move is the attacker's solution move.
+   * winning state. The first move is the attacker's solution move. Supply
+   * `firstMove` when that move has already been proven, avoiding a root search.
    */
-  findWinningLine(pos: GogoPosition, maxPly: number): number[] {
+  findWinningLine(pos: GogoPosition, maxPly: number, firstMove = -1): number[] {
     const attacker = pos.toMove;
     const line: number[] = [];
 
@@ -215,7 +235,9 @@ export class ForcedWinSearcher {
       const moveCount = pos.generateAllLegalMoves(moveBuffer);
       let bestMove = -1;
 
-      if (isAtk) {
+      if (ply === 0 && firstMove >= 0 && pos.isLegal(firstMove)) {
+        bestMove = firstMove;
+      } else if (isAtk) {
         // Attacker: find the move that leads to forced win
         for (let i = 0; i < moveCount; i += 1) {
           if (!pos.play(moveBuffer[i])) {
@@ -281,15 +303,18 @@ export class ForcedWinSearcher {
       return false;
     }
 
-    // Cache only identical states at identical horizons. Compare the complete
-    // board as well as the hash so collisions cannot alter a proof result.
-    const slot = (Number(pos.hash & 65_535n) ^ (remaining * 31) ^ attacker) & 65_535;
+    // A shorter proven win also wins with more time; a longer failed search
+    // rules out shorter wins. Compare the complete board as well as the hash
+    // so collisions cannot alter a proof result.
+    const slot = (Number(pos.hash & 65_535n) ^ attacker) & 65_535;
     const boardOffset = slot * this.area;
     if (
       this.cacheSize !== 0 &&
       this.cacheResults[slot] !== 0 &&
       this.cacheHashes[slot] === pos.hash &&
-      this.cacheRemaining[slot] === remaining &&
+      (this.cacheResults[slot] === 2
+        ? this.cacheRemaining[slot] <= remaining
+        : this.cacheRemaining[slot] >= remaining) &&
       this.cacheAttackers[slot] === attacker &&
       this.cacheToMove[slot] === pos.toMove &&
       this.cacheKo[slot] === pos.koPoint
@@ -377,10 +402,10 @@ export class ForcedWinSearcher {
       }
     }
 
-    // If defender has ≥2 threats and attacker has no immediate win, unlikely
-    // to force a win (would need to win immediately or make captures).
-    // Still search but with a reduced move set when remaining is small.
-    if (defenderThreats >= 2 && remaining <= 2) {
+    // With only one attacking turn left, completing an existing four is
+    // the only possible win. Captures remove enemy stones, never add ours.
+    // Every completion was tried above; quiet moves cannot win in time.
+    if (remaining <= 2) {
       return false;
     }
 
@@ -400,11 +425,7 @@ export class ForcedWinSearcher {
     const count = this.generateMoves(pos, depth);
     const moves = this.moveBuffers[depth];
 
-    // When remaining plies are low, limit the number of moves tried.
-    // Attacker needs to create threats; only high-scoring moves can do that.
-    const maxMoves = remaining <= 2 ? Math.min(count, 10) : count;
-
-    for (let i = 0; i < maxMoves; i += 1) {
+    for (let i = 0; i < count; i += 1) {
       if (!pos.play(moves[i])) {
         continue;
       }
@@ -815,15 +836,13 @@ export function validatePuzzlePosition(
   let solutionCount = 0;
 
   for (let i = 0; i < moveCount; i += 1) {
-    const depth = searcher.forcedWinDepthForMove(pos, moveBuffer[i], n);
-    if (depth === n) {
+    // The position-level check already ruled out every shorter forced win.
+    if (searcher.hasForcedWinAfterMove(pos, moveBuffer[i], n)) {
       solutionMove = moveBuffer[i];
       solutionCount += 1;
       if (solutionCount > 1) {
         return null;
       }
-    } else if (depth > 0 && depth < n) {
-      return null;
     }
   }
 
@@ -853,8 +872,7 @@ export function validatePuzzlePosition(
     if (moveBuffer[i] === solutionMove) {
       continue;
     }
-    const altDepth = searcher.forcedWinDepthForMove(pos, moveBuffer[i], altMaxPly);
-    if (altDepth !== -1) {
+    if (searcher.hasForcedWinAfterMove(pos, moveBuffer[i], altMaxPly)) {
       return null;
     }
   }
@@ -865,7 +883,7 @@ export function validatePuzzlePosition(
   }
 
   // 7. Find the winning line and compute the won state
-  const winLine = searcher.findWinningLine(pos, n + 2);
+  const winLine = searcher.findWinningLine(pos, n + 2, solutionMove);
   const winningMoves = winLine.map((mv) => encodeMove(mv, pos.meta));
 
   // Play out the winning line to get the won board state
@@ -1002,6 +1020,8 @@ export interface GeneratorOptions {
   readonly maxMovesPerGame?: number;
   readonly minStones?: number;
   readonly maxGames?: number;
+  /** Previously stored puzzles to include in duplicate detection. */
+  readonly existingPuzzles?: readonly ComparablePuzzle[];
   readonly onProgress?: (stats: GeneratorStats) => void;
 }
 
@@ -1020,7 +1040,7 @@ export function generatePuzzles(
   const searcher = new ForcedWinSearcher(size * size, maxSearchDepth);
   const validationBuffers = createValidationBuffers(size * size);
   const puzzles: PuzzleCandidate[] = [];
-  const seenEncodings = new Set<string>();
+  const duplicates = new PuzzleDuplicateIndex(options.existingPuzzles);
   const startTime = performance.now();
 
   const stats: GeneratorStats = {
@@ -1054,8 +1074,7 @@ export function generatePuzzles(
       const candidate = validatePuzzlePosition(replay, difficulty, searcher, validationBuffers);
       stats.totalNodes += searcher.nodesSearched;
 
-      if (candidate !== null && !seenEncodings.has(candidate.encoded)) {
-        seenEncodings.add(candidate.encoded);
+      if (candidate !== null && duplicates.add(candidate)) {
         puzzles.push(candidate);
         stats.puzzlesFound += 1;
 
