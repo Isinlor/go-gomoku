@@ -38,23 +38,6 @@ npm run coverage
 
 The coverage command is configured with 100% thresholds for lines, branches, and functions.
 
-The Puzzles workflow also compares performance against `master` on the same
-runner. It alternates master and candidate runs, measuring every original and
-generated puzzle three times per version. Each puzzle passes when its fastest
-candidate time is no slower than its slowest master time (equality passes).
-The Node script loads both engines directly from TypeScript source and measures
-only `findBestMove`; board decoding, AI construction, and solution checks are
-outside the timed section. Both engines solve the candidate's puzzle definitions
-with identical search options and time budgets.
-Each puzzle gets up to five comparisons, each with three fresh runs per
-version. Retries happen immediately for that puzzle. A puzzle that passes any
-comparison is validated and never rerun. CI fails if a puzzle still regresses
-after its fifth comparison. Incorrect solutions or invalid timings fail
-immediately.
-After every puzzle passes, the script sums each puzzle's median timing from
-its accepted three-run comparison. The final line reports both totals for
-information only; a slower total does not fail the benchmark.
-
 To run locally, use Node 24 and run from the new version's checkout. The benchmark
 needs no installed dependencies or test runner:
 
