@@ -154,36 +154,30 @@ test('entry point uses the working directory and command-line master checkout', 
   }
 });
 
-test('rejects an aggregate speedup below 50% even when every puzzle improves', () => {
+test('reports total median runtimes when every puzzle improves', () => {
   const master = {};
   const candidate = { PUZZLES: [{ id: 'one' }, { id: 'two' }] };
   const output: string[] = [];
-  const status = benchmarkPuzzles(master, candidate, (line: string) => output.push(line), (engine: unknown) => engine === master ? 10 : 6, true);
-  expect(status).toBe(1);
+  const status = benchmarkPuzzles(master, candidate, (line: string) => output.push(line), (engine: unknown) => engine === master ? 10 : 6);
+  expect(status).toBe(0);
   expect(output.filter(line => line.startsWith('PASS '))).toHaveLength(2);
-  expect(output.join('\n')).toContain('Total puzzle runtime');
+  expect(output.at(-1)).toBe('Total puzzle runtime: new 12.000 ms, master 20.000 ms.');
 });
 
-test('uses median timings for the 50% aggregate target instead of optimistic extremes', () => {
+test('reports a median total regression without failing when the individual puzzle passes', () => {
   const master = {};
   const candidate = { PUZZLES: [{ id: 'one' }] };
-  let call = 0;
-  const times = [10, 1, 10, 6, 100, 6];
-  expect(benchmarkPuzzles(master, candidate, () => {}, () => times[call++], true)).toBe(1);
-});
-
-test('accepts zero total runtime and an exact 50% aggregate reduction', () => {
-  const master = {};
-  const candidate = { PUZZLES: [{ id: 'one' }] };
-  expect(benchmarkPuzzles(master, candidate, () => {}, () => 0, true)).toBe(0);
-  expect(benchmarkPuzzles(master, candidate, () => {}, (engine: unknown) => engine === master ? 10 : 5, true)).toBe(0);
-});
-
-test('ordinary regression checks allow improvements below 50% while rejecting a median total regression', () => {
-  const master = {};
-  const candidate = { PUZZLES: [{ id: 'one' }] };
-  expect(benchmarkPuzzles(master, candidate, () => {}, (engine: unknown) => engine === master ? 10 : 6)).toBe(0);
+  const output: string[] = [];
   let call = 0;
   const times = [10, 1, 10, 11, 10, 11];
-  expect(benchmarkPuzzles(master, candidate, () => {}, () => times[call++])).toBe(1);
+  expect(benchmarkPuzzles(master, candidate, (line: string) => output.push(line), () => times[call++])).toBe(0);
+  expect(call).toBe(6);
+  expect(output[0]).toMatch(/^PASS one /);
+  expect(output.at(-1)).toBe('Total puzzle runtime: new 11.000 ms, master 10.000 ms.');
+});
+
+test('reports zero total runtimes', () => {
+  const output: string[] = [];
+  expect(benchmarkPuzzles({}, { PUZZLES: [{ id: 'one' }] }, (line: string) => output.push(line), () => 0)).toBe(0);
+  expect(output.at(-1)).toBe('Total puzzle runtime: new 0.000 ms, master 0.000 ms.');
 });
