@@ -123,7 +123,91 @@ export interface GeneratorStats {
 // ForcedWinSearcher – fast proof-tree search for forced wins
 // ---------------------------------------------------------------------------
 
+/** Exact window counts and move scores, updated after changed board points. */
+export class PuzzleWindowEvaluation {
+  private readonly board: Uint8Array;
+  private readonly black: Uint8Array;
+  private readonly white: Uint8Array;
+  private readonly blackScores: Int32Array;
+  private readonly whiteScores: Int32Array;
+  private readonly blackHistogram = new Int32Array(6);
+  private readonly whiteHistogram = new Int32Array(6);
+  private blackThreats = 0;
+  private whiteThreats = 0;
+  private ready = false;
+
+  constructor(area: number) {
+    this.board = new Uint8Array(area);
+    this.black = new Uint8Array(4 * area);
+    this.white = new Uint8Array(4 * area);
+    this.blackScores = new Int32Array(area);
+    this.whiteScores = new Int32Array(area);
+  }
+
+  private contribution(mine: number, theirs: number): number {
+    return (theirs === 0 ? ATTACK_WEIGHTS[Math.min(mine + 1, 5)] : 0)
+      + (mine === 0 ? DEFENSE_WEIGHTS[Math.min(theirs + 1, 5)] : 0);
+  }
+
+  sync(pos: GogoPosition): void {
+    const meta = pos.meta;
+    if (!this.ready) {
+      this.blackHistogram[0] = this.whiteHistogram[0] = meta.windowCount;
+      const emptyContribution = this.contribution(0, 0);
+      for (let point = 0; point < pos.area; point += 1) {
+        const windows = meta.windowsByPointOffsets[point + 1] - meta.windowsByPointOffsets[point];
+        this.blackScores[point] = this.whiteScores[point] = windows * emptyContribution + meta.centerBias[point] * 3;
+      }
+      this.ready = true;
+    }
+    for (let point = 0; point < pos.area; point += 1) {
+      const old = this.board[point];
+      const color = pos.board[point];
+      if (old === color) continue;
+      this.board[point] = color;
+      const deltaBlack = Number(color === BLACK) - Number(old === BLACK);
+      const deltaWhite = Number(color === WHITE) - Number(old === WHITE);
+      for (let cursor = meta.windowsByPointOffsets[point]; cursor < meta.windowsByPointOffsets[point + 1]; cursor += 1) {
+        const wi = meta.windowsByPoint[cursor];
+        const black = this.black[wi];
+        const white = this.white[wi];
+        const nextBlack = black + deltaBlack;
+        const nextWhite = white + deltaWhite;
+        this.blackHistogram[black] -= 1;
+        this.whiteHistogram[white] -= 1;
+        this.blackHistogram[nextBlack] += 1;
+        this.whiteHistogram[nextWhite] += 1;
+        this.blackThreats += Number(nextBlack === 4 && nextWhite === 0) - Number(black === 4 && white === 0);
+        this.whiteThreats += Number(nextWhite === 4 && nextBlack === 0) - Number(white === 4 && black === 0);
+        const blackScore = this.contribution(nextBlack, nextWhite) - this.contribution(black, white);
+        const whiteScore = this.contribution(nextWhite, nextBlack) - this.contribution(white, black);
+        for (let step = 0; step < 5; step += 1) {
+          const affected = meta.windows[wi * 5 + step];
+          this.blackScores[affected] += blackScore;
+          this.whiteScores[affected] += whiteScore;
+        }
+        this.black[wi] = nextBlack;
+        this.white[wi] = nextWhite;
+      }
+    }
+  }
+
+  score(move: number, player: Player): number {
+    return (player === BLACK ? this.blackScores : this.whiteScores)[move];
+  }
+
+  threats(attacker: Player): [number, number, number] {
+    const histogram = attacker === BLACK ? this.blackHistogram : this.whiteHistogram;
+    let maximum = 5;
+    while (maximum > 0 && histogram[maximum] === 0) maximum -= 1;
+    return attacker === BLACK
+      ? [this.blackThreats, this.whiteThreats, maximum]
+      : [this.whiteThreats, this.blackThreats, maximum];
+  }
+}
+
 export class ForcedWinSearcher {
+  private readonly windowEvaluation: PuzzleWindowEvaluation;
   private readonly moveBuffers: Int16Array[];
   private readonly scoreBuffers: Int32Array[];
   private readonly candidateMarks: Uint32Array;
@@ -142,6 +226,7 @@ export class ForcedWinSearcher {
 
   constructor(area: number, maxDepth: number, useCache = true) {
     this.area = area;
+    this.windowEvaluation = new PuzzleWindowEvaluation(area);
     this.cacheSize = useCache ? 65_536 : 0;
     this.cacheHashes = new BigUint64Array(this.cacheSize);
     this.cacheRemaining = new Float64Array(this.cacheSize);
@@ -556,41 +641,10 @@ export class ForcedWinSearcher {
   private countBothThreats(
     pos: GogoPosition,
     attacker: Player,
-    defender: Player,
+    _defender: Player,
   ): [number, number, number] {
-    const meta = pos.meta;
-    const board = pos.board;
-    const windows = meta.windows;
-    let atkThreats = 0;
-    let defThreats = 0;
-    let maxAttackerStones = 0;
-
-    for (let wi = 0; wi < meta.windowCount; wi += 1) {
-      const base = wi * 5;
-      let atk = 0;
-      let def = 0;
-      let empties = 0;
-      for (let step = 0; step < 5; step += 1) {
-        const cell = board[windows[base + step]];
-        if (cell === attacker) {
-          atk += 1;
-        } else if (cell === defender) {
-          def += 1;
-        } else {
-          empties += 1;
-        }
-      }
-      maxAttackerStones = Math.max(maxAttackerStones, atk);
-      if (empties === 1) {
-        if (atk === 4) {
-          atkThreats += 1;
-        }
-        if (def === 4) {
-          defThreats += 1;
-        }
-      }
-    }
-    return [atkThreats, defThreats, maxAttackerStones];
+    this.windowEvaluation.sync(pos);
+    return this.windowEvaluation.threats(attacker);
   }
 
   private getWinThreatMoves(pos: GogoPosition, player: Player): { moves: Int16Array; count: number } {
@@ -628,6 +682,8 @@ export class ForcedWinSearcher {
   // ---- move generation ------------------------------------------------
 
   private generateMoves(pos: GogoPosition, depth: number): number {
+    // A previous threat branch may have played and undone moves since the scan.
+    this.windowEvaluation.sync(pos);
     const board = pos.board;
     const meta = pos.meta;
     const player = pos.toMove;
@@ -679,12 +735,12 @@ export class ForcedWinSearcher {
   }
 
   private scoreMove(
-    pos: GogoPosition,
+    _pos: GogoPosition,
     move: number,
     player: Player,
-    opponent: Player,
+    _opponent: Player,
   ): number {
-    return scoreWindowMove(pos, move, player, opponent);
+    return this.windowEvaluation.score(move, player);
   }
 }
 
