@@ -10,6 +10,8 @@ Before you are done you MUST ensure `npm run coverage` passes.
 
 Avoid mocks when testing logic.
 
+Do not add spurious tests. Keep tests fast.
+
 ## Playwright E2E Tests
 
 ### Run
