@@ -333,10 +333,12 @@ test('playRandomGame with different seeds produces different games', () => {
 // generatePuzzles integration test
 // ---------------------------------------------------------------------------
 
-test('generatePuzzles finds beginner puzzles', { timeout: 120_000 }, () => {
+// Start at seed 42's sixth game, avoiding five fruitless games while still
+// exercising random generation and real validation of two distinct puzzles.
+test('generatePuzzles finds beginner puzzles', { tags: ['slow'], timeout: 15_000 }, () => {
   const { puzzles, stats } = generatePuzzles(BEGINNER, 2, {
-    seed: 42,
-    maxGames: 500,
+    seed: 1302382268,
+    maxGames: 2,
   });
   expect(puzzles.length).toBe(2);
   expect(stats.puzzlesFound).toBe(2);

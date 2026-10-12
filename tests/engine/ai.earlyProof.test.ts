@@ -1,7 +1,8 @@
 import { expect, test } from 'vitest';
 import { GogoAI, GogoPosition, PUZZLES, decodeGame, decodeMove } from '../../src/engine';
 
-test('a promising shallow move is independently proved without finishing heuristic discovery', () => {
+// Keep the real nine-ply expert proof: a shallow fixture would miss this regression.
+test('a promising shallow move is independently proved without finishing heuristic discovery', { tags: ['slow'] }, () => {
   const puzzle = PUZZLES.find(p => p.id === 'gen-expert-1')!;
   const position = decodeGame(puzzle.encoded);
   const before = position.encodeGame();
@@ -64,7 +65,8 @@ test('unexpected proof errors restore discovery state before propagating', () =>
   expect(Array.from(ai.history)).toEqual(Array(position.area * 2).fill(7));
 });
 
-test('discovery continues when the early proof depth limit cannot establish the win', () => {
+// Search the same expert position to depth four after its speculative proof fails.
+test('discovery continues when the early proof depth limit cannot establish the win', { tags: ['slow'] }, () => {
   const puzzle = PUZZLES.find(p => p.id === 'gen-expert-1')!;
   const position = decodeGame(puzzle.encoded);
   const before = position.encodeGame();

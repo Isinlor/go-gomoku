@@ -37,6 +37,11 @@ npm run coverage
 ```
 
 The coverage command is configured with 100% thresholds for lines, branches, and functions.
+Individual tests have a 250 ms timeout, including synchronous test bodies.
+Measured exhaustive searches and integration tests use `{ tags: ['slow'] }`
+with a comment explaining why the full workload is needed. The `slow` tag
+allows 5 seconds; puzzle generation explicitly allows 15 seconds. Slow tests
+remain part of CI coverage. Keep ordinary cases small before adding a slow tag.
 
 The Puzzles workflow also compares performance against `master` on the same
 runner. It alternates master and candidate runs, measuring every original and

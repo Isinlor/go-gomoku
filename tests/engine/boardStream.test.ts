@@ -308,7 +308,8 @@ describe('streamUniqueBoards', () => {
     expect(stats.prunedPrefixes).toBeGreaterThan(0);
   });
 
-  test('returns the known unique ply-three count with translation and color symmetry', { timeout: 10_000 }, () => {
+  // Exhaustively enumerate all 2,979 classes; truncation would weaken the count regression.
+  test('returns the known unique ply-three count with translation and color symmetry', { tags: ['slow'] }, () => {
     const stats = streamUniqueBoards(
       {
         ply: 3,

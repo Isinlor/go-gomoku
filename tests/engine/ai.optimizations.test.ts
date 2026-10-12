@@ -1,26 +1,34 @@
 import { expect, test } from 'vitest';
 import { BLACK, GogoAI, GogoPosition, WHITE } from '../../src/engine';
 
-test('AI window counts follow moves, captures, undo, board sizes, and reused positions', () => {
+test.each([9, 11, 13] as const)('AI window counts follow moves, captures, undo, and reused positions on size %s', (size) => {
   const ai = new GogoAI() as any;
+  // Exercise buffer resizing as well as same-size position reuse in each case.
+  ai.ensureBuffers((size === 9 ? 13 : 9) ** 2);
   const check = (position: GogoPosition) => {
     ai.ensureBuffers(position.area);
     ai.beginWindowPass(position);
     let expectedEvaluation = 0;
+    const expectedBlack: number[] = [];
+    const expectedWhite: number[] = [];
     const evaluation = [0, 6, 32, 240, 500_000, 250_000_000];
     for (let wi = 0; wi < position.meta.windowCount; wi++) {
       const cells = Array.from(position.meta.windows.slice(wi * 5, wi * 5 + 5), point => position.board[point]);
-      expect(ai.windowBlack[wi]).toBe(cells.filter(cell => cell === BLACK).length);
-      expect(ai.windowWhite[wi]).toBe(cells.filter(cell => cell === WHITE).length);
       const black = cells.filter(cell => cell === BLACK).length;
       const white = cells.filter(cell => cell === WHITE).length;
+      expectedBlack.push(black);
+      expectedWhite.push(white);
       if (white === 0) expectedEvaluation += evaluation[black];
       if (black === 0) expectedEvaluation -= evaluation[white];
     }
+    expect(Array.from(ai.windowBlack.slice(0, position.meta.windowCount))).toEqual(expectedBlack);
+    expect(Array.from(ai.windowWhite.slice(0, position.meta.windowCount))).toEqual(expectedWhite);
     ai.beginPatternPass(position);
     expect(ai.windowEvaluation).toBe(expectedEvaluation);
     const attack = [0, 12, 72, 540, 100_000, 500_000];
     const defense = [0, 16, 96, 720, 100_000, 500_000];
+    const actualPatterns: number[][] = [];
+    const expectedPatterns: number[][] = [];
     for (let point = 0; point < position.area; point++) {
       if (position.board[point] !== 0) continue;
       let blackScore = 0;
@@ -33,26 +41,25 @@ test('AI window counts follow moves, captures, undo, board sizes, and reused pos
         if (white === 0) { blackScore += attack[black + 1]; whiteScore += defense[black + 1]; }
         if (black === 0) { blackScore += defense[white + 1]; whiteScore += attack[white + 1]; }
       }
-      expect(ai.pointPatternBlack[point]).toBe(blackScore);
-      expect(ai.pointPatternWhite[point]).toBe(whiteScore);
+      actualPatterns.push([ai.pointPatternBlack[point], ai.pointPatternWhite[point]]);
+      expectedPatterns.push([blackScore, whiteScore]);
     }
+    expect(actualPatterns).toEqual(expectedPatterns);
     ai.beginWindowPass(position);
   };
-  for (const size of [9, 11, 13] as const) {
-    const position = new GogoPosition(size);
-    check(position);
-    for (const [x, y] of [[1, 0], [0, 0], [0, 1]]) {
-      expect(position.playXY(x, y)).toBe(true);
-      check(position);
-    }
-    expect(position.lastCapturedCount).toBe(1);
-    for (let i = 0; i < 3; i++) {
-      expect(position.undo()).toBe(true);
-      check(position);
-    }
-    check(GogoPosition.fromAscii(Array.from({ length: size }, (_, y) => y === 0 ? 'O'.repeat(size) : '.'.repeat(size)), BLACK));
+  const position = new GogoPosition(size);
+  check(position);
+  for (const [x, y] of [[1, 0], [0, 0], [0, 1]]) {
+    expect(position.playXY(x, y)).toBe(true);
     check(position);
   }
+  expect(position.lastCapturedCount).toBe(1);
+  for (let i = 0; i < 3; i++) {
+    expect(position.undo()).toBe(true);
+    check(position);
+  }
+  check(GogoPosition.fromAscii(Array.from({ length: size }, (_, y) => y === 0 ? 'O'.repeat(size) : '.'.repeat(size)), BLACK));
+  check(position);
 });
 
 test('quiescence reuses an identical tactical search without changing its score', () => {

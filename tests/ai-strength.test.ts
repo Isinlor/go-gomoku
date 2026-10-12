@@ -201,17 +201,29 @@ function fixture(aiBody = 'return { move: 0 };') {
   return root;
 }
 
-test('real Node worker loads both checkouts without dependencies and sends results', async () => {
+test('loads both checkouts without dependencies and sends results', () => {
   const root = fixture();
   const reports: any[] = [];
   try {
     startStrengthWorker({ masterRoot: root, candidateRoot: root }, s => reports.push(s));
     expect(reports).toHaveLength(128);
-    expect((await runStrengthIteration(root, root)).pairs).toBe(128);
-    expect(await runStrength(root, root, () => {})).toBe(0);
     const loadCalls: string[] = [];
     startStrengthWorker({ masterRoot: 'm', candidateRoot: 'c' }, () => {}, (path) => { loadCalls.push(path); return loadEngine(root); });
     expect(loadCalls).toEqual(['m', 'c']);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('real Node worker sends complete iteration results', async () => {
+  const root = fixture();
+  try {
+    expect((await runStrengthIteration(root, root)).pairs).toBe(128);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('real Node worker passes the strength benchmark', async () => {
+  const root = fixture();
+  try {
+    expect(await runStrength(root, root, () => {})).toBe(0);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

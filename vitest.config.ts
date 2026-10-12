@@ -6,6 +6,13 @@ export default defineConfig({
   test: {
     environment: 'happy-dom',
     include: ['tests/**/*.test.ts'],
+    testTimeout: 250,
+    slowTestThreshold: 250,
+    tags: [{
+      name: 'slow',
+      description: 'Measured integration or exhaustive search exceeding 250 ms',
+      timeout: 5_000,
+    }],
     coverage: {
       provider: 'v8',
       include: ['src/**/*.{ts,vue}', 'scripts/puzzle-performance.mjs', 'scripts/ai-strength.mjs'],
