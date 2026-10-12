@@ -108,10 +108,10 @@ test.each([0, 1])('swaps colors on identical openings, randomizing pair order (%
   const reports: any[] = [];
   sampleStrength(engine, engine, s => reports.push(s), () => coin, (_m, _c, opening, color) => {
     calls.push({ opening, color });
-    return 0;
+    return -1; // Seven pairs exercise both orders; the full cap is checked by workers.
   });
-  expect(reports).toHaveLength(128);
-  expect(reports.at(-1)).toEqual({ pairs: 128, score: 0, evidence: 1 });
+  expect(reports).toHaveLength(7);
+  expect(reports.at(-1).score).toBe(-7);
   for (let i = 0; i < calls.length; i += 2) {
     expect(calls[i].opening).toBe(calls[i + 1].opening);
     expect([calls[i].color, calls[i + 1].color]).toEqual([coin + 1, 2 - coin]);

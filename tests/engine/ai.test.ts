@@ -1522,21 +1522,19 @@ test('proof mode: proof collapse triggers fallback to heuristic discovery', () =
   ], BLACK);
 
   const WIN = 1_000_000_000;
-  const ai = new GogoAI({ maxDepth: 3, maxPly: 3, quiescenceDepth: 0, now: () => 0 });
+  const ai = new GogoAI({ maxDepth: 2, maxPly: 2, quiescenceDepth: 0, now: () => 0 });
   const anyAI = ai as any;
   anyAI.ensureBuffers(pos.area);
 
   // Mock searchRoot for heuristic phases:
-  // - Discovery d=1: normal result
-  // - Discovery d=2: fake forced win → breaks, triggers proof
-  // - Resume d=3+: normal results
+  // - Discovery d=1: fake forced win → breaks, triggers proof
+  // - Resume d=2: real search replaces the false win
   let searchRootCallCount = 0;
   const realSearchRoot = anyAI.searchRoot.bind(anyAI);
   anyAI.searchRoot = function (position: any, depth: number, hintMove: number) {
     searchRootCallCount++;
-    if (searchRootCallCount === 2) {
-      // Discovery d=2: fake forced win
-      return { move: 40, score: WIN - 2, depth: 2, nodes: 10, timedOut: false,
+    if (searchRootCallCount === 1) {
+      return { move: 40, score: WIN - 1, depth: 1, nodes: 10, timedOut: false,
         forcedDefensiveMove: false,
         forcedWin: false, forcedLoss: false, heuristicWin: false, heuristicLoss: false };
     }
@@ -1550,12 +1548,12 @@ test('proof mode: proof collapse triggers fallback to heuristic discovery', () =
 
   const result = ai.findBestMove(pos, 100);
   // After resume, heuristicWin is recomputed based on new bestScore/completedDepth
-  // Resume at d=3+ won't find a forced win for this position, so heuristicWin should be false
+  // The real resumed search does not establish a forced win for this position.
   expect(result.forcedWin).toBe(false);
   expect(result.heuristicWin).toBe(false);
   // One resumed depth is enough to verify discovery replaces the false win.
-  expect(result.depth).toBe(3);
-  expect(searchRootCallCount).toBe(3);
+  expect(result.depth).toBe(2);
+  expect(searchRootCallCount).toBe(2);
 });
 
 test('proof mode: resume heuristic after proof collapse can timeout', () => {

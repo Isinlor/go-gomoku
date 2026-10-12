@@ -35,9 +35,9 @@ test.each([9, 11, 13] as const)('AI window counts follow moves, captures, undo, 
       let whiteScore = 0;
       for (let cursor = position.meta.windowsByPointOffsets[point]; cursor < position.meta.windowsByPointOffsets[point + 1]; cursor++) {
         const wi = position.meta.windowsByPoint[cursor];
-        const cells = Array.from(position.meta.windows.slice(wi * 5, wi * 5 + 5), p => position.board[p]);
-        const black = cells.filter(cell => cell === BLACK).length;
-        const white = cells.filter(cell => cell === WHITE).length;
+        // Reuse the independent board-derived oracle, not the AI's cached counts.
+        const black = expectedBlack[wi];
+        const white = expectedWhite[wi];
         if (white === 0) { blackScore += attack[black + 1]; whiteScore += defense[black + 1]; }
         if (black === 0) { blackScore += defense[white + 1]; whiteScore += attack[white + 1]; }
       }

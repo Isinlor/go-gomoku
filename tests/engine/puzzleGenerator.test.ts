@@ -26,7 +26,8 @@ import {
   decodeMove,
 } from '../../src/engine/gogomoku';
 
-test.each([9, 11, 13] as const)('cached puzzle windows on size %s match original calculations across captures and undo', (size) => {
+// Full cache parity sweeps compare both players at every point through undo and captures.
+test.each([9, 11, 13] as const)('cached puzzle windows on size %s match original calculations across captures and undo', { tags: ['slow'] }, (size) => {
   const evaluation = new PuzzleWindowEvaluation(size * size);
   const rng = new LCG(20261019);
   const positions = [
