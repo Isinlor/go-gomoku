@@ -1,6 +1,10 @@
 // @vitest-environment node
-import { expect, test } from 'vitest';
+import { beforeAll, expect, test } from 'vitest';
+import { stripTypeScriptTypes } from 'node:module';
 import { strengthEvidence, benchmarkStrength } from '../scripts/ai-strength.mjs';
+
+// Initialize Node's native compiler once; each integration still loads fresh files.
+beforeAll(() => { stripTypeScriptTypes('const warmup: number = 0;'); });
 
 test('updates bounded-score loss evidence, with draws neutral', () => {
   let evidence = 1;
@@ -201,7 +205,7 @@ function fixture(aiBody = 'return { move: 0 };') {
   return root;
 }
 
-test('loads both checkouts without dependencies and sends results', () => {
+test('loads both checkouts without dependencies and sends results', { tags: ['slow'] }, () => {
   const root = fixture();
   const reports: any[] = [];
   try {
