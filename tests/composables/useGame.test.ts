@@ -403,7 +403,7 @@ describe('useGame', () => {
     wrapper.unmount();
   });
 
-  test('boardDisabled returns correct state', () => {
+  test('boardDisabled independently protects AI turns, thinking, and finished games', () => {
     const worker = createMockWorker();
     const { gameState, wrapper } = mountWithGame({
       createWorker: () => worker,
@@ -415,6 +415,19 @@ describe('useGame', () => {
     expect(gameState.boardDisabled()).toBe(false);
 
     gameState.aiThinking.value = true;
+    expect(gameState.boardDisabled()).toBe(true);
+
+    gameState.aiThinking.value = false;
+    gameState.blackIsAI.value = true;
+    expect(gameState.boardDisabled()).toBe(true);
+
+    gameState.blackIsAI.value = false;
+    expect(gameState.boardDisabled()).toBe(false);
+    gameState.whiteIsAI.value = false;
+    expect(gameState.loadGame('B9 a1 a6 b1 b6 c1 c6 d1 d6 e1')).toBe(true);
+    expect(gameState.game.value.winner).toBe(BLACK);
+    expect(gameState.isCurrentPlayerHuman()).toBe(true);
+    expect(gameState.aiThinking.value).toBe(false);
     expect(gameState.boardDisabled()).toBe(true);
     wrapper.unmount();
   });
