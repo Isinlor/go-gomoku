@@ -9,6 +9,7 @@ import {
   type SupportedSize,
 } from './gogomoku';
 import { GogoAI } from './ai';
+import { PuzzleDuplicateIndex, type ComparablePuzzle } from './puzzleSimilarity';
 import { insertMoveDescending, sortMovesDescending } from './moveOrdering';
 
 /**
@@ -1019,6 +1020,8 @@ export interface GeneratorOptions {
   readonly maxMovesPerGame?: number;
   readonly minStones?: number;
   readonly maxGames?: number;
+  /** Previously stored puzzles to include in duplicate detection. */
+  readonly existingPuzzles?: readonly ComparablePuzzle[];
   readonly onProgress?: (stats: GeneratorStats) => void;
 }
 
@@ -1037,7 +1040,7 @@ export function generatePuzzles(
   const searcher = new ForcedWinSearcher(size * size, maxSearchDepth);
   const validationBuffers = createValidationBuffers(size * size);
   const puzzles: PuzzleCandidate[] = [];
-  const seenEncodings = new Set<string>();
+  const duplicates = new PuzzleDuplicateIndex(options.existingPuzzles);
   const startTime = performance.now();
 
   const stats: GeneratorStats = {
@@ -1071,8 +1074,7 @@ export function generatePuzzles(
       const candidate = validatePuzzlePosition(replay, difficulty, searcher, validationBuffers);
       stats.totalNodes += searcher.nodesSearched;
 
-      if (candidate !== null && !seenEncodings.has(candidate.encoded)) {
-        seenEncodings.add(candidate.encoded);
+      if (candidate !== null && duplicates.add(candidate)) {
         puzzles.push(candidate);
         stats.puzzlesFound += 1;
 
