@@ -288,6 +288,37 @@ export const PUZZLES: readonly Puzzle[] = [
     wonEncoded: 'B11 e5 h4 i3 a8 b6 h8 b8 e1 c6 c5 e8 h1 g3 g1 i1 h2 f1 f6 f5 f2 a1 b1 c1 a2 b2 d1 j1 f1',
     winningMoves: ['f2', 'a1', 'b1', 'c1', 'a2', 'b2', 'd1', 'j1', 'f1'],
   },
+  // ---- Themed expert puzzles (n=9, m=4, k=4) -------------------------
+  {
+    id: 'gen-expert-ko',
+    encoded: 'B9 e5 b2 e3 h6 f9 e6 c9 d3 h1 f6 d6 c5 f3 d9 i1 b6 d1 f7 a4 d4 c2 b3 g5 a5 a6 a7 b4 g3 b5 i4 i5 e7',
+    toMove: BLACK,
+    solution: 'h5',
+    depth: 9,
+    threshold: 4,
+    wonEncoded: 'B9 e5 b2 e3 h6 f9 e6 c9 d3 h1 f6 d6 c5 f3 d9 i1 b6 d1 f7 a4 d4 c2 b3 g5 a5 a6 a7 b4 g3 b5 i4 i5 e7 h5 a1 b1 c1 e1 b1 f1 g1 e2 a2 e4',
+    winningMoves: ['h5', 'a1', 'b1', 'c1', 'e1', 'b1', 'f1', 'g1', 'e2', 'a2', 'e4'],
+  },
+  {
+    id: 'gen-expert-sacrifice',
+    encoded: 'B9 e5 f6 i1 g5 e9 h2 f9 a8 e6 e7 d8 e3 h4 f1 c4 c1 f4 a5 d4 b4 g4 e4 g8 a7 a6 d5 c6 d6 f8 e8',
+    toMove: BLACK,
+    solution: 'c5',
+    depth: 9,
+    threshold: 4,
+    wonEncoded: 'B9 e5 f6 i1 g5 e9 h2 f9 a8 e6 e7 d8 e3 h4 f1 c4 c1 f4 a5 d4 b4 g4 e4 g8 a7 a6 d5 c6 d6 f8 e8 c5 a1 b1 d1 e1 g1 c3 h1 a2 b2 c2',
+    winningMoves: ['c5', 'a1', 'b1', 'd1', 'e1', 'g1', 'c3', 'h1', 'a2', 'b2', 'c2'],
+  },
+  {
+    id: 'gen-expert-endgame',
+    encoded: 'B9 e5 a1 e2 e3 c8 f6 g5 g8 h4 h5 i8 i5 f3 f1 b3 g7 f7 d1 i7 d3 c6 b1 e1 c7 g4 d7 h2 b7 d8 g3 g6 a7 e7 a9 a2 d9 i4 b6 h3 c5 d4 g2 i1 e6 d6 b5 b4 i2 d5 f4 e4 b9 b8',
+    toMove: WHITE,
+    solution: 'e9',
+    depth: 9,
+    threshold: 4,
+    wonEncoded: 'B9 e5 a1 e2 e3 c8 f6 g5 g8 h4 h5 i8 i5 f3 f1 b3 g7 f7 d1 i7 d3 c6 b1 e1 c7 g4 d7 h2 b7 d8 g3 g6 a7 e7 a9 a2 d9 i4 b6 h3 c5 d4 g2 i1 e6 d6 b5 b4 i2 d5 f4 e4 b9 b8 e9 c1 g1 h1 f2 b2 a1 b1 c3 a1 f3',
+    winningMoves: ['e9', 'c1', 'g1', 'h1', 'f2', 'b2', 'a1', 'b1', 'c3', 'a1', 'f3'],
+  },
 ];
 
 export function getPuzzleById(id: string): Puzzle | undefined {
