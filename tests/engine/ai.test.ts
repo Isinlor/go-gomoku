@@ -1,6 +1,6 @@
 import { test, expect } from 'vitest';
 
-import { BLACK, EMPTY, GogoAI, GogoPosition, WHITE, type Player } from '../../src/engine';
+import { BLACK, EMPTY, GogoAI, GogoPosition, WHITE, computeZobristHashes, type Player } from '../../src/engine';
 import { insertMoveDescending } from '../../src/engine/moveOrdering';
 
 const GENERATE_ORDERED_MOVES_TACTICAL_ONLY_INDEX = 4;
@@ -2628,20 +2628,13 @@ test('TT exact and upperbound cutoffs work in proof mode (uncapped nodes)', () =
 });
 
 test('null move pruning with active ko point', () => {
-  // Create a position with an active ko point
   const ai = new GogoAI({ quiescenceDepth: 0, now: () => 0 });
   const anyAI = ai as any;
   const pos = GogoPosition.fromAscii([
-    '.........',
-    '.........',
-    '.........',
-    '...XO....',
-    '..XOX....',
-    '...XO....',
-    '.........',
-    '.........',
-    '.........',
+    ...Array(7).fill('.........'), '.......OX', '......O.O',
   ], BLACK);
+  expect(pos.playXY(7, 8)).toBe(true);
+  expect(pos.koPoint).toBe(80);
 
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
@@ -2649,19 +2642,27 @@ test('null move pruning with active ko point', () => {
   anyAI.history.fill(0);
   anyAI.ttFlag.fill(0);
 
-  // Manually set a ko point to simulate an active ko
-  pos.koPoint = 40; // center point
-  pos.hash ^= pos.meta.zobristKo64[pos.area] ^ pos.meta.zobristKo64[pos.koPoint];
   const hash = pos.hash;
   const toMove = pos.toMove;
+  const board = pos.toAscii();
+  const search = anyAI.search.bind(anyAI);
+  const visitedStates: { toMove: number; koPoint: number }[] = [];
+  anyAI.search = (position: GogoPosition, ...args: unknown[]) => {
+    // Cached search results must be keyed by the state actually being searched.
+    expect(position.hash).toBe(computeZobristHashes(position));
+    visitedStates.push({ toMove: position.toMove, koPoint: position.koPoint });
+    return search(position, ...args);
+  };
 
   // Depth three exercises a real null move. A low beta causes its cutoff,
   // avoiding an unrelated full depth-four search after restoring the ko state.
   const score = anyAI.search(pos, 3, -1_000_001, -1_000_000, 1);
   expect(score).toBe(-1_000_000);
-  expect(pos.koPoint).toBe(40);
+  expect(visitedStates).toContainEqual({ toMove: BLACK, koPoint: -1 });
+  expect(pos.koPoint).toBe(80);
   expect(pos.toMove).toBe(toMove);
   expect(pos.hash).toBe(hash);
+  expect(pos.toAscii()).toEqual(board);
   expect(anyAI.nodesVisited).toBe(3); // Root, null move, and its quiescence leaf.
 });
 
