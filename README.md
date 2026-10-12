@@ -210,28 +210,6 @@ A few ambiguities were fixed explicitly:
 - captures are resolved before the final suicide check
 - a move that makes five wins immediately, even if the resulting group has no liberties
 
-## Puzzle duplicate detection
-
-Generation compares puzzles only when board size, depth, and threshold match.
-Stones come from the decoded `encoded` starting position, after captures, without
-playing the solution or winning sequence. Coordinates and colors must both match.
-Jaccard similarity is intersection size divided by union size; two empty sets score 1.
-
-A candidate is rejected if any of these inclusive cutoffs is reached:
-
-| Comparison | Cutoff |
-| --- | --- |
-| Stones within Chebyshev distance 2 of the solution, relative coordinates | 0.4 |
-| Same local stones, best of four rotations about the solution | 0.72 |
-| All stones at absolute coordinates | 0.25 |
-| All stones, best of eight rotations/reflections about the board center | 0.86 |
-
-All transformations preserve colors. `generatePuzzles` checks previously accepted
-candidates and accepts `existingPuzzles` to include a stored collection. The
-`scripts/generate-puzzles.ts` CLI includes `PUZZLES` automatically. Existing
-catalog entries are preserved. `puzzleSimilarities` exposes the four scores
-(or `null` for different comparison groups).
-
 ## Agents
 
 If you are a code agent, then follow AGENTS.md
