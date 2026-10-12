@@ -319,6 +319,16 @@ export const PUZZLES: readonly Puzzle[] = [
     wonEncoded: 'B9 e5 a1 e2 e3 c8 f6 g5 g8 h4 h5 i8 i5 f3 f1 b3 g7 f7 d1 i7 d3 c6 b1 e1 c7 g4 d7 h2 b7 d8 g3 g6 a7 e7 a9 a2 d9 i4 b6 h3 c5 d4 g2 i1 e6 d6 b5 b4 i2 d5 f4 e4 b9 b8 e9 c1 g1 h1 f2 b2 a1 b1 c3 a1 f3',
     winningMoves: ['e9', 'c1', 'g1', 'h1', 'f2', 'b2', 'a1', 'b1', 'c3', 'a1', 'f3'],
   },
+  {
+    id: 'gen-complex-1',
+    encoded: 'B9 e5 c6 c3 g4 g3 a5 f4 d6 d4 f6 h2 i1 b2 a1',
+    toMove: BLACK,
+    solution: 'e6',
+    depth: 9,
+    threshold: 4,
+    wonEncoded: 'B9 e5 c6 c3 g4 g3 a5 f4 d6 d4 f6 h2 i1 b2 a1 e6 b1 c1 d1 h1 e1 a2 a1 b1 f1 a1',
+    winningMoves: ['e6', 'b1', 'c1', 'd1', 'h1', 'e1', 'a2', 'a1', 'b1', 'f1', 'a1'],
+  },
 ];
 
 export function getPuzzleById(id: string): Puzzle | undefined {
