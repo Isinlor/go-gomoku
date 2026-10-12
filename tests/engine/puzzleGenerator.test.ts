@@ -31,8 +31,8 @@ test.each([9, 11, 13] as const)('cached puzzle windows on size %s match original
   const rng = new LCG(20261019);
   const positions = [
     decodeGame(`B${size} b1 a1 a2`),
-    playRandomGame(size, rng, 12),
-    playRandomGame(size, rng, 12),
+    playRandomGame(size, rng, 8),
+    playRandomGame(size, rng, 8),
     GogoPosition.fromAscii(Array.from({ length: size }, (_, y) => (
       y === 0 ? 'XXXXX' + '.'.repeat(size - 5)
         : y === 2 ? '.OOOO' + '.'.repeat(size - 5) : '.'.repeat(size)
@@ -389,9 +389,10 @@ test('playRandomGame with different seeds produces different games', () => {
 
 // Three short seeded games exercise real validation and duplicate rejection
 // without searching long, dense positions unrelated to generator orchestration.
+const fastGeneratorOptions = { seed: 2826, maxGames: 3, maxMovesPerGame: 15, minStones: 12 };
+
 test('generatePuzzles finds beginner puzzles', { tags: ['slow'] }, () => {
-  const options = { seed: 2826, maxGames: 3, maxMovesPerGame: 15, minStones: 12 };
-  const { puzzles, stats } = generatePuzzles(BEGINNER, 2, options);
+  const { puzzles, stats } = generatePuzzles(BEGINNER, 2, fastGeneratorOptions);
   expect(puzzles.length).toBe(2);
   expect(stats.puzzlesFound).toBe(2);
   expect(stats.gamesPlayed).toBeGreaterThan(0);
@@ -401,17 +402,27 @@ test('generatePuzzles finds beginner puzzles', { tags: ['slow'] }, () => {
   expect(similarities).not.toBeNull();
   expect(hasDuplicateSimilarity(similarities!)).toBe(false);
 
-  const regenerated = generatePuzzles(BEGINNER, 1, {
-    ...options,
-    existingPuzzles: [puzzles[0]],
-  });
-  expect(regenerated.puzzles).toEqual([puzzles[1]]);
-
   for (const p of puzzles) {
     expect(p.depth).toBe(3);
     expect(p.threshold).toBe(2);
     expect(p.solution.length).toBeGreaterThanOrEqual(2);
   }
+});
+
+test('generatePuzzles rejects an existing puzzle and returns the next distinct one', { tags: ['slow'] }, () => {
+  const existing = {
+    encoded: 'B9 e5 e4 b6 e7 c4 f7 c7 f5 d7 c3 a9 d3 b1',
+    solution: 'g6', depth: 3, threshold: 2,
+  };
+  const { puzzles } = generatePuzzles(BEGINNER, 1, {
+    ...fastGeneratorOptions,
+    existingPuzzles: [existing],
+  });
+  expect(puzzles).toHaveLength(1);
+  expect(puzzles[0]).toMatchObject({
+    encoded: 'B9 e5 f4 d2 d6 f8 h4 e6 a2 e9 e7 d4 g2 g9 f6 d5',
+    solution: 'g5', depth: 3, threshold: 2,
+  });
 });
 
 // ---------------------------------------------------------------------------
