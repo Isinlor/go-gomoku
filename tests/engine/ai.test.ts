@@ -3326,7 +3326,7 @@ test('proofAttack: illegal TT move is attempted before move generation and skipp
     return 0;
   };
 
-  expect(anyAI.proofAttack(pos, 1, 1)).toBe(false);
+  expect(anyAI.proofAttack(pos, 3, 1)).toBe(false);
   expect(genCalls).toBe(1);
   anyAI.generateOrderedMoves = realGen;
   (pos as any).play = realPlay;

@@ -109,11 +109,22 @@ test('the proof explores non-immediate attacks and skips a previously tried hash
   ai.resetProofSearch();
   ai.deadline = Infinity;
   expect(ai.proofAttack(position, 3, 0)).toBe(true);
+  const capture = GogoPosition.fromAscii([
+    '.XX....XO', '.........', '.........', '.........', '.........',
+    '.........', '.........', '.........', '.........',
+  ], BLACK);
   ai.resetProofSearch();
-  const index = Number(position.hash & ((1n << 18n) - 1n));
-  ai.proofTTHash[index] = position.hash;
-  ai.proofTTBestMove[index] = 4;
-  expect(ai.proofAttack(position, 1, 0)).toBe(false);
+  const index = Number(capture.hash & ((1n << 18n) - 1n));
+  ai.proofTTHash[index] = capture.hash;
+  ai.proofTTBestMove[index] = 17;
+  const play = capture.play.bind(capture);
+  let captures = 0;
+  capture.play = (move: number) => {
+    if (move === 17 && capture.ply === 0) captures++;
+    return play(move);
+  };
+  expect(ai.proofAttack(capture, 3, 0)).toBe(false);
+  expect(captures).toBe(1);
 });
 
 test('root search stops once an immediate win reaches the best possible score', () => {

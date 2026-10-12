@@ -24,7 +24,7 @@ function assertAISolves(puzzle: Puzzle, ai: GogoAI, timeMs: number): void {
   const result = ai.findBestMove(position, timeMs);
   expect(result.move).toBe(expectedIndex);
   // Keep the full expert regression in the existing puzzle benchmarks.
-  if (puzzle.id === 'gen-expert-1') {
+  if (puzzle.id === 'gen-expert-1' || puzzle.id === 'gen-complex-1') {
     expect(result.forcedWin).toBe(true);
     expect(result.heuristicWin).toBe(false);
     expect(result.depth).toBe(9);
@@ -58,7 +58,9 @@ test.each(
   generatedPuzzles.map((p) => [p.id, p] as const),
 )('Classic AI solves generated puzzle %s', { timeout: 30_000 }, (_id, puzzle) => {
   const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4 });
+  const start = performance.now();
   assertAISolves(puzzle, ai, genClassicTimeMs[puzzle.depth] ?? 5_000);
+  if (puzzle.id === 'gen-complex-1') expect(performance.now() - start).toBeLessThan(500);
 });
 
 test('getPuzzleById returns the correct puzzle or undefined', () => {
@@ -122,7 +124,7 @@ test('AI proves forced win for edge attack position B9 e9 e8 f9 g9', { timeout: 
   const ai = new GogoAI({ maxDepth: 30, quiescenceDepth: 4 });
   const result = ai.findBestMove(position, 60_000);
   expect(result.forcedWin).toBe(true);
-  expect(result.heuristicWin).toBe(true);
+  expect(result.heuristicWin).toBe(false);
   expect(result.timedOut).toBe(false);
   expect(position.isLegal(result.move)).toBe(true);
 });
