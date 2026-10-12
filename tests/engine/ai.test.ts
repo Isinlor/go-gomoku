@@ -2618,7 +2618,7 @@ test('TT exact and upperbound cutoffs work in proof mode (uncapped nodes)', () =
 
 test('null move pruning with active ko point', () => {
   // Create a position with an active ko point
-  const ai = new GogoAI({ maxDepth: 6, quiescenceDepth: 2, now: () => 0 });
+  const ai = new GogoAI({ quiescenceDepth: 0, now: () => 0 });
   const anyAI = ai as any;
   const pos = GogoPosition.fromAscii([
     '.........',
@@ -2640,11 +2640,18 @@ test('null move pruning with active ko point', () => {
 
   // Manually set a ko point to simulate an active ko
   pos.koPoint = 40; // center point
+  pos.hash ^= pos.meta.zobristKo64[pos.area] ^ pos.meta.zobristKo64[pos.koPoint];
+  const hash = pos.hash;
+  const toMove = pos.toMove;
 
-  const score = anyAI.search(pos, 4, -1_000_000, 1_000_000, 1);
-  expect(typeof score).toBe('number');
-  // ko point should be restored after search
+  // Depth three exercises a real null move. A low beta causes its cutoff,
+  // avoiding an unrelated full depth-four search after restoring the ko state.
+  const score = anyAI.search(pos, 3, -1_000_001, -1_000_000, 1);
+  expect(score).toBe(-1_000_000);
   expect(pos.koPoint).toBe(40);
+  expect(pos.toMove).toBe(toMove);
+  expect(pos.hash).toBe(hash);
+  expect(anyAI.nodesVisited).toBe(3); // Root, null move, and its quiescence leaf.
 });
 
 test('proofAttack: illegal move is skipped', () => {

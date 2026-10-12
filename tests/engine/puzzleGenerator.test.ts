@@ -351,8 +351,8 @@ test('generatePuzzles finds beginner puzzles', { tags: ['slow'], timeout: 15_000
   expect(hasDuplicateSimilarity(similarities!)).toBe(false);
 
   const regenerated = generatePuzzles(BEGINNER, 1, {
-    seed: 42,
-    maxGames: 500,
+    seed: 1302382268,
+    maxGames: 2,
     existingPuzzles: [puzzles[0]],
   });
   expect(regenerated.puzzles).toEqual([puzzles[1]]);

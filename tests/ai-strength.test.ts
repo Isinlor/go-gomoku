@@ -227,14 +227,25 @@ test('real Node worker passes the strength benchmark', async () => {
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test('CLI errors and worker search errors return exit code 2', async () => {
+test.each([undefined, '/nonexistent-strength-master'])('invalid master path %s returns exit code 2', async (master) => {
+  const root = fixture();
+  try {
+    expect(await runStrength(master, root, () => {})).toBe(2);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('worker search errors return exit code 2', async () => {
   const root = fixture('return { move: -1 };');
   const logs: string[] = [];
   try {
-    expect(await runStrength(undefined, root, s => logs.push(s))).toBe(2);
-    expect(await runStrength('/nonexistent-strength-master', root, s => logs.push(s))).toBe(2);
     expect(await runStrength(root, root, s => logs.push(s))).toBe(2);
     expect(logs.join(' ')).toContain('illegal move');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('CLI search errors return exit code 2', () => {
+  const root = fixture('return { move: -1 };');
+  try {
     const cli = spawnSync(process.execPath, [resolve('scripts/ai-strength.mjs'), root], { cwd: root, encoding: 'utf8' });
     expect(cli.status).toBe(2);
     expect(cli.stdout).toContain('illegal move');
