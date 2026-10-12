@@ -532,6 +532,11 @@ export class ForcedWinSearcher {
     defenderThreats: number,
   ): boolean {
     const defender = otherPlayer(attacker);
+    // Overlapping four-stone windows can share their only empty cell.
+    // Only distinct completion cells require separate blocking moves.
+    const attackerCompletions = attackerThreats > 1
+      ? this.getWinThreatMoves(pos, attacker).count
+      : attackerThreats;
 
     // When the defender can capture attacker stones, threat-based shortcuts
     // are unsafe: a single capture can remove a stone that participates in
@@ -540,12 +545,12 @@ export class ForcedWinSearcher {
     const capturesSafe = attackerThreats === 0 || !this.canCaptureOpponent(pos, attacker);
 
     // If attacker has ≥2 win threats and defender has 0, attacker wins
-    if (capturesSafe && attackerThreats >= 2 && defenderThreats === 0) {
+    if (capturesSafe && attackerCompletions >= 2 && defenderThreats === 0) {
       return true;
     }
 
     // If attacker has exactly 1 threat, defender must block it
-    if (capturesSafe && attackerThreats === 1 && defenderThreats === 0) {
+    if (capturesSafe && attackerCompletions === 1 && defenderThreats === 0) {
       const { moves: tMoves } = this.getWinThreatMoves(pos, attacker);
       const block = tMoves[0];
       if (!pos.play(block)) {
@@ -575,10 +580,10 @@ export class ForcedWinSearcher {
         }
       }
       // If attacker also has threats, defender might need to block those too
-      if (capturesSafe && attackerThreats >= 2) {
+      if (capturesSafe && attackerCompletions >= 2) {
         return true; // Double threat, defender already tried escaping
       }
-      if (capturesSafe && attackerThreats === 1) {
+      if (capturesSafe && attackerCompletions === 1) {
         const { moves: aMoves } = this.getWinThreatMoves(pos, attacker);
         const block = aMoves[0];
         if (!pos.play(block)) {
