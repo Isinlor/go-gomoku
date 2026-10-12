@@ -68,60 +68,66 @@ npm run test:strength -- /path/to/master-checkout
 npm run test:strength -- /path/to/master-checkout 123
 ```
 
-Each attempt plays 32 pairs from fresh legal clustered openings (4–12 opening
-plies) across 9×9, 11×11, and 13×13 boards. Both games in a pair use the same
-opening, swap candidate colors, and randomize which color plays first. Master’s
-board implementation referees both versions, so changes to the rules cannot
-quietly change the comparison. Each game has fresh AI instances, a maximum of
-64 additional plies, and search options `maxDepth: 10`, `quiescenceDepth: 4`.
-No-move positions and move-cap games are draws; illegal AI replies are errors.
-The seed, openings, game results, pair totals, and runtime are logged.
+Each attempt samples complete color-swapped pairs until a **12-second wall-time
+sampling deadline**, measured from before source loading. The number of games
+adapts to the runner: faster CI runners play more pairs rather than stopping at
+32. Both games in a pair use the same legal 4–12-ply opening, swap candidate
+colors, and randomize which color plays first. Board sizes cycle equally through
+9×9, 11×11, and 13×13. Opening stones occupy a randomly placed 5×5 patch, including
+edges, rather than always starting in the center. Master’s board implementation
+referees both versions. Each game has fresh AI instances; the seed, openings,
+game results, pair counts, evidence, and runtime are logged.
 
-Both versions receive a fixed **2 milliseconds per move**, passed directly to
-`findBestMove`. They use their normal wall clocks; no artificial clock or work
-budget is injected. A faster engine can search further within the same time.
-There are 32 × 2 × 64 = 4096 possible searched moves per attempt, so the nominal
-search budget at the move cap is 8.192 seconds, leaving room for setup, search
-overshoot, and result checks within 15 seconds. The engine checks time
-periodically, so a call may exceed 2ms; the attempt deadlines bound total time.
-A passed run is a fast regression screen, not an Elo estimate or proof of equal
-strength at larger time controls. The seed reproduces openings and game order;
-move choices can vary with CPU scheduling.
+Both versions receive the same fixed **2 milliseconds per move**, passed directly
+to `findBestMove`, using their normal clocks. Search options are `maxDepth: 64`
+and `quiescenceDepth: 6`, so the old depth-10 and quiescence-4 caps do not restrict
+fast tactical searches. Games allow 256 additional plies rather than stopping at
+64, to avoid concealing later losses. No-move positions and move-cap games are
+draws; illegal replies are errors. The engine checks time periodically, so a
+call can exceed 2ms. These remain fast games at a small time control; passing
+does not establish equal Elo or strength at larger time controls. The seed
+reproduces openings and order, while timing noise can change move choices.
 
-A pair contributes the sign of the sum of its two candidate results (win = +1,
-draw = 0, loss = −1). Tied pairs are excluded. For `n` decisive pairs and `L`
-lost pairs, the one-sided exact sign-test p-value is
-`sum(C(n, k), k=L..n) / 2^n`; fail the attempt only when `p <= 0.05`.
-For example, five losses without a won pair have p = 1/32 = 3.125%; four
-have p = 1/16 = 6.25% and pass. With 32 decisive pairs, at least 22 losses
-are needed (p ≈ 2.505%). Both games are one observation, never two independent
-samples, and there is only one aggregate strength test per attempt.
+Time-based sampling requires a test that is valid at any stopping time. A
+fixed-sample binomial p-value is insufficient when game duration and results
+can determine how many observations are collected. Each completed pair has
+score `S = (first game result + second game result) / 2`, with game results
+−1, 0, +1. Thus `S` is −1, −0.5, 0, +0.5, or +1. Keeping half-points preserves
+the difference between losing both games and losing one while drawing the other;
+the previous sign test discarded this margin.
 
-Under no change, assume independent pair outcomes and timing noise that is
-exchangeable between the two identical engines. Each pair starts with fresh
-AI instances; colors are swapped and game order is randomized to avoid a fixed
-seat/order advantage. Conditional on a pair being decisive, a loss and a win
-then have equal probability. Thus `L ~ Binomial(n, 1/2)` and the exact tail
-threshold gives a per-attempt false-fail probability at most 5%; discreteness
-makes it conservative. Timing noise means identical engines need not tie.
-This analytical bound assumes fair, independent noise, as the performance
-comparison assumes exchangeable timing measurements; it does not cover systematic
-version-specific scheduling bias. There is no separate per-board test or
-multiple-testing penalty: all board sizes feed one aggregate comparison.
+The test averages six nonnegative betting processes. For each fixed bet
+`b` in `{0.05, 0.1, 0.2, 0.4, 0.6, 0.8}`, start with `W_b = 1` and multiply by
+`1 - b*S` after every complete pair. Define `E = average(W_b)` and flag the
+attempt if **E reaches 20 at any completed-pair prefix**. Calculations use log
+wealth to avoid numerical overflow affecting the decision. Under no change,
+assume version-exchangeable timing noise, so `E[S | past] = 0`; more generally,
+nonnegative conditional expected candidate score suffices. Each factor is
+nonnegative with conditional expectation at most 1, so every `W_b` and their
+mixture are nonnegative supermartingales starting at 1. Ville’s inequality gives
+`P(any prefix E >= 20) <= 1/20 = 5%`. This is one aggregate test across board
+sizes, not separate tests with multiple-comparison penalties. Unlike a fixed
+binomial tail, this analytical bound permits adaptive sample counts, correlated
+observations satisfying the conditional-mean assumption, and outcome-dependent
+stopping times. It still assumes fair noise; systematic version-specific bias
+is outside the null model.
 
-Retries use fresh openings and stop on any passing attempt; only five failed
-attempts confirm a regression. Even without assuming independence between
-retries, the final statistical false-fail probability is no greater than the
-first attempt’s. The conservative retry policy reduces sensitivity to small
-regressions.
+Once the sampling deadline is reached, the current pair can finish with a
+500ms grace period. If it cannot finish, discard the **entire** pair and stop;
+never score a half-pair or turn a deadline interruption into a draw. The completed
+observations remain a prefix, preserving the statistical bound. No complete pairs
+is an inconclusive error. A sampling deadline normally produces a scored result,
+rather than failing merely because more games could have been played.
 
-Each attempt has its own 13-second internal deadline. The parent runs each
-attempt in a fresh Node process with a **14-second hard timeout**, including
-process startup and source loading. A passing comparison finishes after one
-attempt; up to five failing attempts can take up to 70 seconds plus small
-orchestration overhead. CI also enforces a 74-second total hard cap, within
-the requested 5 × 15-second limit. Checkout and Node setup are outside this
-execution budget. The same per-attempt process limit applies locally.
+A passing attempt ends the comparison. Failed attempts retry with fresh openings,
+up to five attempts. Retaining the existing retry policy reduces sensitivity
+compared with failing on one rejection, but the final statistical false-failure
+probability is at most that of the first attempt, even without independence
+between retries. The parent gives every attempt a **14-second hard process
+timeout**, including startup and source loading. CI also enforces a 74-second
+total cap, within the requested 15 seconds per attempt / 5 × 15 seconds total
+budget. Checkout and Node setup are outside this execution budget. The same
+per-attempt process timeout applies locally.
 
 Exit codes are 0 (pass), 1 (five confirmed strength failures), and 2 (invalid
 engine/configuration or an inconclusive runtime/process error). Runtime errors

@@ -6,28 +6,30 @@ import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 import { loadEngine } from './puzzle-performance.mjs';
 
-export const PAIRS = 32;
 export const ATTEMPTS = 5;
-export const MAX_PLIES = 64;
+export const MAX_PLIES = 256;
 export const MOVE_TIME_MS = 2;
+export const SAMPLE_TIME_MS = 12_000;
+const PAIR_TIMEOUT = new Error('PAIR_TIMEOUT');
+const BETS = [0.05, 0.1, 0.2, 0.4, 0.6, 0.8];
 
-/** Each color-swapped pair is ONE observation; ties carry no evidence. */
+/** Mixture of nonnegative betting martingales: valid at ANY stopping time. */
 export function comparePairs(outcomes) {
-  let wins = 0, losses = 0, ties = 0;
-  for (const outcome of outcomes) {
-    assert([-1, 0, 1].includes(outcome), 'Invalid pair outcome');
-    if (outcome === 1) wins++;
-    else if (outcome === -1) losses++;
+  let wins = 0, losses = 0, ties = 0, logEvidence = 0;
+  const logWealth = BETS.map(() => 0);
+  for (const score of outcomes) {
+    assert([-1, -0.5, 0, 0.5, 1].includes(score), 'Invalid pair outcome');
+    if (score > 0) wins++;
+    else if (score < 0) losses++;
     else ties++;
+    for (let index = 0; index < BETS.length; index++) {
+      logWealth[index] += Math.log1p(-BETS[index] * score);
+    }
+    const max = Math.max(...logWealth);
+    const mixture = max + Math.log(logWealth.reduce((sum, value) => sum + Math.exp(value - max), 0) / BETS.length);
+    logEvidence = Math.max(logEvidence, mixture);
   }
-  const n = wins + losses;
-  let coefficient = 1, tail = 0;
-  for (let k = 0; k <= n; k++) {
-    if (k >= losses) tail += coefficient;
-    coefficient = coefficient * (n - k) / (k + 1);
-  }
-  const p = tail / 2 ** n;
-  return { wins, losses, ties, p, passed: p > 0.05 };
+  return { wins, losses, ties, evidence: Math.exp(logEvidence), passed: logEvidence < Math.log(20) };
 }
 
 export function seededRandom(seed) {
@@ -44,10 +46,11 @@ export function seededRandom(seed) {
 /** Legal clustered openings, independent of either AI's move preferences. */
 export function makeOpening(engine, random, size) {
   const position = engine.decodeGame(`B${size}`);
-  const center = Math.floor(size / 2);
+  const originX = random(size - 4);
+  const originY = random(size - 4);
   const moves = [];
-  for (let y = center - 2; y <= center + 2; y++) {
-    for (let x = center - 2; x <= center + 2; x++) moves.push(y * size + x);
+  for (let y = originY; y <= originY + 4; y++) {
+    for (let x = originX; x <= originX + 4; x++) moves.push(y * size + x);
   }
   const plies = 4 + random(9);
   for (let ply = 0; ply < plies; ply++) {
@@ -64,7 +67,7 @@ export function makeOpening(engine, random, size) {
 /** Use master rules as referee and the same fixed wall time per move. */
 export function playGame(master, candidate, opening, candidateColor, check) {
   const position = master.decodeGame(opening);
-  const options = { maxDepth: 10, quiescenceDepth: 4 };
+  const options = { maxDepth: 64, quiescenceDepth: 6 };
   const ais = [null, new (candidateColor === 1 ? candidate : master).GogoAI(options),
     new (candidateColor === 2 ? candidate : master).GogoAI(options)];
   for (let ply = 0; ply < MAX_PLIES; ply++) {
@@ -80,39 +83,41 @@ export function playGame(master, candidate, opening, candidateColor, check) {
   return 0; // Move-cap draws are never adjudicated by either AI's evaluation.
 }
 
-export function benchmarkStrength(master, candidate, seed, log, check, play = playGame, attempts = ATTEMPTS) {
+/** Sample until the wall-time deadline, scoring only complete color-swapped pairs. */
+export function benchmarkStrength(master, candidate, seed, log, clock = () => performance.now(), play = playGame, deadline = clock() + SAMPLE_TIME_MS) {
   const random = seededRandom(seed);
+  const outcomes = [];
+  const check = () => { if (clock() >= deadline + 500) throw PAIR_TIMEOUT; };
   log(`AI strength seed: ${seed}`);
-  for (let attempt = 1; attempt <= attempts; attempt++) {
-    const outcomes = [];
-    for (let pair = 0; pair < PAIRS; pair++) {
-      check();
-      const size = [9, 9, 11, 13][pair % 4];
-      const opening = makeOpening(master, random, size);
-      const firstColor = 1 + random(2);
+  while (clock() < deadline) {
+    const pair = outcomes.length;
+    const size = [9, 11, 13][pair % 3];
+    const opening = makeOpening(master, random, size);
+    const firstColor = 1 + random(2);
+    try {
       const first = play(master, candidate, opening, firstColor, check);
       const second = play(master, candidate, opening, 3 - firstColor, check);
-      const outcome = Math.sign(first + second);
-      outcomes.push(outcome);
-      log(`attempt ${attempt} pair ${pair + 1}: ${opening}; candidate color ${firstColor} first; scores ${first}, ${second}`);
+      outcomes.push((first + second) / 2);
+      log(`pair ${pair + 1}: ${opening}; candidate color ${firstColor} first; scores ${first}, ${second}`);
+    } catch (error) {
+      if (error !== PAIR_TIMEOUT) throw error;
+      log('Sampling deadline reached; discarding unfinished pair.');
+      break;
     }
-    const result = comparePairs(outcomes);
-    log(`${result.passed ? 'PASS' : 'FAIL'} attempt ${attempt}/${attempts}: ${result.wins} won, ${result.losses} lost, ${result.ties} tied pairs; p=${result.p.toFixed(6)}`);
-    if (result.passed) return 0;
-    if (attempt < attempts) log('Possible strength regression; repeating with fresh openings.');
   }
-  log(attempts === ATTEMPTS ? 'Strength regression confirmed after five attempts.' : 'Possible strength regression in this attempt.');
-  return 1;
+  assert(outcomes.length > 0, 'No complete game pairs within runtime budget (inconclusive)');
+  const result = comparePairs(outcomes);
+  log(`${result.passed ? 'PASS' : 'FAIL'}: ${outcomes.length} pairs, ${result.wins} won, ${result.losses} lost, ${result.ties} tied; peak evidence=${result.evidence.toPrecision(6)} (fail at 20)`);
+  return result.passed ? 0 : 1;
 }
 
 export function runStrength(masterRoot, candidateRoot = process.cwd(), seed = randomInt(1, 0x100000000), log = console.log, clock = () => performance.now()) {
   const start = clock();
-  const check = () => assert(clock() - start < 13_000, 'Strength test exceeded its 13s runtime budget (inconclusive)');
   try {
     assert(masterRoot, 'Usage: node scripts/ai-strength.mjs MASTER_CHECKOUT [SEED]');
     const master = loadEngine(realpathSync(masterRoot));
     const candidate = loadEngine(realpathSync(candidateRoot));
-    const status = benchmarkStrength(master, candidate, seed, log, check, playGame, 1);
+    const status = benchmarkStrength(master, candidate, seed, log, clock, playGame, start + SAMPLE_TIME_MS);
     log(`Strength attempt time: ${(clock() - start).toFixed(0)} ms`);
     return status;
   } catch (error) {

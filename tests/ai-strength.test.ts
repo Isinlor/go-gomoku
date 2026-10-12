@@ -2,12 +2,17 @@
 import { expect, test } from 'vitest';
 import { comparePairs } from '../scripts/ai-strength.mjs';
 
-test('uses the exact one-sided binomial tail, ignoring tied pairs', () => {
-  expect(comparePairs([-1, -1, -1, -1])).toEqual({ wins: 0, losses: 4, ties: 0, p: 0.0625, passed: true });
-  expect(comparePairs([-1, -1, -1, -1, -1]).passed).toBe(false);
-  expect(comparePairs([-1, -1, -1, -1, -1, -1, -1, 1]).p).toBe(9 / 256);
-  expect(comparePairs([0, 0])).toEqual({ wins: 0, losses: 0, ties: 2, p: 1, passed: true });
-  expect(comparePairs([1, 1]).passed).toBe(true);
+test('uses an anytime-valid mixture and retains half-point pair margins', () => {
+  expect(comparePairs([])).toMatchObject({ wins: 0, losses: 0, ties: 0, evidence: 1, passed: true });
+  expect(comparePairs([0, 0]).evidence).toBe(1);
+  expect(comparePairs([-1]).evidence).toBeCloseTo(1 + 2.15 / 6);
+  expect(comparePairs([-0.5]).evidence).toBeCloseTo(1 + 2.15 / 12);
+  expect(comparePairs(Array(7).fill(-1)).passed).toBe(true);
+  expect(comparePairs(Array(8).fill(-1)).passed).toBe(false);
+  // Crossing the boundary remains a rejection even if later games recover.
+  expect(comparePairs([...Array(8).fill(-1), ...Array(30).fill(1)]).passed).toBe(false);
+  expect(comparePairs(Array(5000).fill(-1)).passed).toBe(false);
+  expect(comparePairs([1, 0.5])).toMatchObject({ wins: 2, losses: 0, evidence: 1, passed: true });
 });
 
 test('rejects invalid pair outcomes', () => {
@@ -15,7 +20,7 @@ test('rejects invalid pair outcomes', () => {
 });
 
 import * as engine from '../src/engine';
-import { benchmarkStrength, makeOpening, playGame, seededRandom, runStrength, MAX_PLIES, PAIRS } from '../scripts/ai-strength.mjs';
+import { benchmarkStrength, makeOpening, playGame, seededRandom, runStrength, MAX_PLIES, SAMPLE_TIME_MS } from '../scripts/ai-strength.mjs';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
@@ -34,6 +39,8 @@ test('seeded openings reproduce legal positions on all supported sizes', () => {
     expect(position.ply).toBeGreaterThanOrEqual(4);
     expect(position.ply).toBeLessThanOrEqual(12);
   }
+  expect(engine.decodeGame(makeOpening(engine, () => 0, 9)).getMoveAt(0)).toBe(0);
+  expect(engine.decodeGame(makeOpening(engine, (limit: number) => limit - 1, 13)).getMoveAt(0)).toBe(168);
   for (const seed of [0, -1, NaN, 1.5, 0x100000000]) expect(() => seededRandom(seed)).toThrow('Seed');
 });
 
@@ -42,7 +49,8 @@ test('discards an opening move that wins and rejects malformed opening rules', (
   const targets = [20, 56, 21, 57, 22, 58, 23, 59, 24];
   let calls = 0;
   const opening = makeOpening(engine, () => {
-    if (calls++ === 0) return 8;
+    if (calls++ < 2) return 2;
+    if (calls === 3) return 8;
     const index = remaining.indexOf(targets.shift()!);
     remaining.splice(index, 1);
     return index;
@@ -53,34 +61,51 @@ test('discards an opening move that wins and rejects malformed opening rules', (
   expect(() => makeOpening({ decodeGame: () => ({ isLegal: () => true, play: () => false }) }, () => 0, 9)).toThrow('Illegal opening');
 });
 
-function tournament(failures: number) {
-  const history: unknown[][] = [], logs: string[] = [];
-  const status = benchmarkStrength(engine, engine, 123, (s: string) => logs.push(s), check,
-    (...args: unknown[]) => { history.push(args); return history.length <= failures * PAIRS * 2 ? -1 : 0; });
-  return { status, history, logs: logs.join('\n') };
-}
-
-test('passes ties, swaps colors, shares openings and retries only failed batches', () => {
-  const pass = tournament(0);
-  expect(pass.status).toBe(0);
-  expect(pass.history).toHaveLength(PAIRS * 2);
-  for (let i = 0; i < PAIRS * 2; i += 2) {
-    expect(pass.history[i][2]).toBe(pass.history[i + 1][2]);
-    expect(Number(pass.history[i][3]) + Number(pass.history[i + 1][3])).toBe(3);
+test('collects more than 32 pairs until the sampling deadline, shares openings, and swaps colors', () => {
+  let elapsed = 0;
+  const history: any[][] = [], logs: string[] = [];
+  const play = (...args: any[]) => { history.push(args); elapsed += 10; return 0; };
+  expect(benchmarkStrength(engine, engine, 123, (s: string) => logs.push(s), () => elapsed, play, SAMPLE_TIME_MS)).toBe(0);
+  expect(history.length / 2).toBe(SAMPLE_TIME_MS / 20);
+  expect(history.length / 2).toBeGreaterThan(32);
+  for (let i = 0; i < history.length; i += 2) {
+    expect(history[i][2]).toBe(history[i + 1][2]);
+    expect(history[i][3] + history[i + 1][3]).toBe(3);
   }
-  const retry = tournament(1);
-  expect(retry.status).toBe(0);
-  expect(retry.history).toHaveLength(PAIRS * 4);
-  expect(retry.logs).toContain('fresh openings');
-  expect(retry.history[0][2]).not.toBe(retry.history[PAIRS * 2][2]);
-  expect(tournament(4).status).toBe(0);
-  const fail = tournament(5);
-  expect(fail.status).toBe(1);
-  expect(fail.history).toHaveLength(PAIRS * 10);
-  expect(fail.logs).toContain('confirmed');
-  const singleLogs: string[] = [];
-  expect(benchmarkStrength(engine, engine, 123, (s: string) => singleLogs.push(s), check, () => -1, 1)).toBe(1);
-  expect(singleLogs.join(' ')).toContain('Possible strength regression in this attempt');
+  expect(logs.join(' ')).toContain('PASS');
+});
+
+test('uses fractional pair scores and confirms loss evidence at the deadline', () => {
+  let elapsed = 0, calls = 0;
+  const logs: string[] = [];
+  const play = () => { elapsed += 10; return calls++ % 2 === 0 ? -1 : 0; };
+  expect(benchmarkStrength(engine, engine, 123, (s: string) => logs.push(s), () => elapsed, play, 400)).toBe(1);
+  expect(logs.join(' ')).toContain('20 lost');
+});
+
+test('discards a deadline-interrupted pair but propagates invalid-engine errors', () => {
+  let elapsed = 0, calls = 0;
+  const logs: string[] = [];
+  const play = (...args: any[]) => {
+    if (++calls <= 2) { elapsed += 1; return 0; }
+    elapsed = 13000;
+    args[4]();
+    return -1;
+  };
+  expect(benchmarkStrength(engine, engine, 123, (s: string) => logs.push(s), () => elapsed, play, 12000)).toBe(0);
+  expect(logs.join(' ')).toContain('1 tied');
+  expect(logs.join(' ')).toContain('unfinished pair');
+  expect(() => benchmarkStrength(engine, engine, 123, check, () => 0, () => { throw Error('illegal move'); }, 100)).toThrow('illegal move');
+  expect(() => benchmarkStrength(engine, engine, 123, check, () => 13000, play, 12000)).toThrow('No complete');
+});
+
+test('defaults to the real wall clock and a twelve-second sampling window', () => {
+  let elapsed = 0;
+  const clock = vi.spyOn(performance, 'now').mockImplementation(() => elapsed += 100);
+  try {
+    expect(benchmarkStrength(engine, engine, 123, check, undefined, () => 0)).toBe(0);
+    expect(elapsed).toBeGreaterThanOrEqual(SAMPLE_TIME_MS);
+  } finally { clock.mockRestore(); }
 });
 
 test('both engines use the same fixed milliseconds per move and their real clocks', () => {
@@ -100,7 +125,7 @@ test('both engines use the same fixed milliseconds per move and their real clock
   expect(playGame(recording, recording, opening, 1, check)).toBe(1);
   expect(playGame(recording, recording, opening, 2, check)).toBe(-1);
   expect(budgets).toEqual([2, 2]);
-  expect(options).toEqual(Array(4).fill({ maxDepth: 10, quiescenceDepth: 4 }));
+  expect(options).toEqual(Array(4).fill({ maxDepth: 64, quiescenceDepth: 6 }));
 });
 
 // Tiny deterministic rules exercise draw and invalid-engine paths without clocks or mocks.
@@ -125,7 +150,7 @@ test('counts move caps and no legal moves as draws; rejects invalid AI replies',
   expect(() => playGame(capped, capped, '', 1, () => { throw Error('deadline'); })).toThrow('deadline');
 });
 
-function fixture() {
+function fixture(fastClock = false) {
   const root = mkdtempSync(join(tmpdir(), 'ai-strength-'));
   const dir = join(root, 'src/engine');
   mkdirSync(dir, { recursive: true });
@@ -136,7 +161,8 @@ function fixture() {
     }
     export function decodeMove() { return 0; }
   `);
-  writeFileSync(join(dir, 'ai.ts'), 'export class GogoAI { findBestMove() { return { move: -1 }; } }');
+  writeFileSync(join(dir, 'ai.ts'), `${fastClock ? 'let ticks = 0; performance.now = () => ++ticks * 1000;' : ''}
+    export class GogoAI { findBestMove() { return { move: -1 }; } }`);
   writeFileSync(join(dir, 'puzzles.ts'), 'export const PUZZLES = [];');
   return root;
 }
@@ -145,8 +171,10 @@ test('runner loads separate checkouts, prints timings, and returns errors withou
   const root = fixture(), other = fixture(), logs: string[] = [];
   const log = (s: string) => logs.push(s);
   try {
-    expect(runStrength(root, other, 123, log)).toBe(0);
-    expect(runStrength(root, other, undefined, log)).toBe(0);
+    let elapsed = 0;
+    const clock = () => elapsed += 100;
+    expect(runStrength(root, other, 123, log, clock)).toBe(0);
+    expect(runStrength(root, other, undefined, log, clock)).toBe(0);
     expect(logs.join('\n')).toContain('Strength attempt time');
     expect(runStrength(undefined, root, 123, log)).toBe(2);
     expect(runStrength('/nonexistent-master', root, 123, log)).toBe(2);
@@ -158,7 +186,7 @@ test('runner loads separate checkouts, prints timings, and returns errors withou
 });
 
 test('CLI accepts a seed and runs without dependencies in the checkouts', () => {
-  const root = fixture();
+  const root = fixture(true);
   try {
     const result = spawnSync(process.execPath, [resolve('scripts/ai-strength.mjs'), root, '123'], { cwd: root, encoding: 'utf8' });
     expect(result.status).toBe(0);
@@ -167,7 +195,8 @@ test('CLI accepts a seed and runs without dependencies in the checkouts', () => 
 });
 
 test('entry point applies CLI seed and generates a seed when omitted', async () => {
-  const root = fixture(), cwd = process.cwd(), argv = process.argv, code = process.exitCode;
+  const root = fixture(true), cwd = process.cwd(), argv = process.argv, code = process.exitCode;
+  const realNow = performance.now;
   const script = resolve('scripts/ai-strength.mjs');
   const log = vi.spyOn(console, 'log').mockImplementation(() => {});
   try {
@@ -182,6 +211,7 @@ test('entry point applies CLI seed and generates a seed when omitted', async () 
       expect(log).toHaveBeenCalledWith(expect.stringContaining('AI strength seed:'));
     }
   } finally {
+    performance.now = realNow;
     process.chdir(cwd); process.argv = argv; process.exitCode = code;
     log.mockRestore(); rmSync(root, { recursive: true, force: true });
   }
