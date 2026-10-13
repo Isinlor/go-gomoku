@@ -50,3 +50,13 @@ their saved reports and precede this follow-up.
 The follow-up tactical replay (`tactical-performance-ci-fix.json`) still finds
 13 candidate verified outcomes versus 12 for master, including one candidate-only
 previous-turn verification. Penalized detection costs are 1224 versus 1404 ms.
+
+A fresh fixed 200-game run after the CI timing follow-up confirms the user's
+60% win-rate / p < .01 check: **126 wins, 74 losses, no draws (63%)**, exact
+two-sided paired **p = 0.000000867992639541626**. It uses the same 100-opening
+book, seed 20261016 for game order, 75 ms per move, and identical app settings.
+Candidate revision is `4ef9c0f3f009daecf63acf9af57b81c45a88e2c6`; master is
+`80cf077096f659cb836c6026555d42753daefe25`. Complete signals, engine source
+hashes and the book hash are in `strength-balanced-ci-fix-75ms.json`. Its
+`requestedConfirmation.passed` is true; the original `passed` field still
+represents the stricter 70% gate and is false.
