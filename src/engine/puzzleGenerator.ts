@@ -277,6 +277,9 @@ export class ForcedWinSearcher {
    * Forced wins only happen at odd plies (1, 3, 5, …).
    */
   forcedWinDepthForMove(pos: GogoPosition, move: number, maxPly: number): number {
+    if (maxPly < 1) {
+      return -1;
+    }
     const attacker = pos.toMove;
     if (!pos.play(move)) {
       return -1;
@@ -494,8 +497,8 @@ export class ForcedWinSearcher {
       return false;
     }
 
-    // If defender has exactly 1 threat, attacker MUST block it (or win first)
-    if (defenderThreats === 1 && attackerThreats === 0) {
+    // Blocking is mandatory only when a capture cannot remove the threat.
+    if (defenderThreats === 1 && attackerThreats === 0 && !this.canCaptureOpponent(pos, otherPlayer(attacker))) {
       const { moves: dMoves } = this.getWinThreatMoves(pos, otherPlayer(attacker));
       const block = dMoves[0];
       if (!pos.play(block)) {

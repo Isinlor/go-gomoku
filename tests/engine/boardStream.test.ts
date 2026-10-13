@@ -232,12 +232,50 @@ describe('computePositionSymmetryKey', () => {
       includeColorSymmetry: false,
     });
 
-    expect(key).toBeTruthy();
-    expect(typeof key).toBe('string');
+    expect(key).toBe(computePositionSymmetryKey(GogoPosition.fromAscii(pos.toAscii().reverse()), {
+      includeTranslationSymmetry: true, includeColorSymmetry: false,
+    }));
+    const changed = pos.toAscii();
+    changed[0] = 'O' + changed[0].slice(1);
+    expect(key).not.toBe(computePositionSymmetryKey(GogoPosition.fromAscii(changed), {
+      includeTranslationSymmetry: true, includeColorSymmetry: false,
+    }));
   });
 });
 
 describe('streamUniqueBoards', () => {
+  test.each([0.999, 1, 1.001])('deadline accepts equality and stops immediately above it (%s ms)', elapsed => {
+    let calls = 0;
+    const boards: string[] = [];
+    const stats = streamUniqueBoards({
+      ply: 0, timeLimitMs: 1, now: () => calls++ === 0 ? 0 : elapsed,
+      includeTranslationSymmetry: false, includeColorSymmetry: false,
+    }, board => boards.push(board));
+    expect(boards).toEqual(elapsed > 1 ? [] : ['B9']);
+    expect(stats.truncatedByTime).toBe(elapsed > 1);
+  });
+
+  // Burnside's lemma gives these counts without using the stream traversal
+  // or its canonicalizer. Rotations/reflections act on colored stone sets;
+  // the two black stones at ply three are indistinguishable.
+  test.each([
+    [1, (81 + 3 + 4 * 9) / 8],
+    [2, (81 * 80 + 4 * 9 * 8) / 8],
+    [3, (81 * 80 * 79 / 2 + 40 + 4 * 9 * (28 + 36)) / 8],
+  ])('exhausts every distinct colored board at ply %s', { timeout: 10_000 }, (ply, expected) => {
+    let count = 0;
+    const stats = streamUniqueBoards({
+      ply, seed: 1, includeTranslationSymmetry: false, includeColorSymmetry: false,
+    }, (encoded) => {
+      expect(decodeGame(encoded).ply).toBe(ply);
+      count += 1;
+    });
+    expect(count).toBe(expected);
+    expect(stats.emitted).toBe(expected);
+    expect(stats.truncatedByAmount).toBe(false);
+    expect(stats.truncatedByTime).toBe(false);
+  });
+
   test('emits a centered representative when translation symmetry is enabled', () => {
     const boards: string[] = [];
 

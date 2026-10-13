@@ -32,6 +32,15 @@ test('passes immediately and retries failures at most five times', async () => {
   expect(attempts).toBe(5);
 });
 
+test.each([19.999, 20, 20.001])('loss evidence fails at and above the threshold: %s', async evidence => {
+  let attempts = 0;
+  expect(await benchmarkStrength('master', 'new', () => {}, async () => {
+    attempts += 1;
+    return { pairs: 6, score: 0, evidence };
+  })).toBe(evidence < 20 ? 0 : 1);
+  expect(attempts).toBe(evidence < 20 ? 1 : 5);
+});
+
 import { EventEmitter } from 'node:events';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
