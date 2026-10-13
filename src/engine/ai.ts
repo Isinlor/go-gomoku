@@ -108,6 +108,7 @@ export class GogoAI {
   private scoredGroupLiberties = new Uint8Array(0);
   private scoredGroupSizes = new Uint8Array(0);
   private scoredGroupRoots = new Int16Array(0);
+  private scoredGroupNext = new Int16Array(0);
   private scoredGroupPassEpoch = 1;
   private scoredGroupHash = -1n;
   private windowBoard = new Uint8Array(0);
@@ -352,6 +353,7 @@ export class GogoAI {
     this.scoredGroupLiberties = new Uint8Array(area);
     this.scoredGroupSizes = new Uint8Array(area);
     this.scoredGroupRoots = new Int16Array(area);
+    this.scoredGroupNext = new Int16Array(area);
     this.scoredGroupRoots.fill(-1);
     this.scoredGroupPassEpoch = 1;
     this.scoredGroupHash = -1n;
@@ -593,9 +595,9 @@ export class GogoAI {
     const scores = this.scoreBuffers[0];
 
     let count = this.generateOrderedMoves(position, moves, scores, hintMove, false);
-    if (this.rootScoreHash === position.hash) {
-      // Previous iterations searched these moves: their scores are better
-      // ordering evidence than the initial local pattern estimate.
+    if (depth >= 4 && this.rootScoreHash === position.hash) {
+      // Once iterations include deeper replies, their searched scores give
+      // useful ordering evidence. Shallower values can hide tactical moves.
       for (let i = 0; i < count; i += 1) {
         const move = moves[i];
         scores[i] = move === hintMove ? Infinity : this.rootScores[move];
@@ -619,7 +621,7 @@ export class GogoAI {
         legalCount += 1;
         let score = 0;
         try {
-          if (legalCount === 1 || depth < 2) {
+          if (legalCount === 1 || depth < 3) {
             score = -this.search(position, depth - 1, -beta, -alpha, 1);
           } else {
             // Scout later moves and fully search any improvement.
@@ -966,13 +968,16 @@ export class GogoAI {
     const meta = position.meta;
     this.beginPatternPass(position);
     let score = this.windowEvaluation;
+    this.beginScoredGroupPass(position);
 
     for (let point = 0; point < position.area; point += 1) {
       const cell = board[point];
       if (cell === EMPTY) continue;
       // Connected stones share their group's liberties. A stone surrounded by
       // friendly stones can be safe even with no directly adjacent empties.
-      this.primeScoredGroupInfo(position, point, cell as Player);
+      if (this.scoredGroupEpoch[point] !== this.scoredGroupPassEpoch) {
+        this.primeScoredGroupInfo(position, point, cell as Player);
+      }
       const libertyBucket = Math.min(this.scoredGroupLiberties[point], GROUP_LIBERTY_WEIGHTS.length - 1);
       const stoneScore = meta.centerBias[point] * CENTER_MULTIPLIER + GROUP_LIBERTY_WEIGHTS[libertyBucket];
       score += cell === BLACK ? stoneScore : -stoneScore;
@@ -1010,6 +1015,7 @@ export class GogoAI {
       return this.generateTacticalMoves(position, moves, scores, hintMove, ply);
     }
     this.candidateEpoch += 1;
+    this.beginPatternPass(position);
     this.beginScoredGroupPass(position);
     let count = 0;
 
@@ -1023,7 +1029,7 @@ export class GogoAI {
           continue;
         }
         this.candidateMarks[move] = this.candidateEpoch;
-        const score = this.scoreMove(position, move, hintMove, tacticalOnly, ply);
+        const score = this.scoreMove(position, move, hintMove, tacticalOnly, ply, true);
         if (score === NO_SCORE) {
           continue;
         }
@@ -1087,13 +1093,14 @@ export class GogoAI {
 
     this.appendGroupTacticalMoves(position, opponent, true);
     this.appendGroupTacticalMoves(position, player, false);
+    this.beginPatternPass(position);
 
     let count = 0;
     for (let move = 0; move < position.area; move += 1) {
       if (this.candidateMarks[move] !== this.candidateEpoch) {
         continue;
       }
-      const score = this.scoreMove(position, move, hintMove, true, ply);
+      const score = this.scoreMove(position, move, hintMove, true, ply, true);
       if (score === NO_SCORE) {
         continue;
       }
@@ -1130,17 +1137,19 @@ export class GogoAI {
     const board = position.board;
     const neighbors = position.meta.neighbors4;
 
+    this.beginScoredGroupPass(position);
     this.scorerGroupEpoch += 1;
     const groupEpoch = this.scorerGroupEpoch;
     for (let point = 0; point < position.area; point += 1) {
-      if (board[point] !== groupColor || this.scorerGroupMarks[point] === groupEpoch) {
-        continue;
+      if (board[point] !== groupColor) continue;
+      if (this.scoredGroupEpoch[point] !== this.scoredGroupPassEpoch) {
+        this.primeScoredGroupInfo(position, point, groupColor);
       }
-      const liberties = position.scanGroup(point, groupColor);
-      const size = position.scanGroupSize;
-      for (let index = 0; index < size; index += 1) {
-        this.scorerGroupMarks[position.groupBuffer[index]] = groupEpoch;
-      }
+      const root = this.scoredGroupRoots[point];
+      if (this.scorerGroupMarks[root] === groupEpoch) continue;
+      this.scorerGroupMarks[root] = groupEpoch;
+      const liberties = this.scoredGroupLiberties[point];
+      const size = this.scoredGroupSizes[point];
       let bonus = 0;
       if (isCapture) {
         if (liberties === 1) {
@@ -1158,8 +1167,7 @@ export class GogoAI {
       }
       this.tacticalLibertyEpoch += 1;
       const libertyEpoch = this.tacticalLibertyEpoch;
-      for (let index = 0; index < size; index += 1) {
-        const stone = position.groupBuffer[index];
+      for (let stone = root; stone !== -1; stone = this.scoredGroupNext[stone]) {
         const neighborBase = stone * 4;
         for (let offset = 0; offset < 4; offset += 1) {
           const neighbor = neighbors[neighborBase + offset];
@@ -1190,13 +1198,14 @@ export class GogoAI {
     tacticalOnly: boolean,
     ply = 0,
   ): number {
+    this.beginPatternPass(position);
     this.beginScoredGroupPass(position);
     let count = 0;
     for (let move = 0; move < position.area; move += 1) {
       if (position.board[move] !== EMPTY || move === position.koPoint) {
         continue;
       }
-      const score = this.scoreMove(position, move, hintMove, tacticalOnly, ply);
+      const score = this.scoreMove(position, move, hintMove, tacticalOnly, ply, true);
       if (score === NO_SCORE) {
         continue;
       }
@@ -1221,6 +1230,28 @@ export class GogoAI {
   private primeScoredGroupInfo(position: GogoPosition, point: number, color: Player): void {
     this.beginScoredGroupPass(position);
     if (this.scoredGroupEpoch[point] !== this.scoredGroupPassEpoch) {
+      // A singleton has exactly its adjacent empty points as liberties. Avoid
+      // setting up a flood fill and visit buffers for this common case.
+      let adjacentLiberties = 0;
+      let singleton = true;
+      for (let offset = 0; offset < 4; offset++) {
+        const neighbor = position.meta.neighbors4[point * 4 + offset];
+        if (neighbor === -1) continue;
+        const cell = position.board[neighbor];
+        if (cell === color) {
+          singleton = false;
+          break;
+        }
+        if (cell === EMPTY) adjacentLiberties++;
+      }
+      if (singleton) {
+        this.scoredGroupEpoch[point] = this.scoredGroupPassEpoch;
+        this.scoredGroupLiberties[point] = adjacentLiberties;
+        this.scoredGroupSizes[point] = 1;
+        this.scoredGroupRoots[point] = point;
+        this.scoredGroupNext[point] = -1;
+        return;
+      }
       const liberties = position.scanGroup(point, color);
       const size = position.scanGroupSize;
       const root = position.groupBuffer[0];
@@ -1230,6 +1261,7 @@ export class GogoAI {
         this.scoredGroupLiberties[stone] = liberties;
         this.scoredGroupSizes[stone] = size;
         this.scoredGroupRoots[stone] = root;
+        this.scoredGroupNext[stone] = i + 1 < size ? position.groupBuffer[i + 1] : -1;
       }
     }
   }
@@ -1247,12 +1279,15 @@ export class GogoAI {
     return score;
   }
 
-  private scoreMove(position: GogoPosition, move: number, hintMove: number, tacticalOnly: boolean, ply = 0): number {
+  private scoreMove(position: GogoPosition, move: number, hintMove: number, tacticalOnly: boolean, ply = 0, prepared = false): number {
     const player = position.toMove;
     const opponent = otherPlayer(player);
     const meta = position.meta;
     const board = position.board;
-    this.beginPatternPass(position);
+    if (!prepared) {
+      this.beginPatternPass(position);
+      this.beginScoredGroupPass(position);
+    }
     const pattern = player === BLACK ? this.pointPatternBlack[move] : this.pointPatternWhite[move];
 
     // A point belongs to at most 20 windows. Without a four-stone window,
@@ -1273,7 +1308,9 @@ export class GogoAI {
       }
       const cell = board[neighbor];
       if (cell === opponent) {
-        this.primeScoredGroupInfo(position, neighbor, opponent);
+        if (this.scoredGroupEpoch[neighbor] !== this.scoredGroupPassEpoch) {
+          this.primeScoredGroupInfo(position, neighbor, opponent);
+        }
         const root = this.scoredGroupRoots[neighbor];
         if (this.scorerGroupMarks[root] === this.scorerGroupEpoch) {
           continue;
@@ -1287,7 +1324,9 @@ export class GogoAI {
           capturePressure += size * 30;
         }
       } else if (cell === player) {
-        this.primeScoredGroupInfo(position, neighbor, player);
+        if (this.scoredGroupEpoch[neighbor] !== this.scoredGroupPassEpoch) {
+          this.primeScoredGroupInfo(position, neighbor, player);
+        }
         const root = this.scoredGroupRoots[neighbor];
         if (this.scorerGroupMarks[root] === this.scorerGroupEpoch) {
           continue;

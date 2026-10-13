@@ -167,7 +167,7 @@ test('a win proved at a shallow depth is reused at a deeper limit', () => {
   expect(ai.proofAttack(position, 1, 0)).toBe(true);
 });
 
-test.each([2, 3, 4])('root scouts at depth %s preserve an exhaustive score and re-search improvements', depth => {
+test.each([2, 3, 4])('root windows at depth %s preserve an exhaustive score without premature scouts', depth => {
   const position = new GogoPosition(9);
   position.playXY(4, 4);
   const ai = new GogoAI({ quiescenceDepth: 0, maxPly: 2, now: () => 0 }) as any;
@@ -192,7 +192,7 @@ test.each([2, 3, 4])('root scouts at depth %s preserve an exhaustive score and r
     return search(...args);
   };
   expect(ai.searchRoot(position, depth, hint).score).toBeCloseTo(best, 10);
-  expect(widths).toContain(1);
+  expect(widths.includes(1)).toBe(depth >= 3);
   expect(widths.filter(width => width > 1).length).toBeGreaterThan(1);
 });
 
