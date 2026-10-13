@@ -22,7 +22,7 @@ These changes provide explicit outcomes and nearby counterexamples for the ident
 
 ## Validation
 
-- `npm run coverage`: **859 tests across 35 files passed**, with 100% lines, functions and branches in the existing configured coverage scope. Existing exclusions, including puzzleGenerator.ts, are unchanged.
+- `npm run coverage`: **865 tests across 35 files passed**, with 100% lines, functions and branches in the existing configured coverage scope. Existing exclusions, including puzzleGenerator.ts, are unchanged.
 - `npm run test:puzzles`: **36 puzzle/game-position checks passed**.
 - `npm run build`: passed.
 - `git diff --check`: passed.
@@ -66,8 +66,8 @@ Test counts below come from the final coverage run; the two integration benchmar
 | `engine/puzzles.unit.test.ts` | 3 | Existing found/missing lookup pair; remaining tests check fixed catalog invariants. |
 | `engine/uniqueness.test.ts` | 36 | Existing equal/different shapes, isolated/adjacent stones, valid/out-of-range history indices and independent canonical packing across symmetry options. |
 | `main.test.ts` | 1 | Unconditional application bootstrap; no conditional acceptance predicate to negate. |
-| `puzzle-performance-runner.test.ts` | 15 | Pass/fail comparisons, retry 5 success/exhaustion, empty/duplicate inputs and operational errors already paired. |
-| `puzzle-performance.test.ts` | 12 | Comparison equality/failure, three-sample validation, valid/invalid timings and solver outputs already paired. |
+| `puzzle-performance-runner.test.ts` | 17 | One-percent tolerance at/above the cutoff, pass/fail comparisons, retry 5 success/exhaustion, empty/duplicate inputs and operational errors already paired. |
+| `puzzle-performance.test.ts` | 16 | One-percent tolerance below/at/above its cutoff and zero baseline, comparison equality/failure, three-sample validation, valid/invalid timings and solver outputs already paired. |
 | `stream-boards.test.ts` | 14 | Added malformed/fractional ply inputs; valid/missing flags and CLI success/errors already paired. |
 | `vite-config.test.ts` | 6 | Added false/nonliteral CI flag values beside exact true and omitted values. |
 | `worker/ai-worker.test.ts` | 9 | Existing legal/terminal/exhausted-budget and ordinary/forced outcomes; transport setup itself unconditional. |
