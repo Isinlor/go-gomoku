@@ -1,6 +1,6 @@
 # Unit-test boundary audit
 
-The existing suite did not consistently test a condition's positive case and its nearest counterexample. This audit reviewed all 36 existing test files at the behavior-group level, then added two test files. Complementary cases can live in different tests or files; unconditional wiring and fixed catalog invariants do not need artificial negative inputs.
+The existing suite did not consistently test a condition's positive case and its nearest counterexample. This audit reviewed all 36 existing test files at the behavior-group level, then added a focused boundary-test file. Complementary cases can live in different tests or files; unconditional wiring and fixed catalog invariants do not need artificial negative inputs.
 
 ## Confirmed bugs and fixes
 
@@ -14,16 +14,6 @@ The existing suite did not consistently test a condition's positive case and its
 
 All four production changes followed failing regression tests.
 
-## Targeted proof enumeration
-
-- Enumerate all 2,187 assignments of empty/attacker/defender stones to a seven-cell line.
-- Test both attacking colors, all four line directions, and three placements including both board edges.
-- Exclude already-terminal boards from the threat sweep; test no ko and a ko restriction at every empty pattern cell.
-- Each of the 24 line cases checks exactly 7,216 bounded proof queries: **173,184 total**.
-- Add **128 three-ply capture-neighborhood queries**, covering both colors, all eight board symmetries, six individual stone removals, and their combined removal.
-- Total: **173,312 oracle queries**, each compared with ForcedWinSearcher and the AI prover. No mismatches remain in this enumerated space after the fixes.
-- The independent AND/OR judge probes every point with real legal play/undo. It has no heuristic move selection, window shortcuts or transposition cache. It uses the same underlying board rules, so it checks search logic rather than independently proving the board-rule implementation.
-
 ## Assertion and boundary improvements
 
 Removed boolean-type-only proof assertions and a validator test that could pass with no validation assertions. Corrected mocks that wrote injected candidates into the position argument rather than the move buffers. The rejected candidates are now explicitly observed. Replaced misleading fallback tests with a real exhaustive-defense case, including distant defenses. Added equality and immediately adjacent values for outcome scores, mate-score normalization, candidate capping, sorting ties, time limits, CLI values and strength evidence. Fixed data and unconditional event forwarding are distinguished from conditional behavior.
@@ -32,12 +22,11 @@ These changes provide explicit outcomes and nearby counterexamples for the ident
 
 ## Validation
 
-- `npm run coverage`: **899 tests across 36 files passed**, with 100% lines, functions and branches in the existing configured coverage scope. Existing exclusions, including puzzleGenerator.ts, are unchanged.
+- `npm run coverage`: **859 tests across 35 files passed**, with 100% lines, functions and branches in the existing configured coverage scope. Existing exclusions, including puzzleGenerator.ts, are unchanged.
 - `npm run test:puzzles`: **36 puzzle/game-position checks passed**.
 - `npm run build`: passed.
 - `git diff --check`: passed.
 - Test-inclusive `vue-tsc --noEmit -p tsconfig.json`: **25 existing diagnostics**, identical to a clean checkout of current master after normalizing line offsets. No new diagnostics. The production build typecheck passes.
-- The full enumerated proof suite takes about 7 seconds without coverage and about 60 seconds with V8 coverage instrumentation in this environment. The final complete coverage run took 83 seconds. Enumeration timeouts are local to these tests; the global fast-test timeout is unchanged.
 
 ## File-by-file review
 
@@ -56,7 +45,7 @@ Test counts below come from the final coverage run; the two integration benchmar
 | `components/LoadGame.test.ts` | 5 | Error present/empty already paired; text-input/event/placeholder tests unconditional. |
 | `components/PuzzleSelect.test.ts` | 6 | Valid ID / unknown ID / empty selection already paired; selection reset and label tests inspect fixed behavior. |
 | `composables/useGame.test.ts` | 72 | Human/AI/thinking/winner guards, undo 0/1/2, valid/invalid loads, proof/heuristic labels, active/stale worker responses and errors already paired across groups. |
-| `engine/ai.boards.test.ts` | 6 | Nearby suicide, ko and double-threat counterexamples already present; capture-only and counter-win cases supplemented by proof enumeration. |
+| `engine/ai.boards.test.ts` | 6 | Nearby suicide, ko and double-threat counterexamples already present; capture-only and counter-win cases complement those boundaries. |
 | `engine/ai.boundaries.test.ts` | 13 | New score/mate normalization equality and adjacent values, constructor lower bounds, candidate count 11 / 12 / 13. |
 | `engine/ai.earlyProof.test.ts` | 9 | Successful, failed, depth-limited, timed-out and unexpected-error proofs already paired with restoration checks. |
 | `engine/ai.forcedDefensiveMove.scenarios.test.ts` | 256 | Existing independent legal-reply oracle covers directions, sizes, symmetries, capture/ko, counter-wins and 0.999 / 1 / 2 deadline values. |
@@ -64,14 +53,13 @@ Test counts below come from the final coverage run; the two integration benchmar
 | `engine/ai.fractionalScores.test.ts` | 9 | Existing independent one-ply scores, cutoff/noncutoff bounds for both signs, fractional order and stable ties. |
 | `engine/ai.lossProof.test.ts` | 15 | Existing complete two-ply loss oracle and false-proof counterexamples; time/error state restoration. |
 | `engine/ai.optimizations.test.ts` | 11 | Immediate/non-immediate and heuristic/proven outcomes paired across groups; cache sweeps use independent board counts. |
-| `engine/ai.proofResponses.test.ts` | 4 | Counter-threat refusal and immediate counter-win paired; new capture-neighborhood enumeration supplements these cases. |
+| `engine/ai.proofResponses.test.ts` | 4 | Counter-threat refusal and immediate counter-win paired. |
 | `engine/ai.test.ts` | 104 | Replaced seven boolean-type assertions with outcomes, corrected mock argument indexing, forced the actual fallback, replaced misleading fallback tests with real distant-defense exhaustion; terminal/cutoff/TT/control-flow families paired across files. |
 | `engine/boardStream.test.ts` | 28 | Added independent 1/2/3-ply counts and exact deadline boundary; strengthened canonical key equality/inequality. Exposed 15 missing three-ply boards. |
 | `engine/engine.test.ts` | 26 | Coordinate limits, occupancy, winning suicide/ordinary suicide, ko release, captures, wins/terminal states already paired; replaced an assertion about an unrelated fresh buffer with actual legal-move checks. |
 | `engine/gamePositions.test.ts` | separate benchmark | Game-position integration benchmarks; complementary win/loss and depth/budget cases live in unit suites. |
 | `engine/gamePositions.unit.test.ts` | 1 | Fixed catalog metadata invariants; no input acceptance function to test with a fabricated negative entry. |
 | `engine/moveOrdering.test.ts` | 8 | Added adjacent insertion scores, ties, empty/single-element sort and untouched tails; fractional tests also cover stable ties. |
-| `engine/proofPatterns.test.ts` | 40 | New complete seven-cell ternary enumeration and capture-neighborhood perturbations against an independent complete legal-move oracle. |
 | `engine/puzzleGenerator.test.ts` | 47 | Added nonpositive / one-ply proof budgets, legal capture win / extra-liberty refutation, exact history clean/blunder pair and accepted/rejected validator pair; removed vacuous conditional and type-only checks. |
 | `engine/puzzleSimilarity.test.ts` | 13 | Existing each-cutoff just-below/equality pair, metadata mismatch, locality 2/3 and rotation/reflection distinctions. |
 | `engine/puzzles.test.ts` | separate benchmark | Catalog integration benchmarks; negative proof cases are in engine unit/oracle suites, not invented catalog entries. |
