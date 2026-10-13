@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { realpathSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { join } from 'node:path';
 import { createOpening, playStrengthGame } from './ai-strength.mjs';
 import { loadEngine } from './puzzle-performance.mjs';
 
@@ -87,10 +90,21 @@ export function runMatch(master, candidate, { pairs = 100, seed = 20261013, open
   return { moveMs: 75, searchOptions: APP_SEARCH_OPTIONS, seed, pairs, ...pairedStatistics(results.map(result => result.scores)), results };
 }
 
-export function runMatchCli(args = process.argv.slice(2), load = loadEngine, log = console.log) {
+/** Hash searched sources as well as HEAD, so a dirty checkout remains identifiable. */
+export function engineIdentity(root) {
+  return {
+    revision: execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+    sourceSha256: Object.fromEntries(['src/engine/ai.ts', 'src/engine/gogomoku.ts'].map(file => [file,
+      createHash('sha256').update(readFileSync(join(root, file))).digest('hex') ])),
+  };
+}
+
+export function runMatchCli(args = process.argv.slice(2), load = loadEngine, log = console.log,
+  report = progress => console.error(JSON.stringify(progress))) {
   try {
     assert(args[0], 'Usage: node scripts/strength-match.mjs MASTER_CHECKOUT [PAIRS=100] [SEED=20261013] [OPENING_BOOK_JSON]');
-    const master = load(realpathSync(args[0]));
+    const masterRoot = realpathSync(args[0]);
+    const master = load(masterRoot);
     const candidate = load(process.cwd());
     // Exercise both search implementations before scoring any games.
     for (let i = 0; i < 8; i++) {
@@ -99,7 +113,8 @@ export function runMatchCli(args = process.argv.slice(2), load = loadEngine, log
       }
     }
     const openings = args[3] === undefined ? undefined : JSON.parse(readFileSync(args[3], 'utf8')).entries.map(entry => entry.opening);
-    const result = runMatch(master, candidate, { pairs: Number(args[1] ?? 100), seed: Number(args[2] ?? 20261013), openings });
+    const result = runMatch(master, candidate, { pairs: Number(args[1] ?? 100), seed: Number(args[2] ?? 20261013), openings }, report);
+    result.engines = { master: engineIdentity(masterRoot), candidate: engineIdentity(process.cwd()) };
     log(JSON.stringify(result, null, 2));
     return result.passed ? 0 : 1;
   } catch (error) {

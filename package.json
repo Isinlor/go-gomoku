@@ -21,7 +21,8 @@
     "test:e2e": "npx playwright test",
     "test:strength": "node scripts/ai-strength.mjs",
     "test:strength:match": "node scripts/strength-match.mjs",
-    "test:tactical:performance": "node scripts/tactical-performance.mjs"
+    "test:tactical:performance": "node scripts/tactical-performance.mjs",
+    "test:strength:book": "node scripts/balanced-openings.mjs"
   },
   "keywords": [],
   "author": "",

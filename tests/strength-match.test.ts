@@ -200,3 +200,26 @@ test('CLI accepts a saved master-only opening book', () => {
     rmSync(folder, { recursive: true });
   }
 });
+
+import { engineIdentity } from '../scripts/strength-match.mjs';
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+
+test('engine identity records checkout revision and the actual searched source, including uncommitted changes', () => {
+  const identity = engineIdentity(process.cwd());
+  expect(identity.revision).toBe(execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim());
+  for (const file of ['src/engine/ai.ts', 'src/engine/gogomoku.ts']) {
+    expect(identity.sourceSha256[file]).toBe(createHash('sha256').update(readFileSync(file)).digest('hex'));
+  }
+});
+
+test('match CLI records both engine identities and reports ongoing pairs separately from final JSON', () => {
+  const logs: string[] = [], reports: any[] = [];
+  expect(runMatchCli([process.cwd(), '1', '42'], () => cliEngine(1), s => logs.push(s), r => reports.push(r))).toBe(1);
+  const result = JSON.parse(logs[0]);
+  expect(result.engines.master).toEqual(engineIdentity(process.cwd()));
+  expect(result.engines.candidate).toEqual(result.engines.master);
+  expect(reports).toHaveLength(1);
+  expect(reports[0]).toMatchObject({ pairs: 1, games: 2 });
+});

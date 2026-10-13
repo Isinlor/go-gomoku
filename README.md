@@ -53,28 +53,33 @@ Run locally with Node 24 from the candidate checkout:
 npm run test:strength -- /path/to/master-checkout
 ```
 
-For a fixed 75 ms match with 100 color-swapped opening pairs (200 games):
+Generate a book with equal Black and White winners in master-only 75 ms
+self-play, then run 100 color-swapped opening pairs (200 games). Use Node 24;
+run from the candidate checkout and keep both checkouts idle during timing:
 
 ```bash
-npm run test:strength:match -- /path/to/master-checkout 100 20261015 benchmarks/balanced-opening-book.json
+git fetch origin master
+git worktree add --detach ../gomoku-master origin/master
+npm run --silent test:strength:book -- ../gomoku-master 50 2026101501 1000 > book.json
+npm run --silent test:strength:match -- ../gomoku-master 100 20261015 book.json > match.json
+npm run --silent test:tactical:performance -- ../gomoku-master match.json 32 3 75 > tactics.json
 ```
+
+Both engines use the app settings (depth 30, quiescence 4). Book selection never
+uses candidate. Keep the book, seed and sample size fixed before validation;
+wall-clock results may vary. A saved book is included in `benchmarks/`.
 
 Passing requires at least 70% wins (draws count as non-wins) and an exact,
-two-sided paired randomization p-value below .01. The final JSON includes every
-opening and result; the seed and sample size are fixed before play. Both engines
-use the app settings (depth 30, quiescence 4). The optional book was selected
-using master alone, with equal Black and White master self-play wins.
+two-sided paired randomization p-value below .01. The tournament exits 1 if the
+strength gate fails and 2 on an operational error; its JSON still records a
+completed failed match. Book generation exits 2 if the attempt budget cannot
+fill both color quotas. Progress goes to stderr, JSON to stdout.
 
-Matches also save each engine's first forced/heuristic win/loss signal. Quickly
-replay a representative sample, including each position one turn earlier:
-
-```bash
-npm run test:tactical:performance -- /path/to/master-checkout benchmarks/tactical-training-match.json 32 3 75
-```
-
-The report separates exact and heuristic detections; missed targets incur a
-150 ms cost at the 75 ms cap. Use this screen and puzzle timings for iteration,
-then use the fixed match for strength validation.
+Matches save each engine's first forced/heuristic win/loss signal. Tactical
+replay includes positions one turn earlier and separates exact and heuristic
+detections. Missed targets incur a 150 ms cost at the 75 ms cap; use this screen
+and puzzle timings for iteration, then the fixed match for validation. See
+[recorded results](benchmarks/RESULTS.md) for the measured improvement and limits.
 
 ## Development
 

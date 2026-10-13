@@ -15,7 +15,7 @@ export default defineConfig({
     }],
     coverage: {
       provider: 'v8',
-      include: ['src/**/*.{ts,vue}', 'scripts/puzzle-performance.mjs', 'scripts/ai-strength.mjs', 'scripts/strength-match.mjs', 'scripts/tactical-performance.mjs'],
+      include: ['src/**/*.{ts,vue}', 'scripts/puzzle-performance.mjs', 'scripts/ai-strength.mjs', 'scripts/strength-match.mjs', 'scripts/balanced-openings.mjs', 'scripts/tactical-performance.mjs'],
       exclude: [
         'src/env.d.ts',
         'src/engine/index.ts',

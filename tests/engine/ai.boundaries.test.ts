@@ -1,11 +1,11 @@
 import { expect, test } from 'vitest';
 import { GogoAI, GogoPosition, BLACK } from '../../src/engine';
 
-test.each([1, 3, 7])('outcome score cutoffs include equality at depth %s', depth => {
-  const ai = new GogoAI() as any;
-  const win = 1_000_000_000 - depth;
+test.each([1, 3, 7])('outcome cutoffs include equality at the win ply limit and loss depth %s', depth => {
+  const ai = new GogoAI({ maxPly: depth + 2 }) as any;
+  const win = 1_000_000_000 - ai.maxPly;
   const loss = -1_000_000_000 + depth;
-  expect([win - 1, win, win + 1].map(score => ai.isForcedWinScore(score, depth))).toEqual([false, true, true]);
+  expect([win - 1, win, win + 1].map(score => ai.isForcedWinScore(score))).toEqual([false, true, true]);
   expect([loss - 1, loss, loss + 1].map(score => ai.isForcedLossScore(score, depth))).toEqual([true, true, false]);
 });
 
@@ -26,7 +26,7 @@ test.each([0, 1, 2, 3])('constructor clamps only values below each lower bound (
   expect(ai.quiescenceDepth).toBe(Math.max(0, value - 1));
 });
 
-test.each([11, 12, 13])('heuristic candidate cap suppresses exact TT entries only above twelve moves (%s)', count => {
+test.each([11, 12, 13])('heuristic candidate cap marks exact TT entries as selective only above twelve moves (%s)', count => {
   const pos = GogoPosition.fromAscii([
     '.........', '.........', '.X..O....', '.........', '....X....',
     '.........', '.O..X....', '.........', '.........',
@@ -41,7 +41,7 @@ test.each([11, 12, 13])('heuristic candidate cap suppresses exact TT entries onl
   const before = pos.toAscii();
   const index = Number(hash & 0x3ffffn);
   expect(Number.isFinite(ai.search(pos, 2, -Infinity, Infinity, 1))).toBe(true);
-  expect(ai.ttFlag[index]).toBe(count > 12 ? 0 : 1);
+  expect(ai.ttFlag[index]).toBe(count > 12 ? 4 : 1);
   expect(pos.hash).toBe(hash);
   expect(pos.toAscii()).toEqual(before);
 });

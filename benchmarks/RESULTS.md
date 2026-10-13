@@ -30,8 +30,9 @@ The initial replay used different default depth ceilings and quiescence depth 6;
 its larger detection advantage is historical, not the application-setting result.
 
 ```bash
-npm run test:strength:match -- /path/to/master-checkout 100 20261015 benchmarks/balanced-opening-book.json
-npm run test:tactical:performance -- /path/to/master-checkout benchmarks/tactical-training-match.json 32 3 75
+npm run --silent test:strength:book -- /path/to/master-checkout 50 2026101501 1000 > book.json
+npm run --silent test:strength:match -- /path/to/master-checkout 100 20261015 benchmarks/balanced-opening-book.json
+npm run --silent test:tactical:performance -- /path/to/master-checkout benchmarks/tactical-training-match.json 32 3 75
 ```
 
 Wall-clock searches can vary between reruns. The saved results, opening book,
