@@ -1,5 +1,6 @@
 import { test, expect } from 'vitest';
 import { hasDuplicateSimilarity, puzzleSimilarities } from '../../src/engine/puzzleSimilarity';
+import { completeForcedWin } from '../helpers/forcedWinOracle';
 
 import {
   ForcedWinSearcher,
@@ -104,22 +105,31 @@ test('LCG nextInt produces values in range', () => {
 // ForcedWinSearcher tests
 // ---------------------------------------------------------------------------
 
-// Independent short-horizon AND/OR judge: enumerate every legal move without
-// threat shortcuts, heuristic move selection, or transposition caching.
-function completeForcedWin(pos: GogoPosition, attacker: typeof BLACK | typeof WHITE, remaining: number): boolean {
-  if (pos.winner !== EMPTY) return pos.winner === attacker;
-  if (remaining === 0) return false;
-  const attacking = pos.toMove === attacker;
-  const moves = new Int16Array(pos.area);
-  const count = pos.generateAllLegalMoves(moves);
-  for (let i = 0; i < count; i += 1) {
-    expect(pos.play(moves[i])).toBe(true);
-    const won = completeForcedWin(pos, attacker, remaining - 1);
-    pos.undo();
-    if (won === attacking) return won;
-  }
-  return count > 0 && !attacking;
-}
+test.each([true, false])('attacker can capture a single counter-threat instead of blocking it (cache=%s)', (cache) => {
+  const encoded = 'B9 b2 a1 c3 b3 d4 c2 e5 d3 i1 c5 i3 c6 i5 c7 i7';
+  const pos = decodeGame(encoded);
+  const before = pos.toAscii();
+  const hash = pos.hash;
+  const searcher = new ForcedWinSearcher(81, 4, cache);
+  const capture = decodeMove('c4', 9);
+  expect(pos.toMove).toBe(WHITE);
+  expect(pos.scanGroup(decodeMove('c3', 9), BLACK)).toBe(1);
+  expect(completeForcedWin(pos, WHITE, 3)).toBe(true);
+  expect(searcher.hasForcedWin(pos, WHITE, 3)).toBe(true);
+  expect(searcher.forcedWinDepthForMove(pos, capture, 3)).toBe(3);
+  expect(searcher.hasForcedWin(pos, WHITE, 1)).toBe(false);
+  expect(pos.toAscii()).toEqual(before);
+  expect(pos.hash).toBe(hash);
+  expect(pos.encodeGame()).toBe(encoded);
+
+  // Move the surrounding d3 stone to a9: c3 now has two liberties, and c4
+  // no longer captures it. Neither blocking nor capturing can force a win.
+  const extraLiberty = decodeGame(encoded.replace('e5 d3', 'e5 a9'));
+  expect(extraLiberty.scanGroup(decodeMove('c3', 9), BLACK)).toBe(2);
+  expect(completeForcedWin(extraLiberty, WHITE, 3)).toBe(false);
+  expect(searcher.hasForcedWin(extraLiberty, WHITE, 3)).toBe(false);
+  expect(searcher.forcedWinDepthForMove(extraLiberty, capture, 3)).toBe(-1);
+});
 
 test.each([true, false])('shared completion cells are not double threats (cache=%s)', { tags: ['slow'] }, (cache) => {
   // Certificate A: g5 creates two windows, both completed only at e5.
@@ -339,6 +349,22 @@ test('forcedWinDepthForMove returns 1 for immediate win', () => {
   expect(searcher.forcedWinDepthForMove(pos, f5, 3)).toBe(1);
 });
 
+test.each([-1, 0, 1, 2])('move proofs respect the minimum one-ply budget (%s)', maxPly => {
+  const pos = GogoPosition.fromAscii([
+    '.XXXX....', '.........', '.........', '.........', '.........',
+    '.........', '.........', '.........', '.........',
+  ], BLACK);
+  const searcher = new ForcedWinSearcher(81, 4);
+  const win = decodeMove('f1', 9);
+  const before = pos.toAscii();
+  const hash = pos.hash;
+  expect(searcher.forcedWinDepthForMove(pos, win, maxPly)).toBe(maxPly < 1 ? -1 : 1);
+  expect(searcher.hasForcedWinAfterMove(pos, win, maxPly)).toBe(maxPly >= 1);
+  expect(pos.toAscii()).toEqual(before);
+  expect(pos.hash).toBe(hash);
+  expect(pos.ply).toBe(0);
+});
+
 test('forcedWinDepthForMove returns -1 for illegal move', () => {
   const pos = GogoPosition.fromAscii([
     '.........',
@@ -394,12 +420,17 @@ test('heuristicBestMove returns a valid move on a fresh board', () => {
 // ---------------------------------------------------------------------------
 
 test('isGameHistoryClean accepts clean game history', () => {
-  // Simple game with no forced wins at any point
+  // Simple game with no forced wins at any point.
   const pos = decodeGame('B9 e5 d5 e4 d4 e3');
   const searcher = new ForcedWinSearcher(81, 6);
-  // This should have a clean history (or detect the forced win was played)
-  const result = isGameHistoryClean(pos, searcher);
-  expect(typeof result).toBe('boolean');
+  expect(isGameHistoryClean(pos, searcher)).toBe(true);
+});
+
+test('clean history accepts the forcing move and rejects a quiet move from the same winning position', () => {
+  const prefix = 'B9 c5 e3 d5 e4 f5 e6';
+  const searcher = new ForcedWinSearcher(81, 6);
+  expect(isGameHistoryClean(decodeGame(prefix + ' e5'), searcher)).toBe(true);
+  expect(isGameHistoryClean(decodeGame(prefix + ' a1'), searcher)).toBe(false);
 });
 
 test('isGameHistoryClean returns true for empty position', () => {
@@ -434,12 +465,21 @@ test('validatePuzzlePosition validates known puzzle position', () => {
   const pos = decodeGame('B9 c5 e3 d5 e4 f5 e6');
   const searcher = new ForcedWinSearcher(81, 10);
   const result = validatePuzzlePosition(pos, BEGINNER, searcher);
-  // This might or might not pass all criteria (depends on history cleanliness
-  // and not-obvious check), but should at least not crash
-  if (result !== null) {
-    expect(result.depth).toBe(3);
-    expect(result.solution).toBe('e5');
-  }
+  // This hand-crafted position fails the generator's "not obvious" criterion:
+  // the static heuristic already selects its winning move.
+  expect(heuristicBestMove(pos)).toBe(decodeMove('e5', 9));
+  expect(result).toBeNull();
+});
+
+test('validator accepts a non-obvious unique win and rejects the same position at a shorter required depth', { tags: ['slow'] }, () => {
+  const encoded = 'B9 e5 e4 b6 e7 c4 f7 c7 f5 d7 c3 a9 d3 b1';
+  const pos = decodeGame(encoded);
+  const searcher = new ForcedWinSearcher(81, 8);
+  expect(validatePuzzlePosition(pos, BEGINNER, searcher)).toMatchObject({
+    encoded, solution: 'g6', depth: 3, threshold: 2,
+  });
+  expect(validatePuzzlePosition(pos, { ...BEGINNER, n: 1 }, searcher)).toBeNull();
+  expect(pos.encodeGame()).toBe(encoded);
 });
 
 test('validatePuzzlePosition searches for forced wins even when no open-three exists', () => {

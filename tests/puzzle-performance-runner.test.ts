@@ -38,6 +38,18 @@ test('runs each puzzle three times per version and alternates versions', () => {
   expect(result.output).not.toContain('repeating');
 });
 
+test.each([[101, 0, 6], [101.001, 1, 30]])('one percent tolerance controls benchmark retries at %s ms', (duration, status, measurements) => {
+  const master = {};
+  const candidate = { PUZZLES: [{ id: 'boundary' }] };
+  let calls = 0;
+  const result = benchmarkPuzzles(master, candidate, () => {}, engine => {
+    calls += 1;
+    return engine === master ? 100 : duration;
+  });
+  expect(result).toBe(status);
+  expect(calls).toBe(measurements);
+});
+
 test('retries only the failing puzzle using fresh samples', () => {
   const result = check('transient');
   expect(result.status).toBe(0);

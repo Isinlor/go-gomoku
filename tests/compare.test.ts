@@ -120,6 +120,15 @@ test('playGame - AI1 timeout: wall clock exceeds limit before result is used', (
   expect(result.invalidMove!.reason).toBe('timeout');
 });
 
+test.each([99, 100, 101])('playGame accepts the exact deadline and rejects the next millisecond (%s)', elapsed => {
+  let calls = 0;
+  const clock = () => calls++ % 2 === 0 ? 0 : elapsed;
+  const result = playGame(seqAI(BLACK_WIN), seqAI(WHITE_IDLE), 100, 1, new GogoPosition(9), clock);
+  expect(result.invalidMove?.reason).toBe(elapsed > 100 ? 'timeout' : undefined);
+  expect(result.moves).toBe(elapsed > 100 ? 0 : 9);
+  expect(result.winner).toBe(elapsed > 100 ? 2 : 1);
+});
+
 test('playGame - AI2 timeout: time limit triggered on AI2 turn', () => {
   // AI1 plays one valid move (clock at 0→0, no timeout), then AI2 exceeds the limit.
   let call = 0;
@@ -284,7 +293,8 @@ describe('main', () => {
   });
 
   test('runs successfully when no invalid moves occur', () => {
-    vi.spyOn(console, 'log').mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as never);
     // Pair 0, game A (ai1Color=1): AI1 BLACK plays BLACK_WIN → AI1 wins.
     // Pair 0, game B (ai1Color=2): AI2 BLACK plays BLACK_WIN → AI2 wins.
     let callIdx = 0;
@@ -293,7 +303,8 @@ describe('main', () => {
       ['--pairs', '1', '--time', '100', '--size', '9'],
       () => ais[callIdx++],
     );
-    // No invalid moves → process.exit is never called; reaching here is success
+    expect(exitSpy).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Results after 2 games:'));
     vi.restoreAllMocks();
   });
 

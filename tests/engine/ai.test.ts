@@ -1385,7 +1385,7 @@ test('adaptive null move pruning uses R=3 at depth >= 6', () => {
 test('MAX_CANDIDATES caps the number of moves explored per node', () => {
   const ai = new GogoAI({ maxDepth: 3, quiescenceDepth: 2, now: () => 0 });
   const anyAI = ai as any;
-  // Position with many stones creating many near-2 candidates (> 15)
+  // Position with many stones creating more than twelve near-2 candidates.
   const pos = GogoPosition.fromAscii([
     'X.O.X.O.X',
     '.........', 
@@ -1403,7 +1403,7 @@ test('MAX_CANDIDATES caps the number of moves explored per node', () => {
   const moves = anyAI.moveBuffers[0];
   const scores = anyAI.scoreBuffers[0];
   const rawCount = anyAI.generateOrderedMoves(pos, moves, scores, -1, false);
-  expect(rawCount).toBeGreaterThan(15);
+  expect(rawCount).toBeGreaterThan(12);
 
   // Search should still work correctly with the cap
   anyAI.deadline = 1e15;
@@ -2162,7 +2162,7 @@ test('proofDefend: TT hit returns cached result', () => {
 
   // First call - won't be proven (just one stone)
   const result1 = anyAI.proofDefend(pos, 2, 1);
-  expect(typeof result1).toBe('boolean');
+  expect(result1).toBe(false);
 
   // Second call should hit TT
   const result2 = anyAI.proofDefend(pos, 2, 1);
@@ -2567,15 +2567,16 @@ test('proofDefend: fullboard fallback when near-2 generates nothing', () => {
   const realGen = anyAI.generateOrderedMoves.bind(anyAI);
   anyAI.generateOrderedMoves = function (...args: any[]) {
     callCount++;
-    if (callCount === 1) {
-      // First call in proofDefend returns 0 to trigger fallboard fallback
+    if (args[5] === 1) {
+      // Suppress both tactical and ordinary root generation, forcing full-board fallback.
       return 0;
     }
     return realGen(...args);
   };
 
   const result = anyAI.proofDefend(pos, 2, 1);
-  expect(typeof result).toBe('boolean');
+  expect(result).toBe(false);
+  expect(callCount).toBe(2);
   anyAI.generateOrderedMoves = realGen;
 });
 
@@ -2692,7 +2693,7 @@ test('proofAttack: illegal move is skipped', () => {
 
   // proofAttack should handle illegal moves gracefully
   const result = anyAI.proofAttack(pos, 2, 1);
-  expect(typeof result).toBe('boolean');
+  expect(result).toBe(false);
 });
 
 test('proofDefend: TT hit with proven winning result', () => {
@@ -2823,8 +2824,8 @@ test('capped node: fullboard fallback with capping applied', () => {
     genCallCount++;
     if (genCallCount === 1) {
       // First call at ply=1: return moves that are all occupied (will fail play)
-      const moves = args[0] as Int16Array;
-      const scores = args[1] as Float64Array;
+      const moves = args[1] as Int16Array;
+      const scores = args[2] as Float64Array;
       moves[0] = 40; // center = occupied
       scores[0] = 1000;
       return 1;
@@ -2858,7 +2859,15 @@ test('proofAttack: play() failure is handled (suicide move skipped)', () => {
   anyAI.proofTTResult = new Int8Array(1 << 18);
   anyAI.proofTTDepth = new Int8Array(1 << 18);
 
-  // Mock generateOrderedMoves to include an illegal (suicide) move for tactical
+  let rejected = 0;
+  const play = pos.play.bind(pos);
+  pos.play = move => {
+    const accepted = play(move);
+    if (!accepted && move === 31 && pos.ply === 0) rejected += 1;
+    return accepted;
+  };
+
+  // Inject an occupied candidate before real tactical candidates.
   const realGen = anyAI.generateOrderedMoves.bind(anyAI);
   let callCount = 0;
   anyAI.generateOrderedMoves = function (...args: any[]) {
@@ -2867,8 +2876,8 @@ test('proofAttack: play() failure is handled (suicide move skipped)', () => {
     if (callCount === 1) {
       const result = realGen(...args);
       // Prepend an occupied position that will fail play()
-      const moves = args[0] as Int16Array;
-      const scores = args[1] as Float64Array;
+      const moves = args[1] as Int16Array;
+      const scores = args[2] as Float64Array;
       for (let i = result; i > 0; i--) {
         moves[i] = moves[i - 1];
         scores[i] = scores[i - 1];
@@ -2881,7 +2890,8 @@ test('proofAttack: play() failure is handled (suicide move skipped)', () => {
   };
 
   const result = anyAI.proofAttack(pos, 3, 1);
-  expect(typeof result).toBe('boolean');
+  expect(result).toBe(false);
+  expect(rejected).toBe(1);
   anyAI.generateOrderedMoves = realGen;
 });
 
@@ -2909,14 +2919,19 @@ test('proofDefend: play() failure is handled', () => {
   anyAI.proofTTResult = new Int8Array(1 << 18);
   anyAI.proofTTDepth = new Int8Array(1 << 18);
 
-  // Mock generateOrderedMoves to inject an illegal move when called for the full-gen
-  // (tacticalOnly === false). No attacker threat → no nested proofAttack calls before
-  // proofDefend's own full-gen, so the injection fires exactly there.
+  let rejected = 0;
+  const play = pos.play.bind(pos);
+  pos.play = move => {
+    const accepted = play(move);
+    if (!accepted && move === 0 && pos.ply === 0) rejected += 1;
+    return accepted;
+  };
+
+  // Prepend an occupied point to real root responses and verify its rejection.
   const realGen = anyAI.generateOrderedMoves.bind(anyAI);
   anyAI.generateOrderedMoves = function (...args: any[]) {
-    const tacticalOnly = args[GENERATE_ORDERED_MOVES_TACTICAL_ONLY_INDEX];
     const result = realGen(...args);
-    if (tacticalOnly) {
+    if (args[5] !== 1) {
       return result;
     }
     // Inject an occupied position at the front (will fail play())
@@ -2932,83 +2947,41 @@ test('proofDefend: play() failure is handled', () => {
   };
 
   const result = anyAI.proofDefend(pos, 2, 1);
-  expect(typeof result).toBe('boolean');
+  expect(result).toBe(false);
+  expect(rejected).toBe(1);
   anyAI.generateOrderedMoves = realGen;
 });
 
-test('proofDefend: fullboard fallback explores all candidates (no cap)', () => {
-  const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4, now: () => 0 });
-  const anyAI = ai as any;
+test('loss proof exhausts distant legal defenses as well as threat responses without a candidate cap', () => {
   const pos = GogoPosition.fromAscii([
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-    '....X....',
-    '.........',
-    '.........',
-    '.........',
-    '.........',
+    'XXXX.....', '.........', '.........', '.........', '.........',
+    '.........', '.........', 'OOO......', 'XXXX.....',
   ], WHITE);
-  anyAI.ensureBuffers(pos.area);
-  anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new BigUint64Array(1 << 18);
-  anyAI.proofTTResult = new Int8Array(1 << 18);
-  anyAI.proofTTDepth = new Int8Array(1 << 18);
-
-  // Mock generateOrderedMoves: first call returns 0 to force fullboard fallback
-  const realGen = anyAI.generateOrderedMoves.bind(anyAI);
-  let firstCall = true;
-  anyAI.generateOrderedMoves = function (...args: any[]) {
-    if (firstCall) {
-      firstCall = false;
-      return 0;
-    }
-    return realGen(...args);
+  pos.koPoint = 40;
+  const ai = new GogoAI({ now: () => 0 }) as any;
+  ai.ensureBuffers(pos.area);
+  ai.deadline = Infinity;
+  ai.lossProofMode = true;
+  const legal = new Int16Array(pos.area);
+  const count = pos.generateAllLegalMoves(legal);
+  const expected = new Set(Array.from(legal.slice(0, count)));
+  const seen = new Set<number>();
+  const before = pos.toAscii();
+  const hash = pos.hash;
+  const play = pos.play.bind(pos);
+  pos.play = move => {
+    const root = pos.ply === 0;
+    const accepted = play(move);
+    if (root && accepted) seen.add(move);
+    return accepted;
   };
-
-  // On 9x9 with 1 stone: fullboard generates ~80 candidates — all explored, no cap
-  const result = anyAI.proofDefend(pos, 2, 1);
-  expect(typeof result).toBe('boolean');
-  anyAI.generateOrderedMoves = realGen;
-});
-
-test('proofDefend: fullboard fallback with few candidates (no cap needed)', () => {
-  const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4, now: () => 0 });
-  const anyAI = ai as any;
-  // Nearly full board: only a few empty cells
-  const pos = GogoPosition.fromAscii([
-    'XOXOXOXOX',
-    'OXOXOXOXO',
-    'XOXOXOXOX',
-    'OXOXOXOXO',
-    'XOXO.OXOX',
-    'OXOXOXOXO',
-    'XOXOXOXOX',
-    'OXOXOXOXO',
-    'XOXOXOX..',
-  ], WHITE);
-  anyAI.ensureBuffers(pos.area);
-  anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new BigUint64Array(1 << 18);
-  anyAI.proofTTResult = new Int8Array(1 << 18);
-  anyAI.proofTTDepth = new Int8Array(1 << 18);
-
-  // Mock generateOrderedMoves: return 0 to force fullboard fallback
-  const realGen = anyAI.generateOrderedMoves.bind(anyAI);
-  let firstCall = true;
-  anyAI.generateOrderedMoves = function (...args: any[]) {
-    if (firstCall) {
-      firstCall = false;
-      return 0;
-    }
-    return realGen(...args);
-  };
-
-  // Only 3 empty cells → fullboard returns ≤ 3
-  const result = anyAI.proofDefend(pos, 2, 1);
-  expect(typeof result).toBe('boolean');
-  anyAI.generateOrderedMoves = realGen;
+  expect(ai.proofDefend(pos, 2, 0)).toBe(true);
+  expect(seen).toEqual(expected);
+  expect(seen.size).toBeGreaterThan(12);
+  expect(seen.has(41)).toBe(true); // Far from both attacking lines.
+  expect(pos.toAscii()).toEqual(before);
+  expect(pos.hash).toBe(hash);
+  expect(pos.koPoint).toBe(40);
 });
 
 test('verifyWinningMove rethrows non-timeout errors', () => {

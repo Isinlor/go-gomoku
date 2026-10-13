@@ -529,7 +529,11 @@ test('legal move generation and group scanning reflect current state', () => {
   mixedLegality.board[mixedLegality.index(8, 8)] = WHITE;
   mixedLegality.stoneCount += 1;
   expect(mixedLegality.hasAnyLegalMove()).toBe(true);
-  expect(!Array.from(new Int16Array(mixedLegality.area).fill(-1)).includes(999)).toBeTruthy();
+  const legalMoves = new Int16Array(mixedLegality.area).fill(-1);
+  const legalCount = mixedLegality.generateAllLegalMoves(legalMoves);
+  expect(Array.from(legalMoves.slice(0, legalCount))).toContain(mixedLegality.index(7, 8));
+  expect(Array.from(legalMoves.slice(0, legalCount))).not.toContain(mixedLegality.index(8, 8));
+  expect(legalMoves[legalCount]).toBe(-1);
 
   const noLegal = new GogoPosition(9);
   noLegal.board.fill(BLACK);

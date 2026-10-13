@@ -70,6 +70,7 @@ describe('App', () => {
     const toolbar = wrapper.findComponent({ name: 'GameToolbar' });
     toolbar.vm.$emit('update:blackIsAI', true);
     await wrapper.vm.$nextTick();
+    expect(currentMockState.blackIsAI.value).toBe(true);
     expect(currentMockState.onModeChange).toHaveBeenCalled();
   });
 
@@ -78,6 +79,7 @@ describe('App', () => {
     const toolbar = wrapper.findComponent({ name: 'GameToolbar' });
     toolbar.vm.$emit('update:whiteIsAI', false);
     await wrapper.vm.$nextTick();
+    expect(currentMockState.whiteIsAI.value).toBe(false);
     expect(currentMockState.onModeChange).toHaveBeenCalled();
   });
 
