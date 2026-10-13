@@ -288,6 +288,17 @@ export const PUZZLES: readonly Puzzle[] = [
     wonEncoded: 'B11 e5 h4 i3 a8 b6 h8 b8 e1 c6 c5 e8 h1 g3 g1 i1 h2 f1 f6 f5 f2 a1 b1 c1 a2 b2 d1 j1 f1',
     winningMoves: ['f2', 'a1', 'b1', 'c1', 'a2', 'b2', 'd1', 'j1', 'f1'],
   },
+  // ---- Verified 13x13 expert puzzle (n=9, m=4, k=4) -----------------
+  {
+    id: 'gen-expert-unique-1',
+    encoded: 'B13 e5 h4 i3 a8 b6 h8 b8 e1 c6 c5 e8 h1 g3 g1 i1 h2 f1 f6 f5',
+    toMove: WHITE,
+    solution: 'f2',
+    depth: 9,
+    threshold: 4,
+    wonEncoded: 'B13 e5 h4 i3 a8 b6 h8 b8 e1 c6 c5 e8 h1 g3 g1 i1 h2 f1 f6 f5 f2 a1 b1 c1 a2 b2 d1 j1 f1',
+    winningMoves: ['f2', 'a1', 'b1', 'c1', 'a2', 'b2', 'd1', 'j1', 'f1'],
+  },
   // ---- Themed expert puzzles (n=9, m=4, k=4) -------------------------
   {
     id: 'gen-expert-ko',
