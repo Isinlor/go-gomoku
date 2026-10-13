@@ -170,7 +170,8 @@ export function streamUniqueBoards(
   const position = new GogoPosition(boardSize, {
     historyCapacity: Math.max(1, options.ply),
   });
-  const moveBuffer = new Int16Array(position.area);
+  // Descendants must not overwrite moves that a parent still needs to visit.
+  const moveBuffers = Array.from({ length: options.ply }, () => new Int16Array(position.area));
   const prefixSeen = Array.from({ length: options.ply }, () => new Set<string>());
   const finalSeen = new Set<string>();
   const nextRandom = createSeededRandom(options.seed);
@@ -217,6 +218,7 @@ export function streamUniqueBoards(
       return;
     }
 
+    const moveBuffer = moveBuffers[depth];
     const moveCount = position.generateAllLegalMoves(moveBuffer);
     for (let i = 0; i < moveCount; i += 1) {
       if (shouldStop() || checkTime()) {

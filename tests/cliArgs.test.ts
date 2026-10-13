@@ -23,4 +23,12 @@ describe('parseIntegerFlag', () => {
     expect(() => parseIntegerFlag(['--limit', '--next'], 0, '--limit')).toThrow('Missing value for --limit');
     expect(() => parseIntegerFlag(['--limit', 'abc'], 0, '--limit')).toThrow('Invalid value for --limit: abc');
   });
+
+  test.each(['12x', '12.5', '0.5', '', ' ', 'Infinity', 'NaN'])('rejects a whole value that is not an integer: %j', (value) => {
+    expect(() => parseIntegerFlag(['--limit', value], 0, '--limit')).toThrow(`Invalid value for --limit: ${value}`);
+  });
+
+  test.each(['0', '1', '-1', '+12', ' 12 '])('accepts an entire integer value: %j', (value) => {
+    expect(parseIntegerFlag(['--limit', value], 0, '--limit')).toBe(Number(value));
+  });
 });

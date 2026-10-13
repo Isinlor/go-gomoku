@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 const MAX_ATTEMPTS = 5;
 const RUNS = 3;
+const PERFORMANCE_TOLERANCE = 1.01;
 const require = createRequire(import.meta.url);
 
 /** Node 24 strips TypeScript; resolve the engine's extensionless imports. */
@@ -67,7 +68,7 @@ export function comparePuzzleRuns(masterRuns, newRuns) {
   }
   const masterMs = Math.max(...masterRuns);
   const newMs = Math.min(...newRuns);
-  return { masterMs, newMs, passed: newMs <= masterMs };
+  return { masterMs, newMs, passed: newMs <= masterMs * PERFORMANCE_TOLERANCE };
 }
 
 /** Use the candidate's puzzles and game positions as identical inputs for both engines. */

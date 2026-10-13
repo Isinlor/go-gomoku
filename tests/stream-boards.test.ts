@@ -57,6 +57,10 @@ describe('parseArgs', () => {
     expect(() => parseArgs(['--ply', '1', '--size', '10'])).toThrow('Unsupported board size: 10');
     expect(() => parseArgs(['--ply', '1', '--seed', 'nope'])).toThrow('Invalid value for --seed: nope');
   });
+
+  test.each(['1x', '1.5', '0.5'])('does not truncate the requested ply %j', ply => {
+    expect(() => parseArgs(['--ply', ply])).toThrow(`Invalid value for --ply: ${ply}`);
+  });
 });
 
 describe('formatStreamBoardsSummary', () => {
