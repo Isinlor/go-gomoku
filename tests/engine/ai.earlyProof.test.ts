@@ -90,7 +90,7 @@ test('discovery continues when the early proof depth limit cannot establish the 
   expect(proofs).toEqual([false]);
   expect(result.depth).toBe(4);
   expect(result.move).toBe(decodeMove(puzzle.solution, position.size));
-  expect(result.score).toBeCloseTo(499261.9, 8);
+  expect(result.score).toBeCloseTo(499861.9, 8);
   expect(result.forcedWin).toBe(false);
   expect(result.timedOut).toBe(false);
   expect(position.encodeGame()).toBe(before);

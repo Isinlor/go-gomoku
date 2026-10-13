@@ -25,6 +25,8 @@ test.each([9, 11, 13] as const)('AI window counts follow moves, captures, undo, 
     expect(Array.from(ai.windowWhite.slice(0, position.meta.windowCount))).toEqual(expectedWhite);
     ai.beginPatternPass(position);
     expect(ai.windowEvaluation).toBe(expectedEvaluation);
+    expect(ai.blackFours).toBe(expectedBlack.filter((count, i) => count === 4 && expectedWhite[i] === 0).length);
+    expect(ai.whiteFours).toBe(expectedWhite.filter((count, i) => count === 4 && expectedBlack[i] === 0).length);
     const attack = [0, 12, 72, 540, 100_000, 500_000];
     const defense = [0, 16, 96, 720, 100_000, 500_000];
     const actualPatterns: number[][] = [];
@@ -60,11 +62,14 @@ test.each([9, 11, 13] as const)('AI window counts follow moves, captures, undo, 
   }
   check(GogoPosition.fromAscii(Array.from({ length: size }, (_, y) => y === 0 ? 'O'.repeat(size) : '.'.repeat(size)), BLACK));
   check(position);
+  for (const row of ['.XXXX....', '.OOOO....', 'XOOO.....', 'XXXXO....']) {
+    check(GogoPosition.fromAscii(Array.from({ length: size }, (_, y) => y === 0 ? row + '.'.repeat(size - 9) : '.'.repeat(size)), BLACK));
+  }
 });
 
 test('quiescence reuses an identical tactical search without changing its score', () => {
   const position = GogoPosition.fromAscii([
-    'XXXX.....', 'OOOO.....', '.........', '.........', '.........',
+    '.........', '.OOOO....', '.........', '.........', '.........',
     '.........', '.........', '.........', '.........',
   ], BLACK);
   const ai = new GogoAI({ now: () => 0 }) as any;
@@ -116,6 +121,7 @@ test('the proof explores non-immediate attacks and skips a previously tried hash
   ai.resetProofSearch();
   const index = Number(capture.hash & ((1n << 18n) - 1n));
   ai.proofTTHash[index] = capture.hash;
+  ai.proofTTGeneration[index] = ai.proofGeneration;
   ai.proofTTBestMove[index] = 17;
   const play = capture.play.bind(capture);
   let captures = 0;
@@ -161,7 +167,7 @@ test('a win proved at a shallow depth is reused at a deeper limit', () => {
   expect(ai.proofAttack(position, 1, 0)).toBe(true);
 });
 
-test('root scout searches preserve an exhaustive score and re-search improvements', () => {
+test.each([2, 3, 4])('root scouts at depth %s preserve an exhaustive score and re-search improvements', depth => {
   const position = new GogoPosition(9);
   position.playXY(4, 4);
   const ai = new GogoAI({ quiescenceDepth: 0, maxPly: 2, now: () => 0 }) as any;
@@ -176,7 +182,7 @@ test('root scout searches preserve an exhaustive score and re-search improvement
   let best = -Infinity;
   for (const move of candidates) {
     expect(position.play(move)).toBe(true);
-    best = Math.max(best, -oracle.search(position, 3, -1_000_000_000, 1_000_000_000, 1));
+    best = Math.max(best, -oracle.search(position, depth - 1, -1_000_000_000, 1_000_000_000, 1));
     position.undo();
   }
   const search = ai.search.bind(ai);
@@ -185,7 +191,7 @@ test('root scout searches preserve an exhaustive score and re-search improvement
     if (args[4] === 1) widths.push(args[3] - args[2]);
     return search(...args);
   };
-  expect(ai.searchRoot(position, 4, hint).score).toBeCloseTo(best, 10);
+  expect(ai.searchRoot(position, depth, hint).score).toBeCloseTo(best, 10);
   expect(widths).toContain(1);
   expect(widths.filter(width => width > 1).length).toBeGreaterThan(1);
 });

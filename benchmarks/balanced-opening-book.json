@@ -1,0 +1,716 @@
+{
+  "master": "2e59cc889790edd363abc8fd80572b5a22bb93cf",
+  "seed": 2026101501,
+  "moveMs": 75,
+  "searchOptions": {
+    "maxDepth": 30,
+    "quiescenceDepth": 4,
+    "maxPly": 96
+  },
+  "method": "Random legal 6–24 ply central 7x7 openings, reject terminal and flagged tactical starts; select 50 Black and 50 White wins from master-only 75ms selfplay, without candidate evaluation.",
+  "attempted": 307,
+  "black": 50,
+  "white": 50,
+  "entries": [
+    {
+      "opening": "B9 f8 d7 g2 b6 f5 h2",
+      "masterWinner": 1,
+      "screenScore": 269.6,
+      "screenDepth": 4,
+      "order": 0
+    },
+    {
+      "opening": "B9 d8 g6 g7 f8 e6 f4",
+      "masterWinner": 2,
+      "screenScore": 315.4,
+      "screenDepth": 4,
+      "order": 1
+    },
+    {
+      "opening": "B9 h7 b6 g6 h3 e6 b4 c6 b8 h4 c2 c4 b7 c7 g4 f5 f6 d7 g2 b3 f3",
+      "masterWinner": 1,
+      "screenScore": 0,
+      "screenDepth": 0,
+      "order": 2
+    },
+    {
+      "opening": "B9 e2 b8 f8 f2 c2 f5 c7 g6",
+      "masterWinner": 2,
+      "screenScore": -183.39999999999998,
+      "screenDepth": 4,
+      "order": 3
+    },
+    {
+      "opening": "B9 h6 b6 c4 h8 f8 e8 b8 b7 e5 f3 g3 c6",
+      "masterWinner": 1,
+      "screenScore": 959.5000000000002,
+      "screenDepth": 5,
+      "order": 4
+    },
+    {
+      "opening": "B9 d5 e5 g3 b6 h2 e4 b5 c2 d6 f8 b3 c6 e3 e8 h4 h3 d2 g7 h7 f5 d8 b7 h6 e7",
+      "masterWinner": 2,
+      "screenScore": 0,
+      "screenDepth": 0,
+      "order": 5
+    },
+    {
+      "opening": "B9 c3 e2 e6 c2 d5 d7 g6 h4",
+      "masterWinner": 1,
+      "screenScore": 499583.00000000006,
+      "screenDepth": 5,
+      "order": 6
+    },
+    {
+      "opening": "B9 c6 e7 d2 c4 b2 g3 h3 f2",
+      "masterWinner": 2,
+      "screenScore": -61.80000000000001,
+      "screenDepth": 4,
+      "order": 7
+    },
+    {
+      "opening": "B9 c6 f2 f5 e4 d4 d6 g2 h5 b2 h4",
+      "masterWinner": 1,
+      "screenScore": 559.6,
+      "screenDepth": 5,
+      "order": 8
+    },
+    {
+      "opening": "B9 d3 f6 g4 h4 d8 h8",
+      "masterWinner": 2,
+      "screenScore": -35.19999999999999,
+      "screenDepth": 4,
+      "order": 9
+    },
+    {
+      "opening": "B9 c7 b6 g7 c8 f6 d3 b2 h2 g6 f2 e2 b8 h4 d4 b5 b3",
+      "masterWinner": 1,
+      "screenScore": 351.00000000000006,
+      "screenDepth": 5,
+      "order": 10
+    },
+    {
+      "opening": "B9 b3 c6 f5 e4 h5 e5 b4 d5",
+      "masterWinner": 2,
+      "screenScore": -1244.8,
+      "screenDepth": 7,
+      "order": 11
+    },
+    {
+      "opening": "B9 g8 e8 h2 e5 d7 c8 f7 e4",
+      "masterWinner": 1,
+      "screenScore": 506.89999999999986,
+      "screenDepth": 5,
+      "order": 12
+    },
+    {
+      "opening": "B9 g3 c4 f8 f6 g2 e5 c6 e4 d4 f7 e3 g5",
+      "masterWinner": 2,
+      "screenScore": -21.799999999999983,
+      "screenDepth": 3,
+      "order": 13
+    },
+    {
+      "opening": "B9 b3 d2 h3 h8 d8 g8 b7 g4",
+      "masterWinner": 1,
+      "screenScore": 133.8,
+      "screenDepth": 4,
+      "order": 14
+    },
+    {
+      "opening": "B9 e3 c4 b6 d4 c2 g5",
+      "masterWinner": 2,
+      "screenScore": -158.7,
+      "screenDepth": 4,
+      "order": 15
+    },
+    {
+      "opening": "B9 c5 e7 h3 f2 b4 h5",
+      "masterWinner": 1,
+      "screenScore": 533.6000000000001,
+      "screenDepth": 5,
+      "order": 16
+    },
+    {
+      "opening": "B9 g6 h3 e5 d5 f6 d6 h4 c2 b6 f7 b5 b3 f4 b4 f8 c7 d2 d7 d8 c4 c5 b2 c6 f5",
+      "masterWinner": 2,
+      "screenScore": 0,
+      "screenDepth": 0,
+      "order": 17
+    },
+    {
+      "opening": "B9 b7 b6 d4 h4 d8 e2",
+      "masterWinner": 1,
+      "screenScore": 549.9000000000001,
+      "screenDepth": 5,
+      "order": 18
+    },
+    {
+      "opening": "B9 b5 e7 g5 b4 c5 c2 b6 g2 g7 e2 h8 g4 d5 h6 h3 d2 c4 d4 e3 f5 b2 f3",
+      "masterWinner": 2,
+      "screenScore": 0,
+      "screenDepth": 0,
+      "order": 19
+    },
+    {
+      "opening": "B9 d8 e8 d7 f8 h7 b3 g5 b6",
+      "masterWinner": 1,
+      "screenScore": 438.1,
+      "screenDepth": 4,
+      "order": 20
+    },
+    {
+      "opening": "B9 c6 d3 h8 d7 g5 e2 c8 b4 e3 d5 g4 d4 f5 c5",
+      "masterWinner": 2,
+      "screenScore": 0,
+      "screenDepth": 0,
+      "order": 21
+    },
+    {
+      "opening": "B9 b2 b7 g6 f2 h2 e5",
+      "masterWinner": 1,
+      "screenScore": 257.29999999999995,
+      "screenDepth": 5,
+      "order": 22
+    },
+    {
+      "opening": "B9 e8 h4 h8 b2 e4 g8 d2 f4 g2 e5",
+      "masterWinner": 2,
+      "screenScore": 37.39999999999997,
+      "screenDepth": 3,
+      "order": 23
+    },
+    {
+      "opening": "B9 h4 h7 e4 h3 d2 f3 d8 f7 b8 g6 e5 b6 c3 f2 f5 b2 g2 c5 c7 c2 f8 d4",
+      "masterWinner": 1,
+      "screenScore": 0,
+      "screenDepth": 0,
+      "order": 24
+    },
+    {
+      "opening": "B9 b5 c8 e6 g6 g8 f5 d7 f7",
+      "masterWinner": 2,
+      "screenScore": 346.29999999999995,
+      "screenDepth": 5,
+      "order": 25
+    },
+    {
+      "opening": "B9 f8 b8 c7 f5 c4 e8 e4 d2 h8 d6",
+      "masterWinner": 1,
+      "screenScore": 500151.20000000007,
+      "screenDepth": 6,
+      "order": 26
+    },
+    {
+      "opening": "B9 g8 e7 h6 f8 e2 e8 d7 c7",
+      "masterWinner": 2,
+      "screenScore": 577.2,
+      "screenDepth": 5,
+      "order": 27
+    },
+    {
+      "opening": "B9 b6 e5 g5 e8 g7 f4 d3 c4",
+      "masterWinner": 1,
+      "screenScore": 246.69999999999996,
+      "screenDepth": 5,
+      "order": 28
+    },
+    {
+      "opening": "B9 d8 b2 f2 d4 d5 e4",
+      "masterWinner": 2,
+      "screenScore": -64.3,
+      "screenDepth": 4,
+      "order": 29
+    },
+    {
+      "opening": "B9 b5 h7 h2 h4 b3 e4 b7 b8",
+      "masterWinner": 1,
+      "screenScore": 177.60000000000005,
+      "screenDepth": 4,
+      "order": 30
+    },
+    {
+      "opening": "B9 h6 d6 g4 b2 g3 b4 c7 c2 g6 d3 f7 e4 c8 e5 h7 h8 b7 b8 d2 f5 h5 g5",
+      "masterWinner": 2,
+      "screenScore": 0,
+      "screenDepth": 0,
+      "order": 31
+    },
+    {
+      "opening": "B9 g2 f6 e8 g6 b8 c2 d4 e3 f8 g5 b4 d3",
+      "masterWinner": 1,
+      "screenScore": 633.8000000000002,
+      "screenDepth": 5,
+      "order": 32
+    },
+    {
+      "opening": "B9 b8 h6 g3 c7 g4 g6 f7 d3 c2 c8 h8 e7 c5 f5 g2 f6 f8 g7",
+      "masterWinner": 2,
+      "screenScore": 218.60000000000008,
+      "screenDepth": 5,
+      "order": 33
+    },
+    {
+      "opening": "B9 g7 b3 h3 b8 d5 g2 h4 f6 h6 b2 c8 f7 f3 g8 d7 h5",
+      "masterWinner": 1,
+      "screenScore": 1528.2,
+      "screenDepth": 5,
+      "order": 34
+    },
+    {
+      "opening": "B9 b4 g8 f6 h2 h4 e6 f2 e7 c5 g2 h5 e5",
+      "masterWinner": 2,
+      "screenScore": -294,
+      "screenDepth": 6,
+      "order": 35
+    },
+    {
+      "opening": "B9 d2 b2 d3 c5 b8 e4 b3 e6",
+      "masterWinner": 1,
+      "screenScore": 269.59999999999997,
+      "screenDepth": 5,
+      "order": 36
+    },
+    {
+      "opening": "B9 b3 e7 h5 d4 h3 g7 d2 g4 c8 h4 h2 f7 h8 f5 g6 c7 g3 b4",
+      "masterWinner": 2,
+      "screenScore": 0,
+      "screenDepth": 0,
+      "order": 37
+    },
+    {
+      "opening": "B9 f2 c2 e5 e2 b7 c5 b3 d5 g8 e6 g3 f4 b6 e7 f6 d8",
+      "masterWinner": 1,
+      "screenScore": 492.0000000000001,
+      "screenDepth": 4,
+      "order": 38
+    },
+    {
+      "opening": "B9 d2 f6 g3 d3 c5 h4 c7 e8",
+      "masterWinner": 2,
+      "screenScore": 564.9,
+      "screenDepth": 4,
+      "order": 39
+    },
+    {
+      "opening": "B9 g8 b3 e5 g5 h6 c3 b2 h5 f8 e3 b8 h7 f5 g3",
+      "masterWinner": 1,
+      "screenScore": 399.4,
+      "screenDepth": 5,
+      "order": 40
+    },
+    {
+      "opening": "B9 b4 h3 d7 g5 d5 c7 h4 g3 h8 f2",
+      "masterWinner": 2,
+      "screenScore": 338.0999999999999,
+      "screenDepth": 3,
+      "order": 41
+    },
+    {
+      "opening": "B9 b3 g2 e8 h5 d6 d4 f2 b7",
+      "masterWinner": 1,
+      "screenScore": 379.20000000000005,
+      "screenDepth": 5,
+      "order": 42
+    },
+    {
+      "opening": "B9 d7 d3 d5 h2 b2 e7 f2 b8",
+      "masterWinner": 2,
+      "screenScore": 914.6,
+      "screenDepth": 5,
+      "order": 43
+    },
+    {
+      "opening": "B9 h6 d8 f5 c5 e2 e8 g8 f7 c7 c6 c2 h7",
+      "masterWinner": 1,
+      "screenScore": 429.70000000000016,
+      "screenDepth": 5,
+      "order": 44
+    },
+    {
+      "opening": "B9 c5 f4 h2 c4 h3 h4 e8 f7 b5 g6 g4 h8 g7 f6 c6 f3 f2 b6 g2 f8 d4 b8 b4 h6",
+      "masterWinner": 2,
+      "screenScore": 0,
+      "screenDepth": 0,
+      "order": 45
+    },
+    {
+      "opening": "B9 c3 g4 d6 c4 c6 b2 c8 b4",
+      "masterWinner": 1,
+      "screenScore": 141.2,
+      "screenDepth": 4,
+      "order": 46
+    },
+    {
+      "opening": "B9 b8 f5 c2 b5 d5 e7",
+      "masterWinner": 2,
+      "screenScore": 220.59999999999997,
+      "screenDepth": 5,
+      "order": 47
+    },
+    {
+      "opening": "B9 d2 h8 d6 f6 h2 g7 g2 g4 g8 b7 e5 g3 e4 e2 e6 h3 b3 d3 h5 g6",
+      "masterWinner": 1,
+      "screenScore": 0,
+      "screenDepth": 0,
+      "order": 48
+    },
+    {
+      "opening": "B9 c8 f2 h2 b3 h7 f7 b5 b6 e7 d7",
+      "masterWinner": 2,
+      "screenScore": -97.40000000000003,
+      "screenDepth": 4,
+      "order": 49
+    },
+    {
+      "opening": "B9 h3 g3 f2 b8 c8 e7 g6 c6 e2 h7 d6 g8 e4 g7 c5 b4",
+      "masterWinner": 1,
+      "screenScore": 1421.1000000000001,
+      "screenDepth": 5,
+      "order": 50
+    },
+    {
+      "opening": "B9 d4 b2 c7 f7 h5 d3 d2 e3 g6 g4 e5 b3 f8 f3 c5 c2 e7 c6 h4 e6 f6 d6",
+      "masterWinner": 2,
+      "screenScore": 0,
+      "screenDepth": 0,
+      "order": 51
+    },
+    {
+      "opening": "B9 e8 b7 g2 f8 e2 b6 b4 g4 e5 d5 f3 e4",
+      "masterWinner": 1,
+      "screenScore": 500291.6,
+      "screenDepth": 7,
+      "order": 52
+    },
+    {
+      "opening": "B9 h6 e4 b6 b4 h2 b8 h7 g3",
+      "masterWinner": 2,
+      "screenScore": 59.999999999999986,
+      "screenDepth": 4,
+      "order": 53
+    },
+    {
+      "opening": "B9 f2 d6 c2 h2 h6 h8 e2 e4 h7 b8 c7 f8 d7 h3 e3 b5 e7 b7 g5 d2 f6 b4 b3 e6",
+      "masterWinner": 1,
+      "screenScore": 0,
+      "screenDepth": 0,
+      "order": 54
+    },
+    {
+      "opening": "B9 b8 h7 h3 b6 h6 c4 c2 h4 g2 f6 c3 e6 d3 c6 f2 d8 g4 e5 d5 b3",
+      "masterWinner": 2,
+      "screenScore": 0,
+      "screenDepth": 0,
+      "order": 55
+    },
+    {
+      "opening": "B9 c5 f7 d3 d8 e5 d5",
+      "masterWinner": 1,
+      "screenScore": 1458.1999999999998,
+      "screenDepth": 6,
+      "order": 56
+    },
+    {
+      "opening": "B9 g5 c6 h8 h5 c8 e5 d7 c7 e2 g3",
+      "masterWinner": 2,
+      "screenScore": 223.3,
+      "screenDepth": 5,
+      "order": 57
+    },
+    {
+      "opening": "B9 g8 h3 h5 h6 f8 b3 b4 g6 b6 h8 f3 e7 h4 f2 d2 b8",
+      "masterWinner": 1,
+      "screenScore": 891.9999999999999,
+      "screenDepth": 5,
+      "order": 58
+    },
+    {
+      "opening": "B9 g7 g4 g8 f2 e7 c4 d2 c2 h4 f5",
+      "masterWinner": 2,
+      "screenScore": -97.09999999999997,
+      "screenDepth": 4,
+      "order": 59
+    },
+    {
+      "opening": "B9 d8 f6 g2 g6 c8 c7 g5 h4 h3 b6 d4 b3 d6 d5",
+      "masterWinner": 1,
+      "screenScore": 153.3,
+      "screenDepth": 4,
+      "order": 60
+    },
+    {
+      "opening": "B9 f2 e4 h3 c4 b4 h7 d8 e6 h5 g8",
+      "masterWinner": 2,
+      "screenScore": -308.70000000000005,
+      "screenDepth": 4,
+      "order": 61
+    },
+    {
+      "opening": "B9 c5 f3 d7 b4 g8 e7 g4 e4",
+      "masterWinner": 1,
+      "screenScore": -111.19999999999999,
+      "screenDepth": 4,
+      "order": 62
+    },
+    {
+      "opening": "B9 f8 c3 d6 c7 g8 c2 g3 c5 f5 f6",
+      "masterWinner": 2,
+      "screenScore": -500189.5,
+      "screenDepth": 8,
+      "order": 63
+    },
+    {
+      "opening": "B9 c5 h3 g2 f4 d6 f5",
+      "masterWinner": 1,
+      "screenScore": 439.1999999999999,
+      "screenDepth": 5,
+      "order": 64
+    },
+    {
+      "opening": "B9 h6 g6 d2 d8 g4 f7 b2 d3 b5 e5 g7 c5 e3 g5 c8 b8 f6 e8 d4 d5 f2 e6",
+      "masterWinner": 2,
+      "screenScore": 0,
+      "screenDepth": 0,
+      "order": 65
+    },
+    {
+      "opening": "B9 h2 e3 f4 h7 g4 h3",
+      "masterWinner": 1,
+      "screenScore": 626.6999999999999,
+      "screenDepth": 5,
+      "order": 66
+    },
+    {
+      "opening": "B9 b7 d6 g6 g3 f8 g2 c7 c6 d5 d7 c5 c8 f4 d2 g7 g4 e2 h4 h6 b5",
+      "masterWinner": 2,
+      "screenScore": -999999992,
+      "screenDepth": 7,
+      "order": 67
+    },
+    {
+      "opening": "B9 g4 g6 e5 d4 g8 c2 e7 f8",
+      "masterWinner": 1,
+      "screenScore": 904.4000000000002,
+      "screenDepth": 5,
+      "order": 68
+    },
+    {
+      "opening": "B9 c7 f7 d8 h8 f4 f6 d3 g6",
+      "masterWinner": 2,
+      "screenScore": 139.19999999999993,
+      "screenDepth": 5,
+      "order": 69
+    },
+    {
+      "opening": "B9 g6 c8 c7 h3 e4 b4",
+      "masterWinner": 1,
+      "screenScore": 1034.4000000000003,
+      "screenDepth": 5,
+      "order": 70
+    },
+    {
+      "opening": "B9 b3 e3 f8 h3 b5 h8 f4 d5 f3 c3 f6 h4 e4 c5 e6 c6 b7 f5",
+      "masterWinner": 2,
+      "screenScore": -696.9,
+      "screenDepth": 4,
+      "order": 71
+    },
+    {
+      "opening": "B9 b3 e7 b7 e2 g7 c8",
+      "masterWinner": 1,
+      "screenScore": 90.29999999999998,
+      "screenDepth": 4,
+      "order": 72
+    },
+    {
+      "opening": "B9 b8 e2 b7 f3 e8 b2 g6 c3 c6 d7 f4 d8 g8 g5 h5 b6 h6 d4 h7 d5 h2 c7 c2 b5",
+      "masterWinner": 2,
+      "screenScore": 0,
+      "screenDepth": 0,
+      "order": 73
+    },
+    {
+      "opening": "B9 d3 h8 g8 f3 d2 g6 h7 c3 g5 f6",
+      "masterWinner": 1,
+      "screenScore": 592.3000000000001,
+      "screenDepth": 5,
+      "order": 74
+    },
+    {
+      "opening": "B9 h2 f6 f3 h8 h6 h4 f7 d7 e7 b8",
+      "masterWinner": 2,
+      "screenScore": 50.100000000000065,
+      "screenDepth": 4,
+      "order": 75
+    },
+    {
+      "opening": "B9 g3 b6 f5 g8 d5 d8",
+      "masterWinner": 1,
+      "screenScore": 1176.6000000000004,
+      "screenDepth": 5,
+      "order": 76
+    },
+    {
+      "opening": "B9 f7 h5 b5 e3 e6 h6 e8 h2 g2 h3 g7 b3 g3 d5",
+      "masterWinner": 2,
+      "screenScore": 0,
+      "screenDepth": 0,
+      "order": 77
+    },
+    {
+      "opening": "B9 c6 b2 h8 e8 h7 c3",
+      "masterWinner": 1,
+      "screenScore": 364.50000000000006,
+      "screenDepth": 5,
+      "order": 78
+    },
+    {
+      "opening": "B9 d3 f5 b6 e7 c2 c5 g6 g5 h6 c7 e8 f2 b5 b7",
+      "masterWinner": 2,
+      "screenScore": -1001357.3,
+      "screenDepth": 7,
+      "order": 79
+    },
+    {
+      "opening": "B9 f5 d2 e3 c2 c7 c8 g3 g6 h6 e4",
+      "masterWinner": 1,
+      "screenScore": 500475.69999999995,
+      "screenDepth": 5,
+      "order": 80
+    },
+    {
+      "opening": "B9 f2 d2 g7 c3 d5 h6 h8 b8 h5 f6",
+      "masterWinner": 2,
+      "screenScore": 188.49999999999994,
+      "screenDepth": 4,
+      "order": 81
+    },
+    {
+      "opening": "B9 c6 g3 e3 f7 f8 e2 d3 h8",
+      "masterWinner": 1,
+      "screenScore": 999801.7000000003,
+      "screenDepth": 6,
+      "order": 82
+    },
+    {
+      "opening": "B9 d7 h8 g5 e5 d8 h4 f2 h7",
+      "masterWinner": 2,
+      "screenScore": 291.4,
+      "screenDepth": 5,
+      "order": 83
+    },
+    {
+      "opening": "B9 e4 g4 b5 f2 b8 h5 c8 g2",
+      "masterWinner": 1,
+      "screenScore": 500012.3,
+      "screenDepth": 6,
+      "order": 84
+    },
+    {
+      "opening": "B9 f6 e5 g8 f5 d6 b6 b3 f7 h6 b7 c7 b2 e2 h7 c6 g5",
+      "masterWinner": 2,
+      "screenScore": -787.4000000000001,
+      "screenDepth": 4,
+      "order": 85
+    },
+    {
+      "opening": "B9 g8 c6 c8 e5 e4 c4",
+      "masterWinner": 1,
+      "screenScore": 329.4,
+      "screenDepth": 5,
+      "order": 86
+    },
+    {
+      "opening": "B9 g5 f6 h3 d7 c4 g3 h7 d8 c6 g6 h5 c5 e7 c3",
+      "masterWinner": 2,
+      "screenScore": 179.99999999999997,
+      "screenDepth": 4,
+      "order": 87
+    },
+    {
+      "opening": "B9 f6 g5 f3 c8 d8 e3 g3 d2 b3 c7 e2 d3",
+      "masterWinner": 1,
+      "screenScore": 577.4,
+      "screenDepth": 6,
+      "order": 88
+    },
+    {
+      "opening": "B9 c7 e6 b4 d6 e2 f6 c4 c3 g6 h5 e7 e3 f3 b2 h8 b3 g4 d5",
+      "masterWinner": 2,
+      "screenScore": 659.5999999999999,
+      "screenDepth": 5,
+      "order": 89
+    },
+    {
+      "opening": "B9 d7 f2 e5 f8 c5 e6 b8 f5 h8 e3 d2 h4",
+      "masterWinner": 1,
+      "screenScore": 133.29999999999995,
+      "screenDepth": 4,
+      "order": 90
+    },
+    {
+      "opening": "B9 g2 f2 b3 d4 h8 c3 g5 e8 d8 b5 b6 h2 b8 d2",
+      "masterWinner": 2,
+      "screenScore": -129.99999999999994,
+      "screenDepth": 4,
+      "order": 91
+    },
+    {
+      "opening": "B9 d5 h4 g8 f7 f8 c4 b8 c7 d3 c6",
+      "masterWinner": 1,
+      "screenScore": 150.20000000000002,
+      "screenDepth": 6,
+      "order": 92
+    },
+    {
+      "opening": "B9 c5 f7 h6 d2 b8 f5 e8 e7 f3 g2 f6 h2 e2 d7 h7 f4",
+      "masterWinner": 2,
+      "screenScore": 716.0000000000002,
+      "screenDepth": 5,
+      "order": 93
+    },
+    {
+      "opening": "B9 h7 f5 c6 h2 f7 d3 g2 b3 b5 f2 h5 d8 c3 c5 g3 e3",
+      "masterWinner": 1,
+      "screenScore": 773.1999999999999,
+      "screenDepth": 5,
+      "order": 94
+    },
+    {
+      "opening": "B9 b5 e2 h7 f7 f6 g7 h2 e4 b4 g2 h3 d4",
+      "masterWinner": 2,
+      "screenScore": 47.49999999999996,
+      "screenDepth": 4,
+      "order": 95
+    },
+    {
+      "opening": "B9 d7 g5 e8 c6 h4 c7 h7 b7 e5 c4 g8 f2 d4 h5 g2 c8 e3 f5 d6 d3",
+      "masterWinner": 1,
+      "screenScore": 0,
+      "screenDepth": 0,
+      "order": 96
+    },
+    {
+      "opening": "B9 h6 g3 d7 e6 c4 h2 g4 d4",
+      "masterWinner": 2,
+      "screenScore": 6.500000000000028,
+      "screenDepth": 5,
+      "order": 97
+    },
+    {
+      "opening": "B9 c4 g4 b6 g6 c8 h2 e4 b2 h3 g5 e7 c7 c6 b4 h4 g2 f8 b3",
+      "masterWinner": 1,
+      "screenScore": 0,
+      "screenDepth": 0,
+      "order": 98
+    },
+    {
+      "opening": "B9 h7 c2 c5 e4 e8 g2 f3 d4 g8 h8 b4 h3 g3 f4 c4 f7",
+      "masterWinner": 2,
+      "screenScore": 173.4,
+      "screenDepth": 3,
+      "order": 99
+    }
+  ]
+}

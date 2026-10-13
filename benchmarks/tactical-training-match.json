@@ -1,0 +1,2012 @@
+{
+  "moveMs": 75,
+  "seed": 314159,
+  "pairs": 12,
+  "games": 24,
+  "wins": 15,
+  "losses": 9,
+  "draws": 0,
+  "winRate": 0.625,
+  "scoreRate": 0.625,
+  "pValue": 0.25,
+  "passed": false,
+  "results": [
+    {
+      "opening": "B9 f4 d4 g5 g3 f3 e3",
+      "firstColor": 2,
+      "scores": [
+        -1,
+        1
+      ],
+      "games": [
+        {
+          "candidateColor": 2,
+          "score": -1,
+          "signals": [
+            {
+              "engine": "candidate",
+              "flags": [
+                "heuristicLoss"
+              ],
+              "encoded": "B9 f4 d4 g5 g3 f3 e3 f6",
+              "elapsedMs": 75.27753399999983,
+              "result": {
+                "move": 14,
+                "score": -999999994,
+                "depth": 6,
+                "nodes": 24064,
+                "timedOut": true,
+                "forcedDefensiveMove": false,
+                "forcedWin": false,
+                "forcedLoss": false,
+                "heuristicWin": false,
+                "heuristicLoss": true
+              }
+            },
+            {
+              "engine": "master",
+              "flags": [
+                "forcedWin"
+              ],
+              "encoded": "B9 f4 d4 g5 g3 f3 e3 f6 f2",
+              "elapsedMs": 2.1937329999998383,
+              "result": {
+                "move": 59,
+                "score": 999999995,
+                "depth": 5,
+                "nodes": 812,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": true,
+                "forcedLoss": false,
+                "heuristicWin": false,
+                "heuristicLoss": false
+              }
+            },
+            {
+              "engine": "master",
+              "flags": [
+                "heuristicWin"
+              ],
+              "encoded": "B9 f4 d4 g5 g3 f3 e3 f6 f2 f7 f5",
+              "elapsedMs": 1.5018099999999777,
+              "result": {
+                "move": 40,
+                "score": 999999997,
+                "depth": 3,
+                "nodes": 4,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": true,
+                "forcedLoss": false,
+                "heuristicWin": true,
+                "heuristicLoss": false
+              }
+            },
+            {
+              "engine": "candidate",
+              "flags": [
+                "forcedLoss"
+              ],
+              "encoded": "B9 f4 d4 g5 g3 f3 e3 f6 f2 f7 f5 e5",
+              "elapsedMs": 3.778715999999804,
+              "result": {
+                "move": 38,
+                "score": -999999998,
+                "depth": 2,
+                "nodes": 557,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": false,
+                "forcedLoss": true,
+                "heuristicWin": false,
+                "heuristicLoss": true
+              }
+            }
+          ]
+        },
+        {
+          "candidateColor": 1,
+          "score": 1,
+          "signals": [
+            {
+              "engine": "master",
+              "flags": [
+                "heuristicLoss"
+              ],
+              "encoded": "B9 f4 d4 g5 g3 f3 e3 f6",
+              "elapsedMs": 75.48484100000019,
+              "result": {
+                "move": 14,
+                "score": -999999994,
+                "depth": 6,
+                "nodes": 30080,
+                "timedOut": true,
+                "forcedDefensiveMove": false,
+                "forcedWin": false,
+                "forcedLoss": false,
+                "heuristicWin": false,
+                "heuristicLoss": true
+              }
+            },
+            {
+              "engine": "candidate",
+              "flags": [
+                "forcedWin"
+              ],
+              "encoded": "B9 f4 d4 g5 g3 f3 e3 f6 f2",
+              "elapsedMs": 3.9945950000001176,
+              "result": {
+                "move": 59,
+                "score": 999999995,
+                "depth": 5,
+                "nodes": 1626,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": true,
+                "forcedLoss": false,
+                "heuristicWin": false,
+                "heuristicLoss": false
+              }
+            },
+            {
+              "engine": "candidate",
+              "flags": [
+                "heuristicWin"
+              ],
+              "encoded": "B9 f4 d4 g5 g3 f3 e3 f6 f2 f7 f5",
+              "elapsedMs": 1.0957290000001194,
+              "result": {
+                "move": 40,
+                "score": 999999997,
+                "depth": 3,
+                "nodes": 4,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": true,
+                "forcedLoss": false,
+                "heuristicWin": true,
+                "heuristicLoss": false
+              }
+            },
+            {
+              "engine": "master",
+              "flags": [
+                "forcedLoss"
+              ],
+              "encoded": "B9 f4 d4 g5 g3 f3 e3 f6 f2 f7 f5 e5",
+              "elapsedMs": 3.7459579999999733,
+              "result": {
+                "move": 38,
+                "score": -999999998,
+                "depth": 2,
+                "nodes": 569,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": false,
+                "forcedLoss": true,
+                "heuristicWin": false,
+                "heuristicLoss": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "opening": "B9 f6 e6 d3 c5 f3 f5",
+      "firstColor": 2,
+      "scores": [
+        -1,
+        1
+      ],
+      "games": [
+        {
+          "candidateColor": 2,
+          "score": -1,
+          "signals": [
+            {
+              "engine": "candidate",
+              "flags": [
+                "heuristicLoss"
+              ],
+              "encoded": "B9 f6 e6 d3 c5 f3 f5 e3 c3 h3 g3 g4 g2 h5 e2 h6",
+              "elapsedMs": 75.21060499999999,
+              "result": {
+                "move": 61,
+                "score": -999999994,
+                "depth": 6,
+                "nodes": 27008,
+                "timedOut": true,
+                "forcedDefensiveMove": false,
+                "forcedWin": false,
+                "forcedLoss": false,
+                "heuristicWin": false,
+                "heuristicLoss": true
+              }
+            },
+            {
+              "engine": "master",
+              "flags": [
+                "forcedWin"
+              ],
+              "encoded": "B9 f6 e6 d3 c5 f3 f5 e3 c3 h3 g3 g4 g2 h5 e2 h6 h7",
+              "elapsedMs": 4.580120999999963,
+              "result": {
+                "move": 16,
+                "score": 999999995,
+                "depth": 5,
+                "nodes": 2307,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": true,
+                "forcedLoss": false,
+                "heuristicWin": false,
+                "heuristicLoss": false
+              }
+            },
+            {
+              "engine": "master",
+              "flags": [
+                "heuristicWin"
+              ],
+              "encoded": "B9 f6 e6 d3 c5 f3 f5 e3 c3 h3 g3 g4 g2 h5 e2 h6 h7 h2 h4",
+              "elapsedMs": 1.8134609999997338,
+              "result": {
+                "move": 35,
+                "score": 999999997,
+                "depth": 3,
+                "nodes": 4,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": true,
+                "forcedLoss": false,
+                "heuristicWin": true,
+                "heuristicLoss": false
+              }
+            },
+            {
+              "engine": "candidate",
+              "flags": [
+                "forcedLoss"
+              ],
+              "encoded": "B9 f6 e6 d3 c5 f3 f5 e3 c3 h3 g3 g4 g2 h5 e2 h6 h7 h2 h4 i4",
+              "elapsedMs": 3.4539460000000872,
+              "result": {
+                "move": 7,
+                "score": -999999998,
+                "depth": 2,
+                "nodes": 516,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": false,
+                "forcedLoss": true,
+                "heuristicWin": false,
+                "heuristicLoss": true
+              }
+            }
+          ]
+        },
+        {
+          "candidateColor": 1,
+          "score": 1,
+          "signals": [
+            {
+              "engine": "master",
+              "flags": [
+                "heuristicLoss"
+              ],
+              "encoded": "B9 f6 e6 d3 c5 f3 f5 e3 c3 g4 h3 e2 h5 c4 b5 e4 f4 d5",
+              "elapsedMs": 75.09343099999978,
+              "result": {
+                "move": 47,
+                "score": -999999994,
+                "depth": 6,
+                "nodes": 35456,
+                "timedOut": true,
+                "forcedDefensiveMove": false,
+                "forcedWin": false,
+                "forcedLoss": false,
+                "heuristicWin": false,
+                "heuristicLoss": true
+              }
+            },
+            {
+              "engine": "candidate",
+              "flags": [
+                "forcedWin"
+              ],
+              "encoded": "B9 f6 e6 d3 c5 f3 f5 e3 c3 g4 h3 e2 h5 c4 b5 e4 f4 d5 c6",
+              "elapsedMs": 25.80684199999996,
+              "result": {
+                "move": 12,
+                "score": 999999995,
+                "depth": 5,
+                "nodes": 11017,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": true,
+                "forcedLoss": false,
+                "heuristicWin": false,
+                "heuristicLoss": false
+              }
+            },
+            {
+              "engine": "candidate",
+              "flags": [
+                "heuristicWin"
+              ],
+              "encoded": "B9 f6 e6 d3 c5 f3 f5 e3 c3 g4 h3 e2 h5 c4 b5 e4 f4 d5 c6 d2 d6",
+              "elapsedMs": 31.911573000000317,
+              "result": {
+                "move": 3,
+                "score": 999999997,
+                "depth": 3,
+                "nodes": 4,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": true,
+                "forcedLoss": false,
+                "heuristicWin": true,
+                "heuristicLoss": false
+              }
+            },
+            {
+              "engine": "master",
+              "flags": [
+                "forcedLoss"
+              ],
+              "encoded": "B9 f6 e6 d3 c5 f3 f5 e3 c3 g4 h3 e2 h5 c4 b5 e4 f4 d5 c6 d2 d6 d1",
+              "elapsedMs": 3.5747089999999844,
+              "result": {
+                "move": 40,
+                "score": -999999998,
+                "depth": 2,
+                "nodes": 509,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": false,
+                "forcedLoss": true,
+                "heuristicWin": false,
+                "heuristicLoss": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "opening": "B9 d3 d7 d4 c5 d5 f6",
+      "firstColor": 1,
+      "scores": [
+        1,
+        -1
+      ],
+      "games": [
+        {
+          "candidateColor": 1,
+          "score": 1,
+          "signals": [
+            {
+              "engine": "candidate",
+              "flags": [
+                "forcedWin",
+                "heuristicWin"
+              ],
+              "encoded": "B9 d3 d7 d4 c5 d5 f6",
+              "elapsedMs": 2.003534999999829,
+              "result": {
+                "move": 12,
+                "score": 999999997,
+                "depth": 3,
+                "nodes": 5,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": true,
+                "forcedLoss": false,
+                "heuristicWin": true,
+                "heuristicLoss": false
+              }
+            },
+            {
+              "engine": "master",
+              "flags": [
+                "forcedLoss",
+                "heuristicLoss"
+              ],
+              "encoded": "B9 d3 d7 d4 c5 d5 f6 d2",
+              "elapsedMs": 5.3389790000001085,
+              "result": {
+                "move": 48,
+                "score": -999999998,
+                "depth": 2,
+                "nodes": 607,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": false,
+                "forcedLoss": true,
+                "heuristicWin": false,
+                "heuristicLoss": true
+              }
+            }
+          ]
+        },
+        {
+          "candidateColor": 2,
+          "score": -1,
+          "signals": [
+            {
+              "engine": "master",
+              "flags": [
+                "forcedWin",
+                "heuristicWin"
+              ],
+              "encoded": "B9 d3 d7 d4 c5 d5 f6",
+              "elapsedMs": 5.630750000000262,
+              "result": {
+                "move": 12,
+                "score": 999999997,
+                "depth": 3,
+                "nodes": 5,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": true,
+                "forcedLoss": false,
+                "heuristicWin": true,
+                "heuristicLoss": false
+              }
+            },
+            {
+              "engine": "candidate",
+              "flags": [
+                "forcedLoss",
+                "heuristicLoss"
+              ],
+              "encoded": "B9 d3 d7 d4 c5 d5 f6 d2",
+              "elapsedMs": 4.9779749999997875,
+              "result": {
+                "move": 48,
+                "score": -999999998,
+                "depth": 2,
+                "nodes": 648,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": false,
+                "forcedLoss": true,
+                "heuristicWin": false,
+                "heuristicLoss": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "opening": "B9 f6 g7 f7 g4 e4 d4",
+      "firstColor": 2,
+      "scores": [
+        -1,
+        1
+      ],
+      "games": [
+        {
+          "candidateColor": 2,
+          "score": -1,
+          "signals": [
+            {
+              "engine": "master",
+              "flags": [
+                "forcedWin"
+              ],
+              "encoded": "B9 f6 g7 f7 g4 e4 d4 f5 f8 g6 d3 d5 g2",
+              "elapsedMs": 4.776080000000093,
+              "result": {
+                "move": 49,
+                "score": 999999995,
+                "depth": 5,
+                "nodes": 2732,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": true,
+                "forcedLoss": false,
+                "heuristicWin": false,
+                "heuristicLoss": false
+              }
+            },
+            {
+              "engine": "candidate",
+              "flags": [
+                "heuristicLoss"
+              ],
+              "encoded": "B9 f6 g7 f7 g4 e4 d4 f5 f8 g6 d3 d5 g2 e6",
+              "elapsedMs": 75.25420500000018,
+              "result": {
+                "move": 48,
+                "score": -999999996,
+                "depth": 4,
+                "nodes": 34048,
+                "timedOut": true,
+                "forcedDefensiveMove": false,
+                "forcedWin": false,
+                "forcedLoss": false,
+                "heuristicWin": false,
+                "heuristicLoss": true
+              }
+            },
+            {
+              "engine": "master",
+              "flags": [
+                "heuristicWin"
+              ],
+              "encoded": "B9 f6 g7 f7 g4 e4 d4 f5 f8 g6 d3 d5 g2 e6 d6",
+              "elapsedMs": 1.9162830000000213,
+              "result": {
+                "move": 29,
+                "score": 999999997,
+                "depth": 3,
+                "nodes": 5,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": true,
+                "forcedLoss": false,
+                "heuristicWin": true,
+                "heuristicLoss": false
+              }
+            },
+            {
+              "engine": "candidate",
+              "flags": [
+                "forcedLoss"
+              ],
+              "encoded": "B9 f6 g7 f7 g4 e4 d4 f5 f8 g6 d3 d5 g2 e6 d6 c4",
+              "elapsedMs": 9.762932000000092,
+              "result": {
+                "move": 69,
+                "score": -999999998,
+                "depth": 2,
+                "nodes": 3028,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": false,
+                "forcedLoss": true,
+                "heuristicWin": false,
+                "heuristicLoss": true
+              }
+            }
+          ]
+        },
+        {
+          "candidateColor": 1,
+          "score": 1,
+          "signals": [
+            {
+              "engine": "master",
+              "flags": [
+                "heuristicLoss"
+              ],
+              "encoded": "B9 f6 g7 f7 g4 e4 d4 f5 f8 e5 f3 e6",
+              "elapsedMs": 75.52021800000011,
+              "result": {
+                "move": 58,
+                "score": -999999994,
+                "depth": 6,
+                "nodes": 36352,
+                "timedOut": true,
+                "forcedDefensiveMove": false,
+                "forcedWin": false,
+                "forcedLoss": false,
+                "heuristicWin": false,
+                "heuristicLoss": true
+              }
+            },
+            {
+              "engine": "candidate",
+              "flags": [
+                "forcedWin"
+              ],
+              "encoded": "B9 f6 g7 f7 g4 e4 d4 f5 f8 e5 f3 e6 e7",
+              "elapsedMs": 19.02249000000029,
+              "result": {
+                "move": 51,
+                "score": 999999995,
+                "depth": 5,
+                "nodes": 7727,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": true,
+                "forcedLoss": false,
+                "heuristicWin": false,
+                "heuristicLoss": false
+              }
+            },
+            {
+              "engine": "candidate",
+              "flags": [
+                "heuristicWin"
+              ],
+              "encoded": "B9 f6 g7 f7 g4 e4 d4 f5 f8 e5 f3 e6 e7 g6 d6",
+              "elapsedMs": 50.31914400000005,
+              "result": {
+                "move": 21,
+                "score": 999999997,
+                "depth": 3,
+                "nodes": 5,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": true,
+                "forcedLoss": false,
+                "heuristicWin": true,
+                "heuristicLoss": false
+              }
+            },
+            {
+              "engine": "master",
+              "flags": [
+                "forcedLoss"
+              ],
+              "encoded": "B9 f6 g7 f7 g4 e4 d4 f5 f8 e5 f3 e6 e7 g6 d6 d3",
+              "elapsedMs": 4.225696000000426,
+              "result": {
+                "move": 11,
+                "score": -999999998,
+                "depth": 2,
+                "nodes": 609,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": false,
+                "forcedLoss": true,
+                "heuristicWin": false,
+                "heuristicLoss": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "opening": "B9 c3 e7 e6 d3 c6 c5",
+      "firstColor": 1,
+      "scores": [
+        1,
+        -1
+      ],
+      "games": [
+        {
+          "candidateColor": 1,
+          "score": 1,
+          "signals": [
+            {
+              "engine": "candidate",
+              "flags": [
+                "forcedWin"
+              ],
+              "encoded": "B9 c3 e7 e6 d3 c6 c5 d5 d6 c4 f7",
+              "elapsedMs": 17.643442000000505,
+              "result": {
+                "move": 37,
+                "score": 999999995,
+                "depth": 5,
+                "nodes": 7196,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": true,
+                "forcedLoss": false,
+                "heuristicWin": false,
+                "heuristicLoss": false
+              }
+            },
+            {
+              "engine": "master",
+              "flags": [
+                "heuristicLoss"
+              ],
+              "encoded": "B9 c3 e7 e6 d3 c6 c5 d5 d6 c4 f7 b5",
+              "elapsedMs": 75.21862200000032,
+              "result": {
+                "move": 56,
+                "score": -999999996,
+                "depth": 4,
+                "nodes": 36480,
+                "timedOut": true,
+                "forcedDefensiveMove": false,
+                "forcedWin": false,
+                "forcedLoss": false,
+                "heuristicWin": false,
+                "heuristicLoss": true
+              }
+            },
+            {
+              "engine": "candidate",
+              "flags": [
+                "heuristicWin"
+              ],
+              "encoded": "B9 c3 e7 e6 d3 c6 c5 d5 d6 c4 f7 b5 c7",
+              "elapsedMs": 1.24445999999989,
+              "result": {
+                "move": 11,
+                "score": 999999997,
+                "depth": 3,
+                "nodes": 4,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": true,
+                "forcedLoss": false,
+                "heuristicWin": true,
+                "heuristicLoss": false
+              }
+            },
+            {
+              "engine": "master",
+              "flags": [
+                "forcedLoss"
+              ],
+              "encoded": "B9 c3 e7 e6 d3 c6 c5 d5 d6 c4 f7 b5 c7 c2",
+              "elapsedMs": 4.544578000000001,
+              "result": {
+                "move": 57,
+                "score": -999999998,
+                "depth": 2,
+                "nodes": 606,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": false,
+                "forcedLoss": true,
+                "heuristicWin": false,
+                "heuristicLoss": true
+              }
+            }
+          ]
+        },
+        {
+          "candidateColor": 2,
+          "score": -1,
+          "signals": [
+            {
+              "engine": "candidate",
+              "flags": [
+                "heuristicLoss"
+              ],
+              "encoded": "B9 c3 e7 e6 d3 c6 c5 d5 c4 b6",
+              "elapsedMs": 75.0828620000002,
+              "result": {
+                "move": 50,
+                "score": -999999994,
+                "depth": 6,
+                "nodes": 33608,
+                "timedOut": true,
+                "forcedDefensiveMove": false,
+                "forcedWin": false,
+                "forcedLoss": false,
+                "heuristicWin": false,
+                "heuristicLoss": true
+              }
+            },
+            {
+              "engine": "master",
+              "flags": [
+                "forcedWin"
+              ],
+              "encoded": "B9 c3 e7 e6 d3 c6 c5 d5 c4 b6 f6",
+              "elapsedMs": 4.583885999999438,
+              "result": {
+                "move": 45,
+                "score": 999999995,
+                "depth": 5,
+                "nodes": 2625,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": true,
+                "forcedLoss": false,
+                "heuristicWin": false,
+                "heuristicLoss": false
+              }
+            },
+            {
+              "engine": "master",
+              "flags": [
+                "heuristicWin"
+              ],
+              "encoded": "B9 c3 e7 e6 d3 c6 c5 d5 c4 b6 f6 a6 d6",
+              "elapsedMs": 3.2210119999999733,
+              "result": {
+                "move": 57,
+                "score": 999999997,
+                "depth": 3,
+                "nodes": 4,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": true,
+                "forcedLoss": false,
+                "heuristicWin": true,
+                "heuristicLoss": false
+              }
+            },
+            {
+              "engine": "candidate",
+              "flags": [
+                "forcedLoss"
+              ],
+              "encoded": "B9 c3 e7 e6 d3 c6 c5 d5 c4 b6 f6 a6 d6 d7",
+              "elapsedMs": 3.932101999999759,
+              "result": {
+                "move": 41,
+                "score": -999999998,
+                "depth": 2,
+                "nodes": 559,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": false,
+                "forcedLoss": true,
+                "heuristicWin": false,
+                "heuristicLoss": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "opening": "B9 f4 c5 e4 d3 c6 c4",
+      "firstColor": 1,
+      "scores": [
+        1,
+        1
+      ],
+      "games": [
+        {
+          "candidateColor": 1,
+          "score": 1,
+          "signals": [
+            {
+              "engine": "master",
+              "flags": [
+                "heuristicLoss"
+              ],
+              "encoded": "B9 f4 c5 e4 d3 c6 c4 e6 c2 c1 e3 f3",
+              "elapsedMs": 75.07542999999987,
+              "result": {
+                "move": 39,
+                "score": -999999994,
+                "depth": 6,
+                "nodes": 35456,
+                "timedOut": true,
+                "forcedDefensiveMove": false,
+                "forcedWin": false,
+                "forcedLoss": false,
+                "heuristicWin": false,
+                "heuristicLoss": true
+              }
+            },
+            {
+              "engine": "candidate",
+              "flags": [
+                "forcedWin"
+              ],
+              "encoded": "B9 f4 c5 e4 d3 c6 c4 e6 c2 c1 e3 f3 d5",
+              "elapsedMs": 5.546760000000177,
+              "result": {
+                "move": 50,
+                "score": 999999995,
+                "depth": 5,
+                "nodes": 2658,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": true,
+                "forcedLoss": false,
+                "heuristicWin": false,
+                "heuristicLoss": false
+              }
+            },
+            {
+              "engine": "candidate",
+              "flags": [
+                "heuristicWin"
+              ],
+              "encoded": "B9 f4 c5 e4 d3 c6 c4 e6 c2 c1 e3 f3 d5 f6 f5",
+              "elapsedMs": 3.1624339999998483,
+              "result": {
+                "move": 48,
+                "score": 999999997,
+                "depth": 3,
+                "nodes": 5,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": true,
+                "forcedLoss": false,
+                "heuristicWin": true,
+                "heuristicLoss": false
+              }
+            },
+            {
+              "engine": "master",
+              "flags": [
+                "forcedLoss"
+              ],
+              "encoded": "B9 f4 c5 e4 d3 c6 c4 e6 c2 c1 e3 f3 d5 f6 f5 d6",
+              "elapsedMs": 4.2549300000000585,
+              "result": {
+                "move": 46,
+                "score": -999999998,
+                "depth": 2,
+                "nodes": 685,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": false,
+                "forcedLoss": true,
+                "heuristicWin": false,
+                "heuristicLoss": true
+              }
+            }
+          ]
+        },
+        {
+          "candidateColor": 2,
+          "score": 1,
+          "signals": [
+            {
+              "engine": "master",
+              "flags": [
+                "heuristicLoss"
+              ],
+              "encoded": "B9 f4 c5 e4 d3 c6 c4 d5 f3 g3 c2 c1 e2 b7 a8 b5 b2",
+              "elapsedMs": 75.15336600000046,
+              "result": {
+                "move": 12,
+                "score": -999999994,
+                "depth": 6,
+                "nodes": 36224,
+                "timedOut": true,
+                "forcedDefensiveMove": false,
+                "forcedWin": false,
+                "forcedLoss": false,
+                "heuristicWin": false,
+                "heuristicLoss": true
+              }
+            },
+            {
+              "engine": "candidate",
+              "flags": [
+                "forcedWin"
+              ],
+              "encoded": "B9 f4 c5 e4 d3 c6 c4 d5 f3 g3 c2 c1 e2 b7 a8 b5 b2 d2",
+              "elapsedMs": 6.001001000000542,
+              "result": {
+                "move": 3,
+                "score": 999999995,
+                "depth": 5,
+                "nodes": 2467,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": true,
+                "forcedLoss": false,
+                "heuristicWin": false,
+                "heuristicLoss": false
+              }
+            },
+            {
+              "engine": "candidate",
+              "flags": [
+                "heuristicWin"
+              ],
+              "encoded": "B9 f4 c5 e4 d3 c6 c4 d5 f3 g3 c2 c1 e2 b7 a8 b5 b2 d2 d1 f2",
+              "elapsedMs": 4.257483999999749,
+              "result": {
+                "move": 9,
+                "score": 999999997,
+                "depth": 3,
+                "nodes": 4,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": true,
+                "forcedLoss": false,
+                "heuristicWin": true,
+                "heuristicLoss": false
+              }
+            },
+            {
+              "engine": "master",
+              "flags": [
+                "forcedLoss"
+              ],
+              "encoded": "B9 f4 c5 e4 d3 c6 c4 d5 f3 g3 c2 c1 e2 b7 a8 b5 b2 d2 d1 f2 a2",
+              "elapsedMs": 3.9160289999999804,
+              "result": {
+                "move": 33,
+                "score": -999999998,
+                "depth": 2,
+                "nodes": 523,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": false,
+                "forcedLoss": true,
+                "heuristicWin": false,
+                "heuristicLoss": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "opening": "B9 d6 d3 d7 c7 f6 c5",
+      "firstColor": 2,
+      "scores": [
+        1,
+        1
+      ],
+      "games": [
+        {
+          "candidateColor": 2,
+          "score": 1,
+          "signals": [
+            {
+              "engine": "master",
+              "flags": [
+                "heuristicLoss"
+              ],
+              "encoded": "B9 d6 d3 d7 c7 f6 c5 e5 c6 c4 d4 e3 c8 c9 b9 d9 d8 e9 e8 f9 g9",
+              "elapsedMs": 75.04077899999993,
+              "result": {
+                "move": 68,
+                "score": -999999994,
+                "depth": 6,
+                "nodes": 36756,
+                "timedOut": true,
+                "forcedDefensiveMove": false,
+                "forcedWin": false,
+                "forcedLoss": false,
+                "heuristicWin": false,
+                "heuristicLoss": true
+              }
+            },
+            {
+              "engine": "candidate",
+              "flags": [
+                "forcedWin",
+                "heuristicWin"
+              ],
+              "encoded": "B9 d6 d3 d7 c7 f6 c5 e5 c6 c4 d4 e3 c8 c9 b9 d9 d8 e9 e8 f9 g9 f8",
+              "elapsedMs": 10.8609349999997,
+              "result": {
+                "move": 63,
+                "score": 999999995,
+                "depth": 5,
+                "nodes": 11,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": true,
+                "forcedLoss": false,
+                "heuristicWin": true,
+                "heuristicLoss": false
+              }
+            },
+            {
+              "engine": "master",
+              "flags": [
+                "forcedLoss"
+              ],
+              "encoded": "B9 d6 d3 d7 c7 f6 c5 e5 c6 c4 d4 e3 c8 c9 b9 d9 d8 e9 e8 f9 g9 f8 a8 b8 b7",
+              "elapsedMs": 3.4285880000006728,
+              "result": {
+                "move": 31,
+                "score": -999999998,
+                "depth": 2,
+                "nodes": 521,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": false,
+                "forcedLoss": true,
+                "heuristicWin": false,
+                "heuristicLoss": true
+              }
+            }
+          ]
+        },
+        {
+          "candidateColor": 1,
+          "score": 1,
+          "signals": [
+            {
+              "engine": "master",
+              "flags": [
+                "heuristicLoss"
+              ],
+              "encoded": "B9 d6 d3 d7 c7 f6 c5 c6 b6 e7",
+              "elapsedMs": 75.09171400000014,
+              "result": {
+                "move": 30,
+                "score": -999999994,
+                "depth": 6,
+                "nodes": 40906,
+                "timedOut": true,
+                "forcedDefensiveMove": false,
+                "forcedWin": false,
+                "forcedLoss": false,
+                "heuristicWin": false,
+                "heuristicLoss": true
+              }
+            },
+            {
+              "engine": "candidate",
+              "flags": [
+                "forcedWin"
+              ],
+              "encoded": "B9 d6 d3 d7 c7 f6 c5 c6 b6 e7 d4",
+              "elapsedMs": 1.8605310000002646,
+              "result": {
+                "move": 51,
+                "score": 999999995,
+                "depth": 5,
+                "nodes": 694,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": true,
+                "forcedLoss": false,
+                "heuristicWin": false,
+                "heuristicLoss": false
+              }
+            },
+            {
+              "engine": "candidate",
+              "flags": [
+                "heuristicWin"
+              ],
+              "encoded": "B9 d6 d3 d7 c7 f6 c5 c6 b6 e7 d4 g6 e6",
+              "elapsedMs": 1.5041940000000977,
+              "result": {
+                "move": 40,
+                "score": 999999997,
+                "depth": 3,
+                "nodes": 4,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": true,
+                "forcedLoss": false,
+                "heuristicWin": true,
+                "heuristicLoss": false
+              }
+            },
+            {
+              "engine": "master",
+              "flags": [
+                "forcedLoss"
+              ],
+              "encoded": "B9 d6 d3 d7 c7 f6 c5 c6 b6 e7 d4 g6 e6 e5",
+              "elapsedMs": 3.3225509999992937,
+              "result": {
+                "move": 22,
+                "score": -999999998,
+                "depth": 2,
+                "nodes": 531,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": false,
+                "forcedLoss": true,
+                "heuristicWin": false,
+                "heuristicLoss": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "opening": "B9 e7 f7 f4 e5 c6 c4",
+      "firstColor": 2,
+      "scores": [
+        -1,
+        1
+      ],
+      "games": [
+        {
+          "candidateColor": 2,
+          "score": -1,
+          "signals": [
+            {
+              "engine": "candidate",
+              "flags": [
+                "heuristicLoss"
+              ],
+              "encoded": "B9 e7 f7 f4 e5 c6 c4 d5 e4 f6 e2 e6 e3 e1",
+              "elapsedMs": 75.39827799999966,
+              "result": {
+                "move": 48,
+                "score": -999999994,
+                "depth": 6,
+                "nodes": 32384,
+                "timedOut": true,
+                "forcedDefensiveMove": false,
+                "forcedWin": false,
+                "forcedLoss": false,
+                "heuristicWin": false,
+                "heuristicLoss": true
+              }
+            },
+            {
+              "engine": "master",
+              "flags": [
+                "forcedWin"
+              ],
+              "encoded": "B9 e7 f7 f4 e5 c6 c4 d5 e4 f6 e2 e6 e3 e1 d6",
+              "elapsedMs": 5.089232999999695,
+              "result": {
+                "move": 57,
+                "score": 999999995,
+                "depth": 5,
+                "nodes": 2828,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": true,
+                "forcedLoss": false,
+                "heuristicWin": false,
+                "heuristicLoss": false
+              }
+            },
+            {
+              "engine": "master",
+              "flags": [
+                "heuristicWin"
+              ],
+              "encoded": "B9 e7 f7 f4 e5 c6 c4 d5 e4 f6 e2 e6 e3 e1 d6 d7 g6",
+              "elapsedMs": 2.4275090000001,
+              "result": {
+                "move": 46,
+                "score": 999999997,
+                "depth": 3,
+                "nodes": 4,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": true,
+                "forcedLoss": false,
+                "heuristicWin": true,
+                "heuristicLoss": false
+              }
+            },
+            {
+              "engine": "candidate",
+              "flags": [
+                "forcedLoss"
+              ],
+              "encoded": "B9 e7 f7 f4 e5 c6 c4 d5 e4 f6 e2 e6 e3 e1 d6 d7 g6 b6",
+              "elapsedMs": 3.674812000000202,
+              "result": {
+                "move": 45,
+                "score": -999999998,
+                "depth": 2,
+                "nodes": 560,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": false,
+                "forcedLoss": true,
+                "heuristicWin": false,
+                "heuristicLoss": true
+              }
+            }
+          ]
+        },
+        {
+          "candidateColor": 1,
+          "score": 1,
+          "signals": [
+            {
+              "engine": "master",
+              "flags": [
+                "heuristicLoss"
+              ],
+              "encoded": "B9 e7 f7 f4 e5 c6 c4 f5 d5 e6 d7 d6 f6 c5 b4 d4 e3 e4",
+              "elapsedMs": 75.29320199999893,
+              "result": {
+                "move": 67,
+                "score": -999999994,
+                "depth": 6,
+                "nodes": 40576,
+                "timedOut": true,
+                "forcedDefensiveMove": false,
+                "forcedWin": false,
+                "forcedLoss": false,
+                "heuristicWin": false,
+                "heuristicLoss": true
+              }
+            },
+            {
+              "engine": "master",
+              "flags": [
+                "forcedLoss"
+              ],
+              "encoded": "B9 e7 f7 f4 e5 c6 c4 f5 d5 e6 d7 d6 f6 c5 b4 d4 e3 e4 e8 d5 f3 e5",
+              "elapsedMs": 4.3152289999998175,
+              "result": {
+                "move": 42,
+                "score": -999999998,
+                "depth": 2,
+                "nodes": 535,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": false,
+                "forcedLoss": true,
+                "heuristicWin": false,
+                "heuristicLoss": true
+              }
+            },
+            {
+              "engine": "candidate",
+              "flags": [
+                "forcedWin",
+                "heuristicWin"
+              ],
+              "encoded": "B9 e7 f7 f4 e5 c6 c4 f5 d5 e6 d7 d6 f6 c5 b4 d4 e3 e4 e8 d5 f3 e5 g5",
+              "elapsedMs": 0.36307599999963713,
+              "result": {
+                "move": 37,
+                "score": 999999999,
+                "depth": 1,
+                "nodes": 1,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": true,
+                "forcedLoss": false,
+                "heuristicWin": true,
+                "heuristicLoss": false
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "opening": "B9 g5 e3 c7 e6 f6 d6",
+      "firstColor": 1,
+      "scores": [
+        1,
+        -1
+      ],
+      "games": [
+        {
+          "candidateColor": 1,
+          "score": 1,
+          "signals": [
+            {
+              "engine": "candidate",
+              "flags": [
+                "forcedWin"
+              ],
+              "encoded": "B9 g5 e3 c7 e6 f6 d6 e5 d5 e7 d8 d7 f7",
+              "elapsedMs": 27.307356999999683,
+              "result": {
+                "move": 60,
+                "score": 999999995,
+                "depth": 5,
+                "nodes": 13337,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": true,
+                "forcedLoss": false,
+                "heuristicWin": false,
+                "heuristicLoss": false
+              }
+            },
+            {
+              "engine": "candidate",
+              "flags": [
+                "heuristicWin"
+              ],
+              "encoded": "B9 g5 e3 c7 e6 f6 d6 e5 d5 e7 d8 d7 f7 g7 d4",
+              "elapsedMs": 39.64893099999972,
+              "result": {
+                "move": 68,
+                "score": 999999997,
+                "depth": 3,
+                "nodes": 4,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": true,
+                "forcedLoss": false,
+                "heuristicWin": true,
+                "heuristicLoss": false
+              }
+            },
+            {
+              "engine": "master",
+              "flags": [
+                "forcedLoss",
+                "heuristicLoss"
+              ],
+              "encoded": "B9 g5 e3 c7 e6 f6 d6 e5 d5 e7 d8 d7 f7 g7 d4 f8",
+              "elapsedMs": 5.66099899999972,
+              "result": {
+                "move": 55,
+                "score": -999999998,
+                "depth": 2,
+                "nodes": 586,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": false,
+                "forcedLoss": true,
+                "heuristicWin": false,
+                "heuristicLoss": true
+              }
+            }
+          ]
+        },
+        {
+          "candidateColor": 2,
+          "score": -1,
+          "signals": [
+            {
+              "engine": "candidate",
+              "flags": [
+                "heuristicLoss"
+              ],
+              "encoded": "B9 g5 e3 c7 e6 f6 d6 e5 b6 d5 c6 a6",
+              "elapsedMs": 75.14064699999835,
+              "result": {
+                "move": 38,
+                "score": -999999994,
+                "depth": 6,
+                "nodes": 32512,
+                "timedOut": true,
+                "forcedDefensiveMove": false,
+                "forcedWin": false,
+                "forcedLoss": false,
+                "heuristicWin": false,
+                "heuristicLoss": true
+              }
+            },
+            {
+              "engine": "master",
+              "flags": [
+                "forcedWin",
+                "heuristicWin"
+              ],
+              "encoded": "B9 g5 e3 c7 e6 f6 d6 e5 b6 d5 c6 a6 c5",
+              "elapsedMs": 8.197027000000162,
+              "result": {
+                "move": 43,
+                "score": 999999995,
+                "depth": 5,
+                "nodes": 11,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": true,
+                "forcedLoss": false,
+                "heuristicWin": true,
+                "heuristicLoss": false
+              }
+            },
+            {
+              "engine": "candidate",
+              "flags": [
+                "forcedLoss"
+              ],
+              "encoded": "B9 g5 e3 c7 e6 f6 d6 e5 b6 d5 c6 a6 c5 h5 f5 f4",
+              "elapsedMs": 3.6720280000008643,
+              "result": {
+                "move": 30,
+                "score": -999999998,
+                "depth": 2,
+                "nodes": 544,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": false,
+                "forcedLoss": true,
+                "heuristicWin": false,
+                "heuristicLoss": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "opening": "B9 e7 g5 c4 c7 f3 d7",
+      "firstColor": 1,
+      "scores": [
+        1,
+        -1
+      ],
+      "games": [
+        {
+          "candidateColor": 1,
+          "score": 1,
+          "signals": [
+            {
+              "engine": "master",
+              "flags": [
+                "heuristicLoss"
+              ],
+              "encoded": "B9 e7 g5 c4 c7 f3 d7 f4 e4 f5 f6 e3 e5 c3 d3 c5",
+              "elapsedMs": 75.05101800000011,
+              "result": {
+                "move": 11,
+                "score": -999999994,
+                "depth": 6,
+                "nodes": 38144,
+                "timedOut": true,
+                "forcedDefensiveMove": false,
+                "forcedWin": false,
+                "forcedLoss": false,
+                "heuristicWin": false,
+                "heuristicLoss": true
+              }
+            },
+            {
+              "engine": "candidate",
+              "flags": [
+                "forcedWin"
+              ],
+              "encoded": "B9 e7 g5 c4 c7 f3 d7 f4 e4 f5 f6 e3 e5 c3 d3 c5 c2",
+              "elapsedMs": 3.7595879999989847,
+              "result": {
+                "move": 14,
+                "score": 999999995,
+                "depth": 5,
+                "nodes": 1833,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": true,
+                "forcedLoss": false,
+                "heuristicWin": false,
+                "heuristicLoss": false
+              }
+            },
+            {
+              "engine": "candidate",
+              "flags": [
+                "heuristicWin"
+              ],
+              "encoded": "B9 e7 g5 c4 c7 f3 d7 f4 e4 f5 f6 e3 e5 c3 d3 c5 c2 f2 f1",
+              "elapsedMs": 1.9596769999989192,
+              "result": {
+                "move": 30,
+                "score": 999999997,
+                "depth": 3,
+                "nodes": 5,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": true,
+                "forcedLoss": false,
+                "heuristicWin": true,
+                "heuristicLoss": false
+              }
+            },
+            {
+              "engine": "master",
+              "flags": [
+                "forcedLoss"
+              ],
+              "encoded": "B9 e7 g5 c4 c7 f3 d7 f4 e4 f5 f6 e3 e5 c3 d3 c5 c2 f2 f1 d4",
+              "elapsedMs": 3.629867000001468,
+              "result": {
+                "move": 46,
+                "score": -999999998,
+                "depth": 2,
+                "nodes": 563,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": false,
+                "forcedLoss": true,
+                "heuristicWin": false,
+                "heuristicLoss": true
+              }
+            }
+          ]
+        },
+        {
+          "candidateColor": 2,
+          "score": -1,
+          "signals": [
+            {
+              "engine": "candidate",
+              "flags": [
+                "heuristicLoss"
+              ],
+              "encoded": "B9 e7 g5 c4 c7 f3 d7 e4 c6 g4 d4 e2 h5 e5",
+              "elapsedMs": 75.31892499999958,
+              "result": {
+                "move": 49,
+                "score": -999999994,
+                "depth": 6,
+                "nodes": 31104,
+                "timedOut": true,
+                "forcedDefensiveMove": false,
+                "forcedWin": false,
+                "forcedLoss": false,
+                "heuristicWin": false,
+                "heuristicLoss": true
+              }
+            },
+            {
+              "engine": "master",
+              "flags": [
+                "forcedWin"
+              ],
+              "encoded": "B9 e7 g5 c4 c7 f3 d7 e4 c6 g4 d4 e2 h5 e5 e6",
+              "elapsedMs": 4.419293000000835,
+              "result": {
+                "move": 4,
+                "score": 999999995,
+                "depth": 5,
+                "nodes": 2339,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": true,
+                "forcedLoss": false,
+                "heuristicWin": false,
+                "heuristicLoss": false
+              }
+            },
+            {
+              "engine": "master",
+              "flags": [
+                "heuristicWin"
+              ],
+              "encoded": "B9 e7 g5 c4 c7 f3 d7 e4 c6 g4 d4 e2 h5 e5 e6 e1 e3",
+              "elapsedMs": 1.3346029999993334,
+              "result": {
+                "move": 21,
+                "score": 999999997,
+                "depth": 3,
+                "nodes": 4,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": true,
+                "forcedLoss": false,
+                "heuristicWin": true,
+                "heuristicLoss": false
+              }
+            },
+            {
+              "engine": "candidate",
+              "flags": [
+                "forcedLoss"
+              ],
+              "encoded": "B9 e7 g5 c4 c7 f3 d7 e4 c6 g4 d4 e2 h5 e5 e6 e1 e3 d3",
+              "elapsedMs": 3.706899999999223,
+              "result": {
+                "move": 37,
+                "score": -999999998,
+                "depth": 2,
+                "nodes": 579,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": false,
+                "forcedLoss": true,
+                "heuristicWin": false,
+                "heuristicLoss": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "opening": "B9 g5 e7 c7 g4 g7 e5",
+      "firstColor": 2,
+      "scores": [
+        1,
+        1
+      ],
+      "games": [
+        {
+          "candidateColor": 2,
+          "score": 1,
+          "signals": [
+            {
+              "engine": "master",
+              "flags": [
+                "heuristicLoss"
+              ],
+              "encoded": "B9 g5 e7 c7 g4 g7 e5 d6 e6 e4 f5 h3 d5 c5 f9 e8 g6",
+              "elapsedMs": 75.23152499999924,
+              "result": {
+                "move": 43,
+                "score": -999999994,
+                "depth": 6,
+                "nodes": 34816,
+                "timedOut": true,
+                "forcedDefensiveMove": false,
+                "forcedWin": false,
+                "forcedLoss": false,
+                "heuristicWin": false,
+                "heuristicLoss": true
+              }
+            },
+            {
+              "engine": "candidate",
+              "flags": [
+                "forcedWin"
+              ],
+              "encoded": "B9 g5 e7 c7 g4 g7 e5 d6 e6 e4 f5 h3 d5 c5 f9 e8 g6 h5",
+              "elapsedMs": 14.264537000000928,
+              "result": {
+                "move": 59,
+                "score": 999999995,
+                "depth": 5,
+                "nodes": 5518,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": true,
+                "forcedLoss": false,
+                "heuristicWin": false,
+                "heuristicLoss": false
+              }
+            },
+            {
+              "engine": "candidate",
+              "flags": [
+                "heuristicWin"
+              ],
+              "encoded": "B9 g5 e7 c7 g4 g7 e5 d6 e6 e4 f5 h3 d5 c5 f9 e8 g6 h5 f7 c4",
+              "elapsedMs": 2.1532330000009097,
+              "result": {
+                "move": 68,
+                "score": 999999997,
+                "depth": 3,
+                "nodes": 4,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": true,
+                "forcedLoss": false,
+                "heuristicWin": true,
+                "heuristicLoss": false
+              }
+            },
+            {
+              "engine": "master",
+              "flags": [
+                "forcedLoss"
+              ],
+              "encoded": "B9 g5 e7 c7 g4 g7 e5 d6 e6 e4 f5 h3 d5 c5 f9 e8 g6 h5 f7 c4 f8",
+              "elapsedMs": 3.499932999999146,
+              "result": {
+                "move": 65,
+                "score": -999999998,
+                "depth": 2,
+                "nodes": 599,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": false,
+                "forcedLoss": true,
+                "heuristicWin": false,
+                "heuristicLoss": true
+              }
+            }
+          ]
+        },
+        {
+          "candidateColor": 1,
+          "score": 1,
+          "signals": [
+            {
+              "engine": "master",
+              "flags": [
+                "heuristicLoss"
+              ],
+              "encoded": "B9 g5 e7 c7 g4 g7 e5 g6 f6 e8 e3 e4 d4 g8 g9 f7 h5 d8 f8 f9",
+              "elapsedMs": 75.04533999999876,
+              "result": {
+                "move": 20,
+                "score": -999999994,
+                "depth": 6,
+                "nodes": 37888,
+                "timedOut": true,
+                "forcedDefensiveMove": false,
+                "forcedWin": false,
+                "forcedLoss": false,
+                "heuristicWin": false,
+                "heuristicLoss": true
+              }
+            },
+            {
+              "engine": "candidate",
+              "flags": [
+                "forcedWin",
+                "heuristicWin"
+              ],
+              "encoded": "B9 g5 e7 c7 g4 g7 e5 g6 f6 e8 e3 e4 d4 g8 g9 f7 h5 d8 f8 f9 c3 b2 c8",
+              "elapsedMs": 4.68192099999942,
+              "result": {
+                "move": 70,
+                "score": 999999997,
+                "depth": 3,
+                "nodes": 4,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": true,
+                "forcedLoss": false,
+                "heuristicWin": true,
+                "heuristicLoss": false
+              }
+            },
+            {
+              "engine": "master",
+              "flags": [
+                "forcedLoss"
+              ],
+              "encoded": "B9 g5 e7 c7 g4 g7 e5 g6 f6 e8 e3 e4 d4 g8 g9 f7 h5 d8 f8 f9 c3 b2 c8 h8",
+              "elapsedMs": 3.488256000000547,
+              "result": {
+                "move": 71,
+                "score": -999999998,
+                "depth": 2,
+                "nodes": 540,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": false,
+                "forcedLoss": true,
+                "heuristicWin": false,
+                "heuristicLoss": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "opening": "B9 f7 d6 g3 c3 c4 g6",
+      "firstColor": 2,
+      "scores": [
+        -1,
+        1
+      ],
+      "games": [
+        {
+          "candidateColor": 2,
+          "score": -1,
+          "signals": [
+            {
+              "engine": "master",
+              "flags": [
+                "forcedWin"
+              ],
+              "encoded": "B9 f7 d6 g3 c3 c4 g6 f4 e4 f6 f5 e5 g5 e3 g7 g8 d4 d3 d7",
+              "elapsedMs": 5.392331999999442,
+              "result": {
+                "move": 25,
+                "score": 999999995,
+                "depth": 5,
+                "nodes": 2463,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": true,
+                "forcedLoss": false,
+                "heuristicWin": false,
+                "heuristicLoss": false
+              }
+            },
+            {
+              "engine": "master",
+              "flags": [
+                "heuristicWin"
+              ],
+              "encoded": "B9 f7 d6 g3 c3 c4 g6 f4 e4 f6 f5 e5 g5 e3 g7 g8 d4 d3 d7 h3 f3",
+              "elapsedMs": 2.5444120000011026,
+              "result": {
+                "move": 14,
+                "score": 999999997,
+                "depth": 3,
+                "nodes": 4,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": true,
+                "forcedLoss": false,
+                "heuristicWin": true,
+                "heuristicLoss": false
+              }
+            },
+            {
+              "engine": "candidate",
+              "flags": [
+                "forcedLoss",
+                "heuristicLoss"
+              ],
+              "encoded": "B9 f7 d6 g3 c3 c4 g6 f4 e4 f6 f5 e5 g5 e3 g7 g8 d4 d3 d7 h3 f3 f2",
+              "elapsedMs": 3.577828999999838,
+              "result": {
+                "move": 39,
+                "score": -999999998,
+                "depth": 2,
+                "nodes": 538,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": false,
+                "forcedLoss": true,
+                "heuristicWin": false,
+                "heuristicLoss": true
+              }
+            }
+          ]
+        },
+        {
+          "candidateColor": 1,
+          "score": 1,
+          "signals": [
+            {
+              "engine": "candidate",
+              "flags": [
+                "forcedWin"
+              ],
+              "encoded": "B9 f7 d6 g3 c3 c4 g6 f6 e4 d5 e6 f5 f4 e5 c5 c6 b5 e7 h4 g4 g5",
+              "elapsedMs": 9.574463000000833,
+              "result": {
+                "move": 57,
+                "score": 999999995,
+                "depth": 5,
+                "nodes": 4375,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": true,
+                "forcedLoss": false,
+                "heuristicWin": false,
+                "heuristicLoss": false
+              }
+            },
+            {
+              "engine": "master",
+              "flags": [
+                "heuristicLoss"
+              ],
+              "encoded": "B9 f7 d6 g3 c3 c4 g6 f6 e4 d5 e6 f5 f4 e5 c5 c6 b5 e7 h4 g4 g5 d7",
+              "elapsedMs": 75.18721600000026,
+              "result": {
+                "move": 49,
+                "score": -999999996,
+                "depth": 4,
+                "nodes": 40448,
+                "timedOut": true,
+                "forcedDefensiveMove": false,
+                "forcedWin": false,
+                "forcedLoss": false,
+                "heuristicWin": false,
+                "heuristicLoss": true
+              }
+            },
+            {
+              "engine": "candidate",
+              "flags": [
+                "heuristicWin"
+              ],
+              "encoded": "B9 f7 d6 g3 c3 c4 g6 f6 e4 d5 e6 f5 f4 e5 c5 c6 b5 e7 h4 g4 g5 d7 e6",
+              "elapsedMs": 17.176440999999613,
+              "result": {
+                "move": 60,
+                "score": 999999997,
+                "depth": 3,
+                "nodes": 5,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": true,
+                "forcedLoss": false,
+                "heuristicWin": true,
+                "heuristicLoss": false
+              }
+            },
+            {
+              "engine": "master",
+              "flags": [
+                "forcedLoss"
+              ],
+              "encoded": "B9 f7 d6 g3 c3 c4 g6 f6 e4 d5 e6 f5 f4 e5 c5 c6 b5 e7 h4 g4 g5 d7 e6 g7",
+              "elapsedMs": 3.6613019999986136,
+              "result": {
+                "move": 56,
+                "score": -999999998,
+                "depth": 2,
+                "nodes": 552,
+                "timedOut": false,
+                "forcedDefensiveMove": false,
+                "forcedWin": false,
+                "forcedLoss": true,
+                "heuristicWin": false,
+                "heuristicLoss": true
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "purpose": "Tuning corpus; not a held-out strength validation",
+  "masterRevision": "2e59cc889790edd363abc8fd80572b5a22bb93cf",
+  "candidateSnapshot": "Before early quiescence verification, proof generations, and selective score caching"
+}

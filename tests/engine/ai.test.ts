@@ -265,7 +265,7 @@ test('AI constructor clamps explicit maxPly values', () => {
 
 test('AI constructor also uses default search parameters when options are omitted', () => {
   const ai = new GogoAI();
-  expect(ai.maxDepth).toBe(6);
+  expect(ai.maxDepth).toBe(10);
   expect(ai.quiescenceDepth).toBe(6);
   expect(ai.maxPly).toBe(64);
 });
@@ -1170,7 +1170,7 @@ test('null move pruning prunes when the position is strongly in favor of the sid
   // at depth=0 evaluates from WHITE's perspective (negative for WHITE
   // since BLACK has strong patterns). Negated back → high score >= beta.
   // NMP returns beta (100).
-  const score = anyAI.search(pos, 3, -1_000_000, 100, 1, true);
+  const score = anyAI.search(pos, 3, 99, 100, 1, true);
   expect(score).toBe(100);
 
   // With canNullMove=false, NMP is skipped and the full search runs.
@@ -1178,9 +1178,7 @@ test('null move pruning prunes when the position is strongly in favor of the sid
   const scoreNoNmp = anyAI.search(pos, 3, -1_000_000, 100, 1, false);
   expect(scoreNoNmp).toBeGreaterThanOrEqual(100);
 
-  // With a very wide beta window (beta=1_000_000), NMP fires but nullScore
-  // does not reach beta, so the search continues past the NMP check
-  // (covers the false branch of "if nullScore >= beta").
+  // A wide principal-variation window skips null pruning and searches moves.
   anyAI.killerMoves.fill(-1);
   const scoreWide = anyAI.search(pos, 3, -1_000_000, 1_000_000, 1, true);
   expect(scoreWide).toBeGreaterThan(0);
@@ -1380,7 +1378,7 @@ test('adaptive null move pruning uses R=3 at depth >= 6', () => {
   anyAI.ttFlag.fill(0);
 
   // Search at depth 6 should use R=3 for NMP (depth >= 6)
-  const score6 = anyAI.search(pos, 6, -1_000_000, 100, 1, true);
+  const score6 = anyAI.search(pos, 6, 99, 100, 1, true);
   expect(score6).toBe(100);
 });
 
@@ -2350,7 +2348,7 @@ test('proofSearchRoot: returns 0 when no legal moves', () => {
   anyAI.proofMode = false;
 });
 
-test('capped node TT: lowerbound stored from capped node, exact/upper suppressed', () => {
+test('capped node TT: exact/upper scores are tagged selective, lower bounds remain usable', () => {
   const ai = new GogoAI({ maxPly: 2, quiescenceDepth: 0, now: () => 0 });
   const anyAI = ai as any;
   // Use a position with many near-2 candidates (> MAX_CANDIDATES) to trigger capping
@@ -2374,7 +2372,7 @@ test('capped node TT: lowerbound stored from capped node, exact/upper suppressed
   expect(anyAI.generateOrderedMoves(pos, anyAI.moveBuffers[1], anyAI.scoreBuffers[1], -1, false, 1)).toBeGreaterThan(12);
   const index = Number(pos.hash & 0x3FFFFn);
   // Check actual storage policy with shallow leaves, rather than just completion.
-  for (const [alpha, beta, flag] of [[-1_000_000, 1_000_000, 0], [1_000_000, 1_000_001, 0], [-1_000_000, -999_999, 2]]) {
+  for (const [alpha, beta, flag] of [[-1_000_000, 1_000_000, 4], [1_000_000, 1_000_001, 5], [-1_000_000, -999_999, 2]]) {
     anyAI.ttFlag.fill(0);
     const score = anyAI.search(pos, 2, alpha, beta, 1);
     expect(typeof score).toBe('number');
@@ -2468,6 +2466,7 @@ test('proofAttack: TT hit returns -1 (proven not winning)', () => {
   const hash = pos.hash;
   const ttIdx = Number(hash & 0x3FFFFn);
   anyAI.proofTTHash[ttIdx] = hash;
+  anyAI.proofTTGeneration[ttIdx] = anyAI.proofGeneration;
   anyAI.proofTTResult[ttIdx] = -1;
   anyAI.proofTTDepth[ttIdx] = 10;
 
@@ -2499,6 +2498,7 @@ test('proofAttack: TT hash match but result=0 falls through to search', () => {
   const hash = pos.hash;
   const ttIdx = Number(hash & 0x3FFFFn);
   anyAI.proofTTHash[ttIdx] = hash;
+  anyAI.proofTTGeneration[ttIdx] = anyAI.proofGeneration;
   anyAI.proofTTResult[ttIdx] = 0; // unknown
   anyAI.proofTTDepth[ttIdx] = 10;
 
@@ -2720,6 +2720,7 @@ test('proofDefend: TT hit with proven winning result', () => {
   const hash = pos.hash;
   const ttIdx = Number(hash & 0x3FFFFn);
   anyAI.proofTTHash[ttIdx] = hash;
+  anyAI.proofTTGeneration[ttIdx] = anyAI.proofGeneration;
   anyAI.proofTTResult[ttIdx] = 1;
   anyAI.proofTTDepth[ttIdx] = 10;
 
@@ -2751,6 +2752,7 @@ test('proofDefend: TT hit with proven not-winning result', () => {
   const hash = pos.hash;
   const ttIdx = Number(hash & 0x3FFFFn);
   anyAI.proofTTHash[ttIdx] = hash;
+  anyAI.proofTTGeneration[ttIdx] = anyAI.proofGeneration;
   anyAI.proofTTResult[ttIdx] = -1;
   anyAI.proofTTDepth[ttIdx] = 10;
 
@@ -2782,6 +2784,7 @@ test('proofDefend: TT hash match but result=0 falls through to search', () => {
   const hash = pos.hash;
   const ttIdx = Number(hash & 0x3FFFFn);
   anyAI.proofTTHash[ttIdx] = hash;
+  anyAI.proofTTGeneration[ttIdx] = anyAI.proofGeneration;
   anyAI.proofTTResult[ttIdx] = 0; // unknown
   anyAI.proofTTDepth[ttIdx] = 10;
 
@@ -3095,6 +3098,7 @@ test('proofAttack: hash-move-first succeeds from seeded TT best move', () => {
   const hash = pos.hash;
   const ttIdx = Number(hash & 0x3FFFFn);
   anyAI.proofTTHash[ttIdx] = hash;
+  anyAI.proofTTGeneration[ttIdx] = anyAI.proofGeneration;
   anyAI.proofTTResult[ttIdx] = 0; // no cutoff
   anyAI.proofTTDepth[ttIdx] = 0;
   anyAI.proofTTBestMove[ttIdx] = 4; // winning move
@@ -3153,6 +3157,7 @@ test('proofAttack: hash-move-first wins via proofDefend (non-immediate)', () => 
   const hash = pos.hash;
   const ttIdx = Number(hash & 0x3FFFFn);
   anyAI.proofTTHash[ttIdx] = hash;
+  anyAI.proofTTGeneration[ttIdx] = anyAI.proofGeneration;
   anyAI.proofTTResult[ttIdx] = 0;
   anyAI.proofTTDepth[ttIdx] = 0;
   anyAI.proofTTBestMove[ttIdx] = 4;
@@ -3190,6 +3195,7 @@ test('proofDefend: hash-move-first with defender making five', () => {
   const hash = pos.hash;
   const ttIdx = Number(hash & 0x3FFFFn);
   anyAI.proofTTHash[ttIdx] = hash;
+  anyAI.proofTTGeneration[ttIdx] = anyAI.proofGeneration;
   anyAI.proofTTResult[ttIdx] = 0;
   anyAI.proofTTDepth[ttIdx] = 0;
   anyAI.proofTTBestMove[ttIdx] = 13; // WHITE completes five at index 13
@@ -3311,6 +3317,7 @@ test('proofAttack: illegal TT move is attempted before move generation and skipp
   const hash = pos.hash;
   const ttIdx = Number(hash & 0x3FFFFn);
   anyAI.proofTTHash[ttIdx] = hash;
+  anyAI.proofTTGeneration[ttIdx] = anyAI.proofGeneration;
   anyAI.proofTTBestMove[ttIdx] = 40;
 
   const playCalls: number[] = [];
@@ -3366,6 +3373,7 @@ test('proofAttack: hash move creates non-winning position; killer move skip in t
   const hash = pos.hash;
   const ttIdx = Number(hash & 0x3FFFFn);
   anyAI.proofTTHash[ttIdx] = hash;
+  anyAI.proofTTGeneration[ttIdx] = anyAI.proofGeneration;
   anyAI.proofTTResult[ttIdx] = 0; // no cutoff
   anyAI.proofTTDepth[ttIdx] = 0;
   anyAI.proofTTBestMove[ttIdx] = 5;
@@ -3404,6 +3412,7 @@ test('proofDefend: illegal TT move is attempted before ordered generation and sk
   const hash = pos.hash;
   const ttIdx = Number(hash & 0x3FFFFn);
   anyAI.proofTTHash[ttIdx] = hash;
+  anyAI.proofTTGeneration[ttIdx] = anyAI.proofGeneration;
   anyAI.proofTTBestMove[ttIdx] = 40;
 
   const playCalls: number[] = [];
@@ -3466,6 +3475,7 @@ test('proofDefend: hash move does not refute double threat; ttBest skipped in th
   const hash = pos.hash;
   const ttIdx = Number(hash & 0x3FFFFn);
   anyAI.proofTTHash[ttIdx] = hash;
+  anyAI.proofTTGeneration[ttIdx] = anyAI.proofGeneration;
   anyAI.proofTTResult[ttIdx] = 0; // no cutoff
   anyAI.proofTTDepth[ttIdx] = 0;
   anyAI.proofTTBestMove[ttIdx] = 4;

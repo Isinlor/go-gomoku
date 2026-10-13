@@ -442,8 +442,20 @@ export class GogoPosition {
     }
 
     const madeFive = this.checkFiveFrom(index, player);
-    const ownLiberties = this.scanGroup(index, player);
-    const ownGroupSize = this.scanGroupSize;
+    // Most search moves have a directly adjacent liberty. That already proves
+    // legality; ko only needs to distinguish a singleton from a joined group.
+    let ownLiberties = 0;
+    let ownGroupSize = 1;
+    for (let offset = 0; offset < 4; offset += 1) {
+      const neighbor = neighbors[neighborBase + offset];
+      if (neighbor === -1) continue;
+      if (this.board[neighbor] === EMPTY) ownLiberties += 1;
+      else if (this.board[neighbor] === player) ownGroupSize = 2;
+    }
+    if (ownLiberties === 0) {
+      ownLiberties = this.scanGroup(index, player);
+      ownGroupSize = this.scanGroupSize;
+    }
     if (ownLiberties === 0 && !madeFive) {
       this.hash = this.historyHash[this.ply];
       this.rollbackIllegalMove(index, opponent, captureStart, capturedCount);

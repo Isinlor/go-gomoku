@@ -35,15 +35,18 @@ export function createOpening(engine, random = randomInt) {
 }
 
 /** Own-version positions avoid passing incompatible class instances to an AI. */
-export function playStrengthGame(master, candidate, opening, candidateColor) {
+export function playStrengthGame(master, candidate, opening, candidateColor, moveMs = MOVE_MS, observe, searchOptions) {
   const positions = [master.decodeGame(opening), candidate.decodeGame(opening)];
-  const ais = [new master.GogoAI(), new candidate.GogoAI()];
+  const ais = [new master.GogoAI(searchOptions), new candidate.GogoAI(searchOptions)];
   const referee = positions[0];
   // Captures can prolong a game indefinitely. A capped game is a draw.
   for (let ply = 0; ply < 120 && referee.winner === 0; ply++) {
     if (!referee.hasAnyLegalMove()) break;
     const index = referee.toMove === candidateColor ? 1 : 0;
-    const { move } = ais[index].findBestMove(positions[index], MOVE_MS);
+    const started = performance.now();
+    const result = ais[index].findBestMove(positions[index], moveMs);
+    if (observe) observe(index, positions[index], result, performance.now() - started);
+    const { move } = result;
     assert(Number.isInteger(move) && referee.isLegal(move), 'AI returned an illegal move');
     for (const position of positions) {
       assert(position.play(move), 'Engine rules disagree');

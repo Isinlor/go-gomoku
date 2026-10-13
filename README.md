@@ -53,6 +53,29 @@ Run locally with Node 24 from the candidate checkout:
 npm run test:strength -- /path/to/master-checkout
 ```
 
+For a fixed 75 ms match with 100 color-swapped opening pairs (200 games):
+
+```bash
+npm run test:strength:match -- /path/to/master-checkout 100 20261015 benchmarks/balanced-opening-book.json
+```
+
+Passing requires at least 70% wins (draws count as non-wins) and an exact,
+two-sided paired randomization p-value below .01. The final JSON includes every
+opening and result; the seed and sample size are fixed before play. Both engines
+use the app settings (depth 30, quiescence 4). The optional book was selected
+using master alone, with equal Black and White master self-play wins.
+
+Matches also save each engine's first forced/heuristic win/loss signal. Quickly
+replay a representative sample, including each position one turn earlier:
+
+```bash
+npm run test:tactical:performance -- /path/to/master-checkout benchmarks/tactical-training-match.json 32 3 75
+```
+
+The report separates exact and heuristic detections; missed targets incur a
+150 ms cost at the 75 ms cap. Use this screen and puzzle timings for iteration,
+then use the fixed match for strength validation.
+
 ## Development
 
 ```bash

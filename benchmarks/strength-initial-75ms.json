@@ -1,0 +1,820 @@
+{
+  "moveMs": 75,
+  "seed": 20261013,
+  "pairs": 100,
+  "games": 200,
+  "wins": 110,
+  "losses": 90,
+  "draws": 0,
+  "winRate": 0.55,
+  "scoreRate": 0.55,
+  "pValue": 0.04138946533203125,
+  "passed": false,
+  "results": [
+    {
+      "opening": "B9 c4 g3 e7 e4 c6 c3",
+      "firstColor": 2,
+      "scores": [
+        -1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 g6 g7 d3 e4 d4 f6",
+      "firstColor": 2,
+      "scores": [
+        -1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 e5 c3 g3 c5 d4 d7",
+      "firstColor": 2,
+      "scores": [
+        -1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 g5 g4 f7 f4 e7 d6",
+      "firstColor": 1,
+      "scores": [
+        -1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 e4 c7 d7 e6 e5 c6",
+      "firstColor": 2,
+      "scores": [
+        -1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 e6 d5 f7 d3 g6 g4",
+      "firstColor": 1,
+      "scores": [
+        1,
+        -1
+      ]
+    },
+    {
+      "opening": "B9 c3 g5 e5 g7 f7 g3",
+      "firstColor": 1,
+      "scores": [
+        1,
+        -1
+      ]
+    },
+    {
+      "opening": "B9 c4 f3 c7 d3 e3 f6",
+      "firstColor": 2,
+      "scores": [
+        -1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 e3 f4 d3 e4 c3 g3",
+      "firstColor": 2,
+      "scores": [
+        -1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 e4 f4 g4 g3 c7 g7",
+      "firstColor": 1,
+      "scores": [
+        1,
+        -1
+      ]
+    },
+    {
+      "opening": "B9 f6 g5 d6 f3 f4 g4",
+      "firstColor": 2,
+      "scores": [
+        -1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 d6 g4 c6 c3 e3 f7",
+      "firstColor": 1,
+      "scores": [
+        1,
+        -1
+      ]
+    },
+    {
+      "opening": "B9 g4 d7 d5 g7 c4 c3",
+      "firstColor": 1,
+      "scores": [
+        1,
+        -1
+      ]
+    },
+    {
+      "opening": "B9 g7 f3 g4 f5 d7 c6",
+      "firstColor": 1,
+      "scores": [
+        1,
+        -1
+      ]
+    },
+    {
+      "opening": "B9 g4 g3 f6 c7 d6 d3",
+      "firstColor": 2,
+      "scores": [
+        -1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 g7 e7 f5 c3 d5 d7",
+      "firstColor": 1,
+      "scores": [
+        1,
+        -1
+      ]
+    },
+    {
+      "opening": "B9 g3 g7 c4 c6 d6 f6",
+      "firstColor": 1,
+      "scores": [
+        1,
+        -1
+      ]
+    },
+    {
+      "opening": "B9 c5 g3 e4 f3 g6 g7",
+      "firstColor": 1,
+      "scores": [
+        1,
+        -1
+      ]
+    },
+    {
+      "opening": "B9 d7 f6 c7 d6 e4 f5",
+      "firstColor": 2,
+      "scores": [
+        1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 f7 g4 c4 e3 f6 g6",
+      "firstColor": 1,
+      "scores": [
+        1,
+        -1
+      ]
+    },
+    {
+      "opening": "B9 f5 f7 d6 f3 g3 e7",
+      "firstColor": 2,
+      "scores": [
+        -1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 c5 g5 g4 c6 g3 e7",
+      "firstColor": 1,
+      "scores": [
+        1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 d6 d7 c5 g7 g4 e7",
+      "firstColor": 2,
+      "scores": [
+        1,
+        -1
+      ]
+    },
+    {
+      "opening": "B9 g6 c5 e5 d3 f3 c4",
+      "firstColor": 2,
+      "scores": [
+        1,
+        -1
+      ]
+    },
+    {
+      "opening": "B9 c3 e3 d4 e7 c5 g5",
+      "firstColor": 1,
+      "scores": [
+        1,
+        -1
+      ]
+    },
+    {
+      "opening": "B9 e5 g5 e3 d6 d3 c4",
+      "firstColor": 2,
+      "scores": [
+        -1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 c3 d3 c6 g4 e7 f6",
+      "firstColor": 2,
+      "scores": [
+        -1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 g5 c7 d4 g7 d3 d7",
+      "firstColor": 2,
+      "scores": [
+        -1,
+        -1
+      ]
+    },
+    {
+      "opening": "B9 c3 g7 f3 g3 e5 f4",
+      "firstColor": 2,
+      "scores": [
+        -1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 d7 f7 g3 c7 e3 f5",
+      "firstColor": 1,
+      "scores": [
+        1,
+        -1
+      ]
+    },
+    {
+      "opening": "B9 d4 f5 c4 c6 e7 e4",
+      "firstColor": 1,
+      "scores": [
+        1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 c6 e6 f7 g3 f5 d7",
+      "firstColor": 2,
+      "scores": [
+        -1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 c4 d4 g6 e7 f4 c5",
+      "firstColor": 2,
+      "scores": [
+        1,
+        -1
+      ]
+    },
+    {
+      "opening": "B9 f3 f7 e7 e6 d6 c6",
+      "firstColor": 2,
+      "scores": [
+        -1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 c3 d5 f6 f3 g6 d4",
+      "firstColor": 1,
+      "scores": [
+        -1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 d7 c7 g6 d5 f7 c5",
+      "firstColor": 2,
+      "scores": [
+        -1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 g3 d3 f7 f5 g6 d5",
+      "firstColor": 1,
+      "scores": [
+        1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 g3 d7 c6 e5 c4 d4",
+      "firstColor": 2,
+      "scores": [
+        1,
+        -1
+      ]
+    },
+    {
+      "opening": "B9 f5 d4 e6 f3 g5 d5",
+      "firstColor": 2,
+      "scores": [
+        1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 d5 e4 f4 g3 c6 c3",
+      "firstColor": 2,
+      "scores": [
+        -1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 g6 f6 f4 d6 c4 d3",
+      "firstColor": 1,
+      "scores": [
+        1,
+        -1
+      ]
+    },
+    {
+      "opening": "B9 c6 f5 d3 c4 g3 g6",
+      "firstColor": 1,
+      "scores": [
+        1,
+        -1
+      ]
+    },
+    {
+      "opening": "B9 f4 c4 f7 e3 d3 d6",
+      "firstColor": 1,
+      "scores": [
+        1,
+        -1
+      ]
+    },
+    {
+      "opening": "B9 g5 d5 g7 f6 c3 c5",
+      "firstColor": 2,
+      "scores": [
+        -1,
+        -1
+      ]
+    },
+    {
+      "opening": "B9 e5 c4 d4 g5 c3 d6",
+      "firstColor": 1,
+      "scores": [
+        1,
+        -1
+      ]
+    },
+    {
+      "opening": "B9 f5 e5 g3 d5 f7 c7",
+      "firstColor": 2,
+      "scores": [
+        -1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 e7 c6 c4 c3 g6 f3",
+      "firstColor": 2,
+      "scores": [
+        -1,
+        -1
+      ]
+    },
+    {
+      "opening": "B9 f6 d4 d7 e4 c6 c5",
+      "firstColor": 2,
+      "scores": [
+        -1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 c3 g7 e5 g4 e3 g5",
+      "firstColor": 2,
+      "scores": [
+        1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 g6 f7 c7 c5 e4 g4",
+      "firstColor": 2,
+      "scores": [
+        -1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 d7 g4 d3 g5 e3 f6",
+      "firstColor": 1,
+      "scores": [
+        1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 f4 e5 g5 f6 g4 e4",
+      "firstColor": 1,
+      "scores": [
+        1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 e6 g4 e3 c4 f5 c3",
+      "firstColor": 1,
+      "scores": [
+        1,
+        -1
+      ]
+    },
+    {
+      "opening": "B9 f4 d3 c5 f3 d6 e3",
+      "firstColor": 2,
+      "scores": [
+        -1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 d3 f4 d4 c7 e3 f3",
+      "firstColor": 1,
+      "scores": [
+        1,
+        -1
+      ]
+    },
+    {
+      "opening": "B9 f7 d7 f3 g7 d6 d5",
+      "firstColor": 2,
+      "scores": [
+        1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 c5 c4 d6 d5 c7 c3",
+      "firstColor": 1,
+      "scores": [
+        1,
+        -1
+      ]
+    },
+    {
+      "opening": "B9 f6 e5 c3 c5 c6 g6",
+      "firstColor": 1,
+      "scores": [
+        1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 e6 c3 e4 d3 g3 f6",
+      "firstColor": 1,
+      "scores": [
+        1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 e4 e3 f5 c3 c5 f4",
+      "firstColor": 2,
+      "scores": [
+        -1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 e4 e7 f3 d7 d4 g6",
+      "firstColor": 1,
+      "scores": [
+        1,
+        -1
+      ]
+    },
+    {
+      "opening": "B9 e3 d3 g3 g7 c3 c6",
+      "firstColor": 1,
+      "scores": [
+        1,
+        -1
+      ]
+    },
+    {
+      "opening": "B9 e4 e7 d3 d6 f7 g6",
+      "firstColor": 2,
+      "scores": [
+        -1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 e5 d7 c7 f3 d6 g6",
+      "firstColor": 2,
+      "scores": [
+        -1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 c4 d3 g7 c3 c7 f6",
+      "firstColor": 2,
+      "scores": [
+        1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 e6 c6 d3 f6 g7 g5",
+      "firstColor": 2,
+      "scores": [
+        -1,
+        -1
+      ]
+    },
+    {
+      "opening": "B9 c7 e3 d6 c3 g5 f5",
+      "firstColor": 1,
+      "scores": [
+        1,
+        -1
+      ]
+    },
+    {
+      "opening": "B9 f4 c5 f5 g3 g7 e3",
+      "firstColor": 2,
+      "scores": [
+        -1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 e7 f6 f3 c3 d5 d3",
+      "firstColor": 2,
+      "scores": [
+        -1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 d6 c5 f3 g6 g5 e5",
+      "firstColor": 1,
+      "scores": [
+        -1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 g7 g4 c7 f7 g6 c5",
+      "firstColor": 2,
+      "scores": [
+        1,
+        -1
+      ]
+    },
+    {
+      "opening": "B9 g6 f6 c6 g7 c4 f7",
+      "firstColor": 2,
+      "scores": [
+        1,
+        -1
+      ]
+    },
+    {
+      "opening": "B9 f4 f3 g6 e6 e4 e5",
+      "firstColor": 1,
+      "scores": [
+        1,
+        -1
+      ]
+    },
+    {
+      "opening": "B9 f4 f5 g6 d4 g5 c3",
+      "firstColor": 2,
+      "scores": [
+        -1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 c6 f7 g5 e6 e4 e3",
+      "firstColor": 1,
+      "scores": [
+        1,
+        -1
+      ]
+    },
+    {
+      "opening": "B9 g6 f3 d4 e6 f7 g5",
+      "firstColor": 1,
+      "scores": [
+        1,
+        -1
+      ]
+    },
+    {
+      "opening": "B9 e3 c3 c4 c5 g4 d6",
+      "firstColor": 1,
+      "scores": [
+        -1,
+        -1
+      ]
+    },
+    {
+      "opening": "B9 e3 e6 f6 d5 d7 f7",
+      "firstColor": 1,
+      "scores": [
+        -1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 d6 c4 c6 g5 e4 c3",
+      "firstColor": 2,
+      "scores": [
+        -1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 c7 c3 g3 e4 c5 c4",
+      "firstColor": 1,
+      "scores": [
+        1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 c6 c5 e3 g6 c4 f5",
+      "firstColor": 2,
+      "scores": [
+        -1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 c5 g4 f7 e7 e6 f4",
+      "firstColor": 1,
+      "scores": [
+        1,
+        -1
+      ]
+    },
+    {
+      "opening": "B9 g4 d4 c7 c4 e6 g3",
+      "firstColor": 2,
+      "scores": [
+        -1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 f4 f6 d3 e3 d7 g3",
+      "firstColor": 2,
+      "scores": [
+        -1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 e7 c3 g3 f5 e3 g7",
+      "firstColor": 1,
+      "scores": [
+        1,
+        -1
+      ]
+    },
+    {
+      "opening": "B9 c4 d5 f7 g7 d3 d4",
+      "firstColor": 2,
+      "scores": [
+        -1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 d6 f4 c4 f5 c5 g5",
+      "firstColor": 2,
+      "scores": [
+        -1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 c3 f6 g3 d6 d3 c7",
+      "firstColor": 1,
+      "scores": [
+        1,
+        -1
+      ]
+    },
+    {
+      "opening": "B9 d5 f6 f7 e4 d6 g6",
+      "firstColor": 2,
+      "scores": [
+        -1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 g4 f5 d3 f3 g3 e7",
+      "firstColor": 1,
+      "scores": [
+        1,
+        -1
+      ]
+    },
+    {
+      "opening": "B9 e6 c4 c6 g3 c3 f5",
+      "firstColor": 2,
+      "scores": [
+        1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 d5 d3 c7 c4 c6 f7",
+      "firstColor": 1,
+      "scores": [
+        1,
+        -1
+      ]
+    },
+    {
+      "opening": "B9 d7 d6 c6 c4 d5 f4",
+      "firstColor": 1,
+      "scores": [
+        1,
+        -1
+      ]
+    },
+    {
+      "opening": "B9 g3 d5 g4 c4 e7 f3",
+      "firstColor": 1,
+      "scores": [
+        1,
+        -1
+      ]
+    },
+    {
+      "opening": "B9 f7 d3 d7 g3 g4 e5",
+      "firstColor": 2,
+      "scores": [
+        -1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 e4 d7 f5 f4 c7 f6",
+      "firstColor": 1,
+      "scores": [
+        1,
+        -1
+      ]
+    },
+    {
+      "opening": "B9 f3 g6 d7 g4 c6 f6",
+      "firstColor": 2,
+      "scores": [
+        -1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 d4 e6 c5 d7 e3 d5",
+      "firstColor": 2,
+      "scores": [
+        -1,
+        1
+      ]
+    },
+    {
+      "opening": "B9 d5 d4 e5 e3 g5 f4",
+      "firstColor": 1,
+      "scores": [
+        1,
+        -1
+      ]
+    },
+    {
+      "opening": "B9 g5 f4 f3 e3 d3 g7",
+      "firstColor": 2,
+      "scores": [
+        1,
+        1
+      ]
+    }
+  ],
+  "masterRevision": "2e59cc889790edd363abc8fd80572b5a22bb93cf",
+  "candidateSourceSha256": {
+    "src/engine/ai.ts": "c1b45a894ecc09eeb97df52b51b94ca2d830ff628cffd36fe6452972148201c7",
+    "src/engine/gogomoku.ts": "e89cb6c1c8eaf30e9135aed8371512eb7ece33f357863985abbe1b4c99c8e309"
+  }
+}
