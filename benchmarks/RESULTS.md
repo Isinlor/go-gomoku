@@ -72,3 +72,13 @@ warmed diagnostics, candidate medians are 4.993 versus 5.404 ms on
 versus 18.677 ms on `gen-advanced-1`. Every SearchResult field on all 31 cases
 also agrees with the previous candidate when the clock is fixed. Raw timings,
 method and source hashes are in `puzzle-performance-incremental-cache.json`.
+
+GitHub CI also passes for the incremental cache version, including the formerly
+failing `gen-intermediate-5` on its first attempt. CI's accepted median totals
+are **4080.931 ms candidate versus 6538.965 ms master**, with detailed
+comparisons appended to the same performance report. A fresh fixed 200-game
+75 ms match on the unchanged book (seed 20261017) scores **124 wins / 76 losses
+(62%)**, exact two-sided paired **p = 0.000003032386302947998**. This still meets
+the requested 60% / p < .01 check, while the original 70% gate remains unmet.
+See `strength-balanced-incremental-cache-75ms.json` for the actual tested engine
+revision, source hashes, opening-book hash and first tactical signals.
