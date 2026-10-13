@@ -1080,6 +1080,7 @@ test('primeScoredGroupInfo caches group data for all stones and finalizeMoveScor
   const middleStone = position.index(4, 2);
   const rightStone = position.index(5, 2);
 
+  anyAI.beginWindowPass(position);
   anyAI.primeScoredGroupInfo(position, leftStone, WHITE);
   const first = {
     liberties: anyAI.scoredGroupLiberties[leftStone],

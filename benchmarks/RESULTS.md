@@ -60,3 +60,15 @@ Candidate revision is `4ef9c0f3f009daecf63acf9af57b81c45a88e2c6`; master is
 hashes and the book hash are in `strength-balanced-ci-fix-75ms.json`. Its
 `requestedConfirmation.passed` is true; the original `passed` field still
 represents the stricter 70% gate and is false.
+
+The incremental cache follow-up addresses the remaining timing regression
+without changing search results or the CI tolerance. Groups touching placements
+or captures are invalidated during the existing window update; other groups
+retain their member lists, liberties and evaluated stone contributions. All
+31 cases pass the local performance gate on the first attempt. Accepted median
+totals are **3983.936 ms candidate versus 6145.600 ms master**. In 41-sample
+warmed diagnostics, candidate medians are 4.993 versus 5.404 ms on
+`gen-intermediate-2`, 3.711 versus 3.846 ms on `gen-intermediate-5`, and 18.645
+versus 18.677 ms on `gen-advanced-1`. Every SearchResult field on all 31 cases
+also agrees with the previous candidate when the clock is fixed. Raw timings,
+method and source hashes are in `puzzle-performance-incremental-cache.json`.
