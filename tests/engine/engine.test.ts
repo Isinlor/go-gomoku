@@ -945,3 +945,88 @@ test.each([9, 11, 13] as const)('clone preserves history and ko rules on size %s
   }
   expect(clone.undo()).toBe(false);
 });
+
+test.each([BLACK, WHITE] as const)('ASCII setup and ko history survive repeated cloning with player %s starting', (player) => {
+  const rows = ['..O......', '.O.O.....', '.XOX.....', '..X......', ...Array(5).fill('.........')];
+  const setupRows = player === BLACK ? rows : rows.map(row => row.replace(/[XO]/g, stone => stone === 'X' ? 'O' : 'X'));
+  const game = GogoPosition.fromAscii(setupRows, player, { historyCapacity: 1, captureCapacity: 1 });
+  const setup = game.clone();
+  // Caller-owned ASCII input must not become the stored replay baseline.
+  setupRows[0] = '.........';
+  expect(game.playXY(2, 1)).toBe(true);
+  const captured = game.clone().clone();
+  expect(captured.encodeGame()).toBe('B9 c2');
+  expect(captured.lastCapturedCount).toBe(1);
+  expect(captured.toMove).toBe(player === BLACK ? WHITE : BLACK);
+  expect(captured.hash).toBe(game.hash);
+  expect(captured.playXY(2, 2)).toBe(false);
+  expect(captured.playXY(8, 8)).toBe(true);
+  expect(captured.playXY(7, 8)).toBe(true);
+  expect(captured.playXY(2, 2)).toBe(true);
+  expect(captured.lastCapturedCount).toBe(1);
+  const recaptured = captured.clone().clone();
+  expect(recaptured.encodeGame()).toBe('B9 c2 i9 h9 c3');
+  expect(recaptured.hash).toBe(captured.hash);
+  expect(recaptured.playXY(2, 1)).toBe(false);
+  for (let ply = 0; ply < 4; ply += 1) {
+    expect(recaptured.undo()).toBe(true);
+    expect(captured.undo()).toBe(true);
+    expect(recaptured.toAscii()).toEqual(captured.toAscii());
+    expect(recaptured.hash).toBe(captured.hash);
+    expect(recaptured.hash).toBe(computeZobristHashes(recaptured));
+    expect(recaptured.encodeGame()).toBe(captured.encodeGame());
+    expect(recaptured.koPoint).toBe(captured.koPoint);
+  }
+  expect(recaptured.toAscii()).toEqual(setup.toAscii());
+  expect(recaptured.hash).toBe(setup.hash);
+  expect(recaptured.toMove).toBe(player);
+  expect(recaptured.undo()).toBe(false);
+  expect(game.ply).toBe(1);
+  expect(game.playXY(2, 2)).toBe(false);
+});
+
+test('cloning an ASCII game after undo replays only the retained history and permits an independent branch', () => {
+  const game = GogoPosition.fromAscii(['X.O......', ...Array(8).fill('.........')], WHITE);
+  const setup = game.clone();
+  expect(game.playXY(4, 4)).toBe(true);
+  const retained = game.clone();
+  expect(game.playXY(3, 3)).toBe(true);
+  expect(game.undo()).toBe(true);
+  const branch = game.clone();
+  expect(branch.encodeGame()).toBe('B9 e5');
+  expect(branch.getMoveAt(1)).toBe(-1);
+  expect(branch.hash).toBe(retained.hash);
+  expect(branch.playXY(5, 5)).toBe(true);
+  expect(branch.encodeGame()).toBe('B9 e5 f6');
+  expect(game.at(5, 5)).toBe(EMPTY);
+  expect(game.encodeGame()).toBe('B9 e5');
+  const branchClone = branch.clone();
+  expect(branchClone.undo()).toBe(true);
+  expect(branchClone.hash).toBe(retained.hash);
+  expect(branchClone.undo()).toBe(true);
+  expect(branchClone.toAscii()).toEqual(setup.toAscii());
+  expect(branchClone.hash).toBe(setup.hash);
+  expect(branchClone.toMove).toBe(WHITE);
+  expect(branchClone.undo()).toBe(false);
+  expect(branch.at(5, 5)).toBe(BLACK);
+});
+
+test.each([BLACK, WHITE] as const)('an ASCII setup followed by a win clones and undoes to its setup for player %s', (player) => {
+  const row = player === BLACK ? 'XXXX.....' : 'OOOO.....';
+  const game = GogoPosition.fromAscii([row, ...Array(8).fill('.........')], player);
+  const setup = game.clone();
+  expect(game.playXY(4, 0)).toBe(true);
+  const won = game.clone();
+  expect(won.winner).toBe(player);
+  expect(won.encodeGame()).toBe('B9 e1');
+  expect(won.hash).toBe(game.hash);
+  expect(won.playXY(8, 8)).toBe(false);
+  expect(won.undo()).toBe(true);
+  expect(won.winner).toBe(EMPTY);
+  expect(won.toMove).toBe(player);
+  expect(won.toAscii()).toEqual(setup.toAscii());
+  expect(won.hash).toBe(setup.hash);
+  expect(won.encodeGame()).toBe('B9');
+  expect(won.undo()).toBe(false);
+  expect(game.winner).toBe(player);
+});
