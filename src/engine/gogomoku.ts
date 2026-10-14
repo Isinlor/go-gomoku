@@ -700,6 +700,9 @@ export function decodeGame(encoded: string, setup?: GameSetup): GogoPosition {
     throw new Error(`Invalid board size token: ${sizeToken}`);
   }
   const size = parseInt(sizeToken.slice(1), 10) as SupportedSize;
+  if (setup !== undefined && setup.rows.length !== size) {
+    throw new Error(`Setup board size ${setup.rows.length} does not match record size ${size}`);
+  }
   const position = setup === undefined
     ? new GogoPosition(size)
     : GogoPosition.fromAscii(setup.rows, setup.toMove);

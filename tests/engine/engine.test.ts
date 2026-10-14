@@ -1030,3 +1030,13 @@ test.each([BLACK, WHITE] as const)('an ASCII setup followed by a win clones and 
   expect(won.undo()).toBe(false);
   expect(game.winner).toBe(player);
 });
+
+test.each([
+  [9, 11], [9, 13], [11, 9], [11, 13], [13, 9], [13, 11],
+] as const)('decodeGame rejects a size %s record with a size %s ASCII setup before replay', (recordSize, setupSize) => {
+  const setup = { rows: Array(setupSize).fill('.'.repeat(setupSize)), toMove: BLACK };
+  const error = `Setup board size ${setupSize} does not match record size ${recordSize}`;
+  expect(() => decodeGame(`B${recordSize}`, setup)).toThrow(error);
+  expect(() => decodeGame(`B${recordSize} i9`, setup)).toThrow(error);
+  expect(setup.rows).toEqual(Array(setupSize).fill('.'.repeat(setupSize)));
+});
