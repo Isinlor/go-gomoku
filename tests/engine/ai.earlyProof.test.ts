@@ -220,3 +220,54 @@ test('an unproven early loss leaves discovery available at deeper depths', () =>
   expect(ai.proofNodeLimit).toBe(Infinity);
   expect(position.ply).toBe(0);
 });
+
+test('bounded early proof finds a winning quiet alternative when the discovery candidate fails', { timeout: 1000 }, () => {
+  const puzzle = PUZZLES.find(p => p.id === 'gen-unblockable-gap')!;
+  const position = decodeGame(puzzle.encoded);
+  const ai = new GogoAI({ maxDepth: 10, now: () => 0 }) as any;
+  ai.ensureBuffers(position.area);
+  ai.deadline = 20_000;
+  const state = { bestMove: 58, bestScore: 640.9, completedDepth: 1, hintMove: 58 };
+  expect(ai.tryEarlyProof(position, state, 40960)).toBe(true);
+  expect(state.bestMove).toBe(decodeMove(puzzle.solution, position.size));
+  expect(state.hintMove).toBe(state.bestMove);
+  expect(state).toHaveProperty('provenWin', true);
+  expect(position.encodeGame()).toBe(puzzle.encoded);
+  expect(ai.proofNodeLimit).toBe(Infinity);
+});
+
+test('deep quiet wins broaden after a bounded forcing pass instead of repeating deep restricted failures', { timeout: 1000 }, () => {
+  const position = decodeGame('B9 e9 e8 f9 g9');
+  const ai = new GogoAI({ maxDepth: 30, now: () => 0 }) as any;
+  const defend = ai.proofDefend.bind(ai);
+  const forcingDepths: number[] = [];
+  ai.proofDefend = (...args: any[]) => {
+    if (ai.forcingProofMode && args[2] === 1) forcingDepths.push(args[1]);
+    return defend(...args);
+  };
+  expect(ai.verifyWinningMove(position, 69, 20000, 30)).toBe(true);
+  expect(Math.max(...forcingDepths)).toBe(9);
+  expect(position.encodeGame()).toBe('B9 e9 e8 f9 g9');
+});
+
+test.each(['timeout', 'error'])('alternative proof restores state after %s', reason => {
+  const position = new GogoPosition(9);
+  const ai = new GogoAI({ maxDepth: 4, now: () => 0 }) as any;
+  ai.ensureBuffers(position.area);
+  ai.deadline = 1000;
+  ai.history.fill(7);
+  // Complete the candidate's real refutation, then simulate interruption of
+  // the independent alternative probe at its boundary.
+  const attack = ai.proofAttack.bind(ai);
+  ai.proofAttack = (...args: any[]) => {
+    if (args[2] === 0) throw reason === 'timeout' ? ai.timeoutSignal : new Error('interrupted alternatives');
+    return attack(...args);
+  };
+  const state = { bestMove: 40, bestScore: 500000, completedDepth: 3, hintMove: 40 };
+  if (reason === 'timeout') expect(ai.tryEarlyProof(position, state)).toBe(false);
+  else expect(() => ai.tryEarlyProof(position, state)).toThrow('interrupted alternatives');
+  expect(ai.deadline).toBe(1000);
+  expect(Array.from(ai.history)).toEqual(Array(position.area * 2).fill(7));
+  expect(position.ply).toBe(0);
+  expect(state).not.toHaveProperty('provenWin');
+});

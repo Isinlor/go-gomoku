@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { beforeAll, expect, test } from 'vitest';
 import { stripTypeScriptTypes } from 'node:module';
-import { strengthEvidence, benchmarkStrength, evaluateOpenings } from '../scripts/ai-strength.mjs';
+import { strengthEvidence, benchmarkStrength, evaluateOpenings, parseStrengthArgs } from '../scripts/ai-strength.mjs';
 
 // Initialize Node's native compiler once; each integration still loads fresh files.
 beforeAll(() => { stripTypeScriptTypes('const warmup: number = 0;'); });
@@ -170,7 +170,7 @@ class TestWorker extends EventEmitter {
 async function supervise(events: (worker: TestWorker) => void) {
   const worker = new TestWorker();
   const result = runStrengthIteration('master', 'candidate', (data) => {
-    expect(data).toEqual({ masterRoot: 'master', candidateRoot: 'candidate' });
+    expect(data).toEqual({ masterRoot: 'master', candidateRoot: 'candidate', timeMs: 5 });
     queueMicrotask(() => events(worker));
     return worker;
   });
@@ -395,4 +395,78 @@ test.each([1, 99, 101, undefined])('rejects a clean worker exit with an invalid 
     w.emit('exit', 0);
   });
   await expect(result).rejects.toThrow('Incomplete strength iteration: expected 100 pairs');
+});
+
+test('custom move budget reaches game searches, evaluations, warmup, and workers', async () => {
+  const budgets: number[] = [];
+  const black = sequenceEngine([0, 1, 2, 3, 4], budgets);
+  const white = sequenceEngine([9, 18, 27, 36], budgets);
+  expect(playStrengthGame(black, white, 'B9', 2, 25)).toBe(-1);
+  expect(new Set(budgets)).toEqual(new Set([25]));
+  const boards = [{ encoded: 'B9', strongest: { move: 0 }, scores: { 100: 0 }, screening: { strongest: { move: 0 }, score: 0 } }];
+  evaluateOpenings(sequenceEngine([0], budgets), sequenceEngine([0], budgets), boards, 25);
+  const calls: number[] = [];
+  sampleStrength(black, white, () => {}, () => 0, (_m, _c, _o, _color, timeMs) => { calls.push(timeMs); return 0; }, 25);
+  expect(new Set(calls)).toEqual(new Set([25]));
+  const worker = new TestWorker();
+  const result = runStrengthIteration('m', 'c', data => {
+    expect(data.timeMs).toBe(25);
+    queueMicrotask(() => { worker.emit('message', { pairs: 100 }); worker.emit('exit', 0); });
+    return worker;
+  }, 25);
+  await result;
+});
+
+
+test('CLI time budget defaults to 5 ms and accepts an explicit budget in either order', () => {
+  expect(parseStrengthArgs(['master'])).toEqual({ masterRoot: 'master', timeMs: 5, alpha: .05 });
+  expect(parseStrengthArgs(['master', '--time-ms', '25'])).toEqual({ masterRoot: 'master', timeMs: 25, alpha: .05 });
+  expect(parseStrengthArgs(['--time-ms', '2.5', 'master'])).toEqual({ masterRoot: 'master', timeMs: 2.5, alpha: .05 });
+  expect(parseStrengthArgs([])).toEqual({ masterRoot: undefined, timeMs: 5, alpha: .05 });
+});
+
+test.each([['--time-ms'], ['--time-ms', '0'], ['--time-ms', '-1'], ['--time-ms', 'NaN'], ['--time-ms', 'Infinity'], ['--unknown'], ['m', 'c']].map(args => [args]))('rejects malformed CLI arguments %s', args => {
+  expect(() => parseStrengthArgs(args)).toThrow();
+});
+
+test('CLI alpha defaults to .05 and accepts the requested .01', () => {
+  expect(parseStrengthArgs(['master']).alpha).toBe(.05);
+  expect(parseStrengthArgs(['master', '--alpha', '.01']).alpha).toBe(.01);
+});
+
+test.each(['0', '1', '-.1', 'NaN', 'Infinity', undefined])('rejects invalid alpha %s', alpha => {
+  expect(() => parseStrengthArgs(['master', '--alpha', alpha])).toThrow('alpha');
+});
+
+test('gain detection uses the configured alpha across five attempts', async () => {
+  const logs: string[] = [];
+  const run = async () => ({ pairs: 100, score: 30, evidence: 1, gainEvidence: 200 });
+  await benchmarkStrength('m', 'c', s => logs.push(s), run, 25, .01);
+  expect(logs.join('\n')).not.toContain('Strength increase detected');
+  await benchmarkStrength('m', 'c', s => logs.push(s), async () => ({ ...await run(), gainEvidence: 501 }), 25, .01);
+  expect(logs.join('\n')).toContain('one-sided 1%');
+});
+
+test('CLI malformed options return exit code 2', async () => {
+  const originalArgv = process.argv;
+  const originalExitCode = process.exitCode;
+  const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+  try {
+    process.argv = [process.execPath, resolve('scripts/ai-strength.mjs'), '--alpha', '0'];
+    vi.resetModules();
+    await import('../scripts/ai-strength.mjs');
+    expect(process.exitCode).toBe(2);
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('alpha'));
+  } finally {
+    process.argv = originalArgv;
+    process.exitCode = originalExitCode;
+    log.mockRestore();
+    vi.resetModules();
+  }
+});
+
+test.each([-1, 0, 1])('reports separate wins, draws, and losses for outcome %s', outcome => {
+  const reports: any[] = [];
+  sampleStrength(engine, engine, s => reports.push(s), () => 0, () => outcome);
+  expect(reports.at(-1).outcomes).toEqual({ wins: outcome === 1 ? 200 : 0, draws: outcome === 0 ? 200 : 0, losses: outcome === -1 ? 200 : 0 });
 });

@@ -422,6 +422,18 @@ export class GogoPosition {
       if (neighbor === -1 || this.board[neighbor] !== opponent || this.adjacentGroupMarks[neighbor] === this.adjacentGroupEpoch) {
         continue;
       }
+      // A directly adjacent empty point proves this group cannot be captured.
+      // No flood fill or group marking is needed for that common case.
+      const base = neighbor * 4;
+      let safe = false;
+      for (let direction = 0; direction < 4; direction += 1) {
+        const point = neighbors[base + direction];
+        if (point !== -1 && this.board[point] === EMPTY) {
+          safe = true;
+          break;
+        }
+      }
+      if (safe) continue;
       const liberties = this.scanGroup(neighbor, opponent);
       for (let groupIndex = 0; groupIndex < this.scanGroupSize; groupIndex += 1) {
         this.adjacentGroupMarks[this.groupBuffer[groupIndex]] = this.adjacentGroupEpoch;
@@ -442,8 +454,19 @@ export class GogoPosition {
     }
 
     const madeFive = this.checkFiveFrom(index, player);
-    const ownLiberties = this.scanGroup(index, player);
-    const ownGroupSize = this.scanGroupSize;
+    // Exact size and liberty counts are only needed for single-stone ko.
+    // Otherwise one direct liberty is enough to establish legality.
+    let directLiberty = false;
+    for (let offset = 0; offset < 4; offset += 1) {
+      const point = neighbors[neighborBase + offset];
+      if (point !== -1 && this.board[point] === EMPTY) {
+        directLiberty = true;
+        break;
+      }
+    }
+    const needsGroup = !directLiberty || capturedCount === 1;
+    const ownLiberties = needsGroup ? this.scanGroup(index, player) : 1;
+    const ownGroupSize = needsGroup ? this.scanGroupSize : 0;
     if (ownLiberties === 0 && !madeFive) {
       this.hash = this.historyHash[this.ply];
       this.rollbackIllegalMove(index, opponent, captureStart, capturedCount);
@@ -465,9 +488,11 @@ export class GogoPosition {
 
     this.hash ^= this.meta.zobristBlackToMove64;
     // Update ko in hash: XOR out old ko, XOR in new ko
-    const oldKoIdx = this.koPoint === -1 ? this.area : this.koPoint;
-    const newKoIdx = nextKo === -1 ? this.area : nextKo;
-    this.hash ^= this.meta.zobristKo64[oldKoIdx] ^ this.meta.zobristKo64[newKoIdx];
+    if (nextKo !== this.koPoint) {
+      const oldKoIdx = this.koPoint === -1 ? this.area : this.koPoint;
+      const newKoIdx = nextKo === -1 ? this.area : nextKo;
+      this.hash ^= this.meta.zobristKo64[oldKoIdx] ^ this.meta.zobristKo64[newKoIdx];
+    }
     this.koPoint = nextKo;
     this.toMove = opponent;
     this.winner = madeFive ? player : EMPTY;

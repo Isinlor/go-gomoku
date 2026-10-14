@@ -55,6 +55,7 @@ const ESCAPE_BONUS = 3_500;
 const NO_SCORE = Number.NEGATIVE_INFINITY;
 const MAX_CANDIDATES = 12;
 const SHALLOW_PROOF_NODES_PER_DEPTH = 4096;
+const FORCING_PROOF_MAX_DEPTH = 9;
 const LOSS_PROOF_NODES_PER_DEPTH = 16384;
 const WINDOW_ATTACK_BLACK = new Int32Array(36);
 const WINDOW_ATTACK_WHITE = new Int32Array(36);
@@ -112,6 +113,7 @@ export class GogoAI {
   private windowBoard = new Uint8Array(0);
   private windowBlack = new Uint8Array(0);
   private windowWhite = new Uint8Array(0);
+  private activeWindows = new Uint32Array(0);
   private windowHash = -1n;
   private windowEvaluation = 0;
   private evaluationBoard = new Uint8Array(0);
@@ -314,6 +316,8 @@ export class GogoAI {
     this.windowBoard = new Uint8Array(area);
     this.windowBlack = new Uint8Array(4 * area);
     this.windowWhite = new Uint8Array(4 * area);
+    const size = Math.sqrt(area);
+    this.activeWindows = new Uint32Array(Math.ceil((size - 4) * (4 * size - 8) / 32));
     this.windowEvaluation = 0;
     this.evaluationBoard = new Uint8Array(area);
     this.localScores = new Int32Array(area);
@@ -414,7 +418,24 @@ export class GogoAI {
     const history = this.history.slice();
     const killers = this.killerMoves.slice();
     try {
-      if (!this.verifyWinningMove(position, state.bestMove, (deadline - this.now()) / 4, this.maxDepth)) return false;
+      if (!this.verifyWinningMove(position, state.bestMove, (deadline - this.now()) / 4, this.maxDepth)) {
+        if (this.timedOut) return false;
+        // The heuristic's first choice can hide a winning quiet setup. Probe
+        // alternatives with an independent bounded root proof before spending
+        // the remaining budget on deeper heuristic iterations.
+        this.proofNodeLimit = this.nodesVisited + nodeLimit;
+        this.resetProofSearch();
+        const depth = Math.min(this.maxDepth, FORCING_PROOF_MAX_DEPTH);
+        try {
+          if (!this.proofAttack(position, depth, 0)) return false;
+        } catch (error) {
+          if (error !== this.timeoutSignal) throw error;
+          return false;
+        }
+        state.bestMove = this.proofTTBestMove[Number(position.hash & TT_MASK)];
+        state.hintMove = state.bestMove;
+        this.verifiedWinDepth = depth;
+      }
       state.bestScore = WIN_SCORE - this.verifiedWinDepth;
       state.completedDepth = this.verifiedWinDepth;
       state.provenWin = true;
@@ -492,12 +513,18 @@ export class GogoAI {
     this.beginWindowPass(position);
     const mine = position.toMove === BLACK ? this.windowBlack : this.windowWhite;
     const theirs = position.toMove === BLACK ? this.windowWhite : this.windowBlack;
-    for (let wi = 0; wi < position.meta.windowCount; wi += 1) {
-      if (mine[wi] !== 4 || theirs[wi] !== 0) continue;
-      for (let offset = 0; offset < 5; offset += 1) {
-        const point = position.meta.windows[wi * 5 + offset];
-        // Completing five is legal even in suicide; only occupancy and ko matter.
-        if (position.board[point] === EMPTY && point !== position.koPoint) return true;
+    for (let word = 0; word < this.activeWindows.length; word += 1) {
+      let bits = this.activeWindows[word];
+      while (bits !== 0) {
+        const bit = bits & -bits;
+        bits ^= bit;
+        const wi = word * 32 + 31 - Math.clz32(bit);
+        if (mine[wi] !== 4 || theirs[wi] !== 0) continue;
+        for (let offset = 0; offset < 5; offset += 1) {
+          const point = position.meta.windows[wi * 5 + offset];
+          // Completing five is legal even in suicide; only occupancy and ko matter.
+          if (position.board[point] === EMPTY && point !== position.koPoint) return true;
+        }
       }
     }
     return false;
@@ -556,6 +583,22 @@ export class GogoAI {
             continue;
           }
           if (winningReply !== -1 && winningReply !== hint && this.proveLossReply(position, winningReply, depth - 1)) continue;
+          // Try concrete forcing replies before relying on a heuristic witness.
+          // Every candidate is independently proved; failed attacks leave the
+          // ordinary discovery search available.
+          const replyCount = this.generateTacticalMoves(position, this.moveBuffers[1], this.scoreBuffers[1], hint, 1, true, 2);
+          const replies = this.moveBuffers[1].slice(0, replyCount);
+          let provedReply = false;
+          for (const reply of replies) {
+            this.checkTime(true);
+            if (reply === hint || reply === winningReply) continue;
+            if (this.proveLossReply(position, reply, depth - 1)) {
+              winningReply = reply;
+              provedReply = true;
+              break;
+            }
+          }
+          if (provedReply) continue;
           this.proofMode = false;
           const state: SearchState = {
             bestMove: -1, bestScore: 0, completedDepth: 0, hintMove: -1,
@@ -594,6 +637,10 @@ export class GogoAI {
     const scores = this.scoreBuffers[0];
 
     let count = this.generateOrderedMoves(position, moves, scores, hintMove, false);
+    // The first pass considers every candidate. Deeper discovery follows the
+    // strongest ordered moves so short budgets can finish another iteration.
+    // Exact proof searches retain the complete root move set.
+    if (!this.proofMode && depth > 1 && count > MAX_CANDIDATES) count = MAX_CANDIDATES;
     let alpha = -WIN_SCORE;
     let bestMove = -1;
     let bestScore = -WIN_SCORE;
@@ -835,16 +882,9 @@ export class GogoAI {
     };
 
     const standPat = this.evaluate(position);
-    if (standPat >= beta) {
-      return store(standPat);
-    }
-    if (standPat > alpha) {
-      alpha = standPat;
-    }
     if (remainingDepth === 0 || ply >= this.maxPly) {
       return store(standPat);
     }
-
     // A large positive static score suggests an own four. Confirm its legality
     // exactly before avoiding tactical generation; smaller scores take the
     // normal path without an extra window scan.
@@ -852,14 +892,22 @@ export class GogoAI {
       return store(WIN_SCORE - ply - 1);
     }
 
+    const responses = this.findThreatResponses(position, ply);
+    if (responses < 0 && standPat >= beta) {
+      return store(standPat);
+    }
+    if (responses < 0 && standPat > alpha) {
+      alpha = standPat;
+    }
+
     const moves = this.moveBuffers[ply];
     const scores = this.scoreBuffers[ply];
-    const count = this.generateOrderedMoves(position, moves, scores, -1, true);
+    const count = responses >= 0 ? responses : this.generateOrderedMoves(position, moves, scores, -1, true);
     if (count === 0) {
       return store(standPat);
     }
 
-    let bestScore = standPat;
+    let bestScore = responses >= 0 ? -WIN_SCORE : standPat;
     let legalCount = 0;
     for (let i = 0; i < count; i += 1) {
       const move = moves[i];
@@ -906,6 +954,14 @@ export class GogoAI {
         }
         this.windowBlack[wi] += blackDelta;
         this.windowWhite[wi] += whiteDelta;
+        const black = this.windowBlack[wi];
+        const white = this.windowWhite[wi];
+        const bit = 1 << (wi & 31);
+        if ((black >= 2 && white === 0) || (white >= 2 && black === 0)) {
+          this.activeWindows[wi >>> 5] |= bit;
+        } else {
+          this.activeWindows[wi >>> 5] &= ~bit;
+        }
       }
       this.windowBoard[point] = cell;
     }
@@ -1058,32 +1114,38 @@ export class GogoAI {
 
     this.candidateEpoch += 1;
 
-    for (let windowIndex = 0; windowIndex < meta.windowCount; windowIndex += 1) {
-      const base = windowIndex * 5;
-      const mine = mineCounts[windowIndex];
-      const theirs = theirCounts[windowIndex];
-      if (!((theirs === 0 && mine >= minimumStones) || (!attackingOnly && mine === 0 && theirs >= 3))) continue;
-      let emptyCount = 0;
-      let empty0 = -1;
-      let empty1 = -1;
-      let empty2 = -1;
+    for (let word = 0; word < this.activeWindows.length; word += 1) {
+      let bits = this.activeWindows[word];
+      while (bits !== 0) {
+        const bit = bits & -bits;
+        bits ^= bit;
+        const windowIndex = word * 32 + 31 - Math.clz32(bit);
+        const base = windowIndex * 5;
+        const mine = mineCounts[windowIndex];
+        const theirs = theirCounts[windowIndex];
+        if (!((theirs === 0 && mine >= minimumStones) || (!attackingOnly && mine === 0 && theirs >= 3))) continue;
+        let emptyCount = 0;
+        let empty0 = -1;
+        let empty1 = -1;
+        let empty2 = -1;
 
-      for (let offset = 0; offset < 5; offset += 1) {
-        const point = windows[base + offset];
-        const cell = board[point];
-        if (cell === EMPTY && point !== position.koPoint) {
-          if (emptyCount === 0) empty0 = point;
-          else if (emptyCount === 1) empty1 = point;
-          else empty2 = point;
-          emptyCount += 1;
+        for (let offset = 0; offset < 5; offset += 1) {
+          const point = windows[base + offset];
+          const cell = board[point];
+          if (cell === EMPTY && point !== position.koPoint) {
+            if (emptyCount === 0) empty0 = point;
+            else if (emptyCount === 1) empty1 = point;
+            else empty2 = point;
+            emptyCount += 1;
+          }
         }
-      }
 
-      if (theirs === 0 && mine >= minimumStones && emptyCount !== 0) {
-        this.insertTacticalWindowMoves(emptyCount, empty0, empty1, empty2, -1, -1);
-      }
-      if (!attackingOnly && mine === 0 && theirs >= 3 && emptyCount !== 0) {
-        this.insertTacticalWindowMoves(emptyCount, empty0, empty1, empty2, -1, -1);
+        if (theirs === 0 && mine >= minimumStones && emptyCount !== 0) {
+          this.insertTacticalWindowMoves(emptyCount, empty0, empty1, empty2, -1, -1);
+        }
+        if (!attackingOnly && mine === 0 && theirs >= 3 && emptyCount !== 0) {
+          this.insertTacticalWindowMoves(emptyCount, empty0, empty1, empty2, -1, -1);
+        }
       }
     }
 
@@ -1414,7 +1476,8 @@ export class GogoAI {
         // depths before broadening; proven wins and independently checked
         // move hints remain useful. Both proof probes require positive depth.
         if (!forcingOnly) this.proofTTDepth.fill(0);
-        for (let maxDepth = 1; maxDepth <= Math.min(depthLimit, this.maxPly); maxDepth += 2) {
+        const limit = Math.min(depthLimit, this.maxPly, forcingOnly ? FORCING_PROOF_MAX_DEPTH : Infinity);
+        for (let maxDepth = 1; maxDepth <= limit; maxDepth += 2) {
           try {
             if (this.proofDefend(position, maxDepth, 1)) {
               this.verifiedWinDepth = maxDepth;
@@ -1486,13 +1549,19 @@ export class GogoAI {
     this.beginWindowPass(position);
     const ownCounts = position.toMove === BLACK ? this.windowBlack : this.windowWhite;
     const enemyCounts = position.toMove === BLACK ? this.windowWhite : this.windowBlack;
-    for (let wi = 0; wi < position.meta.windowCount; wi += 1) {
-      if (ownCounts[wi] !== 4 || enemyCounts[wi] !== 0) continue;
-      for (let offset = 0; offset < 5; offset += 1) {
-        const move = position.meta.windows[wi * 5 + offset];
-        if (position.board[move] === EMPTY && move !== position.koPoint) {
-          this.storeProofTT(ttIdx, hash, depthLeft, 1, move);
-          return true;
+    for (let word = 0; word < this.activeWindows.length; word += 1) {
+      let bits = this.activeWindows[word];
+      while (bits !== 0) {
+        const bit = bits & -bits;
+        bits ^= bit;
+        const wi = word * 32 + 31 - Math.clz32(bit);
+        if (ownCounts[wi] !== 4 || enemyCounts[wi] !== 0) continue;
+        for (let offset = 0; offset < 5; offset += 1) {
+          const move = position.meta.windows[wi * 5 + offset];
+          if (position.board[move] === EMPTY && move !== position.koPoint) {
+            this.storeProofTT(ttIdx, hash, depthLeft, 1, move);
+            return true;
+          }
         }
       }
     }
@@ -1729,25 +1798,31 @@ export class GogoAI {
     let hasThreat = false;
 
     // Scan all windows for attacker's open fours and defender's open fours
-    for (let wi = 0; wi < meta.windowCount; wi += 1) {
-      const base = wi * 5;
-      const atkCount = attackerCounts[wi];
-      const defCount = defenderCounts[wi];
-      if (!((atkCount === 4 && defCount === 0) || (defCount === 4 && atkCount === 0))) continue;
-      let emptyCell = -1;
-      for (let j = 0; j < 5; j += 1) {
-        if (board[windows[base + j]] === EMPTY) emptyCell = windows[base + j];
-      }
+    for (let word = 0; word < this.activeWindows.length; word += 1) {
+      let bits = this.activeWindows[word];
+      while (bits !== 0) {
+        const bit = bits & -bits;
+        bits ^= bit;
+        const wi = word * 32 + 31 - Math.clz32(bit);
+        const base = wi * 5;
+        const atkCount = attackerCounts[wi];
+        const defCount = defenderCounts[wi];
+        if (!((atkCount === 4 && defCount === 0) || (defCount === 4 && atkCount === 0))) continue;
+        let emptyCell = -1;
+        for (let j = 0; j < 5; j += 1) {
+          if (board[windows[base + j]] === EMPTY) emptyCell = windows[base + j];
+        }
 
-      // Attacker has 4 in this window with 1 empty = immediate threat
-      if (atkCount === 4 && defCount === 0 && emptyCell !== -1 && emptyCell !== position.koPoint) {
-        hasThreat = true;
-        count = this.insertOrPromoteMove(moves, scores, count, emptyCell, 2_000_000);
-      }
+        // Attacker has 4 in this window with 1 empty = immediate threat
+        if (atkCount === 4 && defCount === 0 && emptyCell !== -1 && emptyCell !== position.koPoint) {
+          hasThreat = true;
+          count = this.insertOrPromoteMove(moves, scores, count, emptyCell, 2_000_000);
+        }
 
-      // Defender has 4 in a window = can win immediately
-      if (defCount === 4 && atkCount === 0 && emptyCell !== -1 && emptyCell !== position.koPoint) {
-        count = this.insertOrPromoteMove(moves, scores, count, emptyCell, 3_000_000);
+        // Defender has 4 in a window = can win immediately
+        if (defCount === 4 && atkCount === 0 && emptyCell !== -1 && emptyCell !== position.koPoint) {
+          count = this.insertOrPromoteMove(moves, scores, count, emptyCell, 3_000_000);
+        }
       }
     }
 
