@@ -199,11 +199,11 @@ test('a failed heuristic reply is not retried among tactical alternatives', () =
   expect(position.ply).toBe(0);
 });
 
-test('loss discovery remains available when tactical generation omits a winning witness', () => {
+test('loss discovery remains available when the concrete reply prover omits a winning witness', () => {
   const position = GogoPosition.fromAscii(['.BBBB....', ...blank], WHITE);
   const ai = proofAI(position);
-  const generate = ai.generateTacticalMoves.bind(ai);
-  ai.generateTacticalMoves = (...args: any[]) => position.ply === 1 ? 0 : generate(...args);
+  const immediate = ai.findImmediateWin.bind(ai);
+  ai.findImmediateWin = (searched: GogoPosition) => searched.ply === 1 ? -1 : immediate(searched);
   expect(ai.proofSearchRoot(position, 2, -1)).toBe(-1_000_000_000 + 2);
   expect(position.ply).toBe(0);
   expect(ai.lossProofMode).toBe(false);

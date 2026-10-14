@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { BLACK, GogoAI, GogoPosition, WHITE } from '../../src/engine';
+import { BLACK, GogoAI, GogoPosition, WHITE, decodeGame } from '../../src/engine';
 
 test.each([9, 11, 13] as const)('AI window counts follow moves, captures, undo, and reused positions on size %s', (size) => {
   const ai = new GogoAI() as any;
@@ -177,7 +177,30 @@ test('a win proved at a shallow depth is reused at a deeper limit', () => {
   expect(ai.proofAttack(position, 1, 0)).toBe(true);
 });
 
-test('root scout searches preserve an exhaustive score and re-search improvements', () => {
+test('root scout searches preserve an exhaustive score and re-search improvements', { timeout: 1_000 }, () => {
+  // Preserve both search policies while refactoring the surrounding engine.
+  // Node counts also catch changes in caps, ordering, and PVS re-searches.
+  const cases = [
+    ['B9 e5 d4 f5 d5', [[48, 368.1, 73], [48, 18.9, 61], [48, 381.2, 691], [48, -104, 670], [48, 368.1, 73], [48, 18.9, 189], [48, 381.2, 4651], [48, -104, 8277]]],
+    ['B9 a1 a3 b1 b3 c1 c3', [[4, 499783.1, 39], [21, -267.6, 85], [4, 499935.6, 422], [4, -236.7, 1028], [4, 499783.1, 39], [21, -267.6, 160], [4, 499935.6, 1318], [4, -236.7, 4988]]],
+    ['B9 e9 e8 f9', [[75, 296.9, 41], [75, 15.1, 67], [75, 315.6, 517], [78, 70.8, 995], [75, 296.9, 41], [75, 15.1, 111], [75, 315.6, 1748], [78, -130.5, 5448]]],
+  ] as const;
+  for (const [encoded, expected] of cases) {
+    for (let index = 0; index < expected.length; index++) {
+      const board = decodeGame(encoded);
+      const engine = new GogoAI({ now: () => 0, quiescenceDepth: 0, maxPly: 4 }) as any;
+      engine.ensureBuffers(board.area);
+      engine.deadline = Infinity;
+      engine.proofMode = index >= 4;
+      const hash = board.hash;
+      const result = engine.searchRoot(board, index % 4 + 1, -1);
+      expect(result.move).toBe(expected[index][0]);
+      expect(result.score).toBeCloseTo(expected[index][1], 10);
+      expect(result.nodes).toBe(expected[index][2]);
+      expect(board.hash).toBe(hash);
+      expect(board.encodeGame()).toBe(encoded);
+    }
+  }
   const position = new GogoPosition(9);
   position.playXY(4, 4);
   const ai = new GogoAI({ quiescenceDepth: 0, maxPly: 2, now: () => 0 }) as any;

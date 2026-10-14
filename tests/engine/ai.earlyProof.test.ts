@@ -156,8 +156,8 @@ test.each(['refutation', 'timeout', 'error'])('unsuccessful early loss proof res
   const state = { bestMove: 40, bestScore: -500000, completedDepth: 3, hintMove: 40 };
   const before = position.encodeGame();
   if (reason === 'error') position.play = () => { throw new Error('broken position'); };
-  if (reason === 'error') expect(() => ai.tryEarlyLossProof(position, state, 4)).toThrow('broken position');
-  else expect(ai.tryEarlyLossProof(position, state, 4)).toBe(false);
+  if (reason === 'error') expect(() => ai.tryEarlyProof(position, state, 16384 * ai.maxDepth, 4)).toThrow('broken position');
+  else expect(ai.tryEarlyProof(position, state, 16384 * ai.maxDepth, 4)).toBe(false);
   expect(state).toEqual({ bestMove: 40, bestScore: -500000, completedDepth: 3, hintMove: 40 });
   expect(ai.deadline).toBe(reason === 'timeout' ? 0 : 1000);
   expect(ai.proofNodeLimit).toBe(Infinity);
