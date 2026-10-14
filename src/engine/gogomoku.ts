@@ -297,11 +297,9 @@ export class GogoPosition {
     return position;
   }
 
+  /** Replay a game played from the empty board, preserving history and ko. */
   clone(): GogoPosition {
-    return GogoPosition.fromAscii(this.toAscii(), this.toMove, {
-      historyCapacity: this.historyMoves.length,
-      captureCapacity: this.capturePositions.length,
-    });
+    return decodeGame(this.encodeGame());
   }
 
   toAscii(): string[] {

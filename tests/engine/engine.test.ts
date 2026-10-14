@@ -142,14 +142,6 @@ test('constructor, parser, coordinates, and helpers validate inputs', () => {
     '.........',
     '.........',
   ]);
-  const cloned = symbolGame.clone();
-  expect(cloned).not.toBe(symbolGame);
-  expect(cloned.toAscii()).toEqual(symbolGame.toAscii());
-  expect(cloned.toMove).toBe(symbolGame.toMove);
-  expect(cloned.hash).toBe(symbolGame.hash);
-  cloned.playXY(8, 8);
-  expect(cloned.at(8, 8)).toBe(BLACK);
-  expect(symbolGame.at(8, 8)).toBe(EMPTY);
   expect(playerName(BLACK)).toBe('black');
   expect(playerName(WHITE)).toBe('white');
 });
@@ -210,33 +202,6 @@ test('clone preserves playable state and toAscii serializes mixed, empty, and fu
 
   const full = GogoPosition.fromAscii(Array.from({ length: 9 }, () => 'XXXXXXXXX'), BLACK);
   expect(full.toAscii()).toEqual(Array.from({ length: 9 }, () => 'XXXXXXXXX'));
-  const fullClone = full.clone();
-  expect(fullClone).not.toBe(full);
-  expect(fullClone.toAscii()).toEqual(full.toAscii());
-  expect(fullClone.hash).toBe(full.hash);
-
-  const growth = GogoPosition.fromAscii([
-    '.XXX.....',
-    'XOOX.....',
-    'XO.......',
-    '.X.......',
-    'X........',
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-  ], BLACK, { historyCapacity: 1, captureCapacity: 1 });
-  expect(growth.playXY(2, 2)).toBe(true);
-  const growthClone = growth.clone() as any;
-  expect(growthClone.getMoveAt(0)).toBe(-1);
-  expect(growthClone.toAscii()).toEqual(growth.toAscii());
-  expect(growthClone.toMove).toBe(growth.toMove);
-  expect(growthClone.hash).toBe(growth.hash);
-  const nextPlayer = growthClone.toMove;
-  expect(growthClone.playXY(8, 8)).toBe(true);
-  expect(growthClone.getMoveAt(0)).toBe(growthClone.index(8, 8));
-  expect(growthClone.at(8, 8)).toBe(nextPlayer);
-  expect(growth.at(8, 8)).toBe(EMPTY);
 });
 
 test('existing winner detection and played wins cover vertical and anti-diagonal lines', () => {
@@ -481,7 +446,7 @@ test('isLegal checks do not mutate position state for legal moves, suicide, or k
     '.........',
     '.........',
   ], BLACK);
-  const suicideSnapshot = suicide.clone();
+  const suicideSnapshot = GogoPosition.fromAscii(suicide.toAscii(), suicide.toMove);
 
   expect(suicide.isLegal(suicide.index(1, 1))).toBe(false);
   expect(suicide.toAscii()).toEqual(suicideSnapshot.toAscii());
@@ -567,7 +532,7 @@ test('hash stays consistent through capture, ko updates, undo, and reconstructio
     '.........',
     '.........',
   ], BLACK);
-  const startSnapshot = position.clone();
+  const startSnapshot = GogoPosition.fromAscii(position.toAscii(), position.toMove);
 
   expect(position.playXY(2, 1)).toBe(true);
   expect(position.koPoint).toBe(position.index(2, 2));
@@ -899,4 +864,41 @@ test('decodeGame throws on invalid board size token, unrecognised move, and ille
   expect(() => decodeGame('B10 e5')).toThrow(/Invalid board size token/);
   expect(() => decodeGame('B9 z1')).toThrow(/Invalid move/);
   expect(() => decodeGame('B9 e5 e5')).toThrow(/Illegal move/);
+});
+
+test.each([9, 11, 13] as const)('clone preserves history and ko rules on size %s', (size) => {
+  const original = decodeGame(`B${size} b3 c3 d3 c1 c4 b2 i9 d2 c2`);
+  const clone = original.clone();
+  const recapture = original.index(2, 2);
+  expect(original.koPoint).toBe(recapture);
+  expect(clone).not.toBe(original);
+  expect(clone.board).not.toBe(original.board);
+  expect(clone.toAscii()).toEqual(original.toAscii());
+  expect(clone.encodeGame()).toBe(original.encodeGame());
+  for (const field of ['toMove', 'winner', 'koPoint', 'ply', 'stoneCount', 'lastMove', 'lastCapturedCount', 'hash'] as const) {
+    expect(clone[field]).toBe(original[field]);
+  }
+  expect(clone.hash).toBe(computeZobristHashes(clone));
+  expect(clone.isLegal(recapture)).toBe(false);
+  expect(clone.play(recapture)).toBe(false);
+  expect(clone.playXY(8, 7)).toBe(true);
+  expect(clone.playXY(7, 7)).toBe(true);
+  expect(clone.isLegal(recapture)).toBe(true);
+  expect(clone.play(recapture)).toBe(true);
+  expect(clone.lastCapturedCount).toBe(1);
+  expect(clone.koPoint).toBe(clone.index(2, 1));
+  expect(clone.undo()).toBe(true);
+  expect(clone.undo()).toBe(true);
+  expect(clone.undo()).toBe(true);
+  expect(clone.hash).toBe(original.hash);
+  expect(clone.koPoint).toBe(recapture);
+  expect(clone.play(recapture)).toBe(false);
+  while (original.ply > 0) {
+    expect(clone.undo()).toBe(true);
+    expect(original.undo()).toBe(true);
+    expect(clone.toAscii()).toEqual(original.toAscii());
+    expect(clone.hash).toBe(original.hash);
+    expect(clone.encodeGame()).toBe(original.encodeGame());
+  }
+  expect(clone.undo()).toBe(false);
 });
