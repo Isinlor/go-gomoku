@@ -7,20 +7,19 @@ const puzzle = engine.PUZZLES[0];
 
 test('compares the fastest new run with the slowest master run, including equality', () => {
   expect(comparePuzzleRuns([10, 20, 30], [40, 30, 50])).toEqual({ masterMs: 30, newMs: 30, passed: true });
-  expect(comparePuzzleRuns([10, 20, 30], [31, 40, 50]).passed).toBe(false);
+  expect(comparePuzzleRuns([10, 20, 30], [31.301, 40, 50]).passed).toBe(false);
 });
 
 test.each([
-  [100.999, true], [101, true], [101.001, false],
-])('allows up to one percent above the slowest master run (%s ms)', (duration, passed) => {
-  expect(comparePuzzleRuns([99, 100, 98], [103, duration, 102])).toEqual({
+  [101.001, true], [101.999, true], [102, true], [102.001, false],
+])('allows up to one percent plus one millisecond above the slowest master run (%s ms)', (duration, passed) => {
+  expect(comparePuzzleRuns([99, 100, 98], [103, duration, 104])).toEqual({
     masterMs: 100, newMs: duration, passed,
   });
 });
 
-test('percentage tolerance adds no absolute allowance to a zero baseline', () => {
-  expect(comparePuzzleRuns([0, 0, 0], [1, 0, 2]).passed).toBe(true);
-  expect(comparePuzzleRuns([0, 0, 0], [1, Number.EPSILON, 2]).passed).toBe(false);
+test.each([[0, true], [0.999, true], [1, true], [1.001, false]])('allows up to one millisecond above a zero baseline (%s ms)', (duration, passed) => {
+  expect(comparePuzzleRuns([0, 0, 0], [2, duration, 3]).passed).toBe(passed);
 });
 
 test('requires exactly three measurements per version', () => {

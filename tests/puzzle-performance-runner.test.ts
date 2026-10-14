@@ -38,7 +38,7 @@ test('runs each puzzle three times per version and alternates versions', () => {
   expect(result.output).not.toContain('repeating');
 });
 
-test.each([[101, 0, 6], [101.001, 1, 30]])('one percent tolerance controls benchmark retries at %s ms', (duration, status, measurements) => {
+test.each([[101.001, 0, 6], [102, 0, 6], [102.001, 1, 30]])('one percent plus one millisecond tolerance controls benchmark retries at %s ms', (duration, status, measurements) => {
   const master = {};
   const candidate = { PUZZLES: [{ id: 'boundary' }] };
   let calls = 0;
