@@ -30,3 +30,11 @@ Any additions to README must be very carefully considered and concise. No long t
 ## Continuous integration
 
 When you start always make sure you working with the latest `master` branch.
+
+## Benchmark changes (performance, strength)
+
+Unless specifically asked you are not allowed to change benchmarks. You can make suggestions.
+
+## Result artifacts
+
+Avoid adding results to the repo unless asked or the results are the main deliverable. Prefer to summarize results in pr description.
