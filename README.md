@@ -53,6 +53,19 @@ Run locally with Node 24 from the candidate checkout:
 npm run test:strength -- /path/to/master-checkout
 ```
 
+The strength test plays all 100 openings in `scripts/strength-openings.json` in
+random order with colors swapped (200 games per attempt), without an iteration
+deadline or early evidence stop. Only a full set of 100 pairs is accepted. Games
+are draws at 100 total plies (including the opening), on repetition, or when no
+legal moves remain. The pool contains 50 Black and 50 White self-play
+wins; its original evaluation metadata and engine revision are retained.
+Opening searches interleave master and candidate at 5 ms, alternating who goes
+first. Reports include move and eval-sign agreement between engines and with the
+stored 100 ms and 10 s searches, plus candidate-only, master-only, both, and
+neither agreement with the 10 s move (zero is its own eval sign).
+Game results report strength gains when symmetric gain evidence reaches 100,
+with a one-sided 5% bound across at most five attempts.
+
 ## Development
 
 ```bash
