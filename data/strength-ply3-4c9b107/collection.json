@@ -1,0 +1,2020 @@
+{
+  "schemaVersion": 1,
+  "masterRevision": "4c9b1078a3b46e9e10dd0b338aee484a02372581",
+  "ply": 3,
+  "boardSize": 9,
+  "includeTranslationSymmetry": false,
+  "includeColorSymmetry": false,
+  "seed": 1,
+  "evaluationMs": [
+    5,
+    25,
+    100
+  ],
+  "playoutMs": 75,
+  "maxPlayoutPlies": 500,
+  "winsPerColor": 50,
+  "complete": true,
+  "boards": [
+    {
+      "encoded": "B9 a5 e6 d3",
+      "scores": {
+        "5": 242.3,
+        "25": 242.3,
+        "100": 0
+      },
+      "strongest": {
+        "move": 31,
+        "depth": 4,
+        "nodes": 16384,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 a5 e6 d3 e4 d5 f5 d7 g6 b5 d6 e5 c5 c6 h6 f6 f7 e8 f6",
+        "plies": 15,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 b1 h3 c4",
+      "scores": {
+        "5": 125.8,
+        "25": -88.9,
+        "100": 0
+      },
+      "strongest": {
+        "move": 31,
+        "depth": 5,
+        "nodes": 43520,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 b1 h3 c4 h5 e4 h2 h4 d3 d5 f3 g4 f4 e6 e3 g3 b3 c3 g5 h6 f2 f7 g8 f5 g2 e2 i4 g3 g4 g6 g3",
+        "plies": 27,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 b4 c7 e7",
+      "scores": {
+        "5": 75.5,
+        "25": -41.6,
+        "100": 0
+      },
+      "strongest": {
+        "move": 40,
+        "depth": 5,
+        "nodes": 43008,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 b4 c7 e7 e5 d6 c5 f6 g5 d5 d4 b6 c6 c4 c8 c9 d9 b9 b8 h6 a9 c9 b9 e6 c9",
+        "plies": 21,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 b6 e7 d4",
+      "scores": {
+        "5": 74.2,
+        "25": 74.2,
+        "100": 0
+      },
+      "strongest": {
+        "move": 22,
+        "depth": 5,
+        "nodes": 41344,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 b6 e7 d4 g5 e5 f6 d8 g7 e3 c5 e2 h4 i3 e1 e6 e4 f4 d6 e4",
+        "plies": 16,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 b8 e3 h5",
+      "scores": {
+        "5": 243.4,
+        "25": 0,
+        "100": 0
+      },
+      "strongest": {
+        "move": 40,
+        "depth": 4,
+        "nodes": 39552,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 b8 e3 h5 e5 h7 f4 h6 h4 g8 h9 d4 g3 d6 d3 f3 f2 c3 f3 h3 f5 f6 f1",
+        "plies": 19,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 c2 i2 g7",
+      "scores": {
+        "5": 49.8,
+        "25": 49.8,
+        "100": 0
+      },
+      "strongest": {
+        "move": 35,
+        "depth": 5,
+        "nodes": 42624,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 c2 i2 g7 i4 i6 i5 i1 h1 i3 h3 h5 i1 g4 i3",
+        "plies": 11,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 g2 b7 f7",
+      "scores": {
+        "5": 71.8,
+        "25": -102.3,
+        "100": 0
+      },
+      "strongest": {
+        "move": 49,
+        "depth": 5,
+        "nodes": 43520,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 g2 b7 f7 b5 f5 d5 g4 e4 f3 c6 a8 f4 g3 g5 h3 e3 e6 d7 i2",
+        "plies": 16,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 g4 e8 c4",
+      "scores": {
+        "5": -243.4,
+        "25": 63.8,
+        "100": 0
+      },
+      "strongest": {
+        "move": 31,
+        "depth": 5,
+        "nodes": 36480,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 g4 e8 c4 f5 e4 d5 e5 e6 e2 c8 d4 f4 f3 d7 b9 h5 e1 e3 d3 b5 e3",
+        "plies": 18,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 i4 a2 g4",
+      "scores": {
+        "5": -225.2,
+        "25": 33.9,
+        "100": 0
+      },
+      "strongest": {
+        "move": 31,
+        "depth": 5,
+        "nodes": 41600,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 i4 a2 g4 a4 a5 b5 a6 b3 a8 a9 b9 a7 b7 d5 a9 e6 a7",
+        "plies": 14,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 i4 f3 e4",
+      "scores": {
+        "5": -135.2,
+        "25": 65.1,
+        "100": 0
+      },
+      "strongest": {
+        "move": 41,
+        "depth": 5,
+        "nodes": 40960,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 i4 f3 e4 f5 g4 d4 f6 d6 g5 f4 g7 g6 h6 f2 f1 g3 g8 e5 g6",
+        "plies": 16,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 c9 g2 e3",
+      "scores": {
+        "5": 135.4,
+        "25": 0.09999999999999432,
+        "100": 0.09999999999999432
+      },
+      "strongest": {
+        "move": 23,
+        "depth": 4,
+        "nodes": 43008,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 c9 g2 e3 f3 f4 f5 f2 d5 g3 e4 d3 c3 h3 c6 f3",
+        "plies": 12,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 e1 h4 b7",
+      "scores": {
+        "5": -105.6,
+        "25": -0.09999999999999432,
+        "100": -0.09999999999999432
+      },
+      "strongest": {
+        "move": 32,
+        "depth": 4,
+        "nodes": 31872,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 e1 h4 b7 f4 e4 e5 f3 d4 e3 d6 g3 d3 i3 h3 d7 d2 d5 c5 c7 d5",
+        "plies": 17,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 e9 g7 e1",
+      "scores": {
+        "5": 223.6,
+        "25": 223.6,
+        "100": -0.09999999999999432
+      },
+      "strongest": {
+        "move": 58,
+        "depth": 4,
+        "nodes": 42624,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 e9 g7 e1 e7 f6 d6 e5 d4 f7 c5 f8 f5 f4 g5 d8 d3 d5 g6 g8 e4 c2 h7",
+        "plies": 19,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 i6 c8 e1",
+      "scores": {
+        "5": -56.9,
+        "25": 170.7,
+        "100": -0.09999999999999432
+      },
+      "strongest": {
+        "move": 67,
+        "depth": 4,
+        "nodes": 42368,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 i6 c8 e1 e8 c1 b8 d8 f1 a1 b1 b2 d1 d2 e2 d1 d4 b1",
+        "plies": 14,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 h4 d4 g4",
+      "scores": {
+        "5": 216.5,
+        "25": -0.09999999999999964,
+        "100": -0.09999999999999964
+      },
+      "strongest": {
+        "move": 32,
+        "depth": 4,
+        "nodes": 45440,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 h4 d4 g4 f4 e5 e3 g5 f2 g1 f5 g3 g2 f3 d2 g7 g6 e2 e1 c2 h2 c5 e2",
+        "plies": 19,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 i7 i9 c8",
+      "scores": {
+        "5": 19.7,
+        "25": 19.7,
+        "100": -0.09999999999999964
+      },
+      "strongest": {
+        "move": 78,
+        "depth": 5,
+        "nodes": 43776,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 i7 i9 c8 g9 f8 f9 e9 e8 d9 d8 c9 b9 b8 a9 a8 c6 a9 d7 b9",
+        "plies": 16,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 a5 c7 g4",
+      "scores": {
+        "5": 178.7,
+        "25": 0.10000000000000142,
+        "100": 0.10000000000000142
+      },
+      "strongest": {
+        "move": 38,
+        "depth": 4,
+        "nodes": 26624,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 a5 c7 g4 c5 f5 d6 h3 e6 f6 c4 c6 b6 c3 c6 c8 a6",
+        "plies": 13,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 c2 g5 e2",
+      "scores": {
+        "5": -142,
+        "25": 42.7,
+        "100": -0.19999999999998863
+      },
+      "strongest": {
+        "move": 22,
+        "depth": 4,
+        "nodes": 40448,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 c2 g5 e2 e3 d3 f4 e4 e5 d2 b2 g2 f2 f3 d5 f1 f5 f2",
+        "plies": 14,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 d8 g7 d4",
+      "scores": {
+        "5": 59.1,
+        "25": 59.1,
+        "100": -0.19999999999998863
+      },
+      "strongest": {
+        "move": 48,
+        "depth": 5,
+        "nodes": 43264,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 d8 g7 d4 d6 f8 f6 e5 g5 g8 e8 e6 e7 c5 f7 h7 h5 g6 h6 i4 d9 d7 g6",
+        "plies": 19,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 f8 e6 d3",
+      "scores": {
+        "5": 216.3,
+        "25": 216.3,
+        "100": 0.19999999999998863
+      },
+      "strongest": {
+        "move": 69,
+        "depth": 4,
+        "nodes": 43648,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 f8 e6 d3 g8 b5 d5 c4 e2 e4 g6 a4 d4 c6 d7 f5 f7 h9 c2 c7 c5 f2 c3 b4 f6 b2 h6 d6 i6",
+        "plies": 25,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 g8 e7 e8",
+      "scores": {
+        "5": 83.8,
+        "25": 82.7,
+        "100": -0.19999999999998863
+      },
+      "strongest": {
+        "move": 48,
+        "depth": 4,
+        "nodes": 46464,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 g8 e7 e8 d6 f7 c5 e6 e5 f8 h8 c8 d8 d7 f5 d9 d5 d8",
+        "plies": 14,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 i7 f2 i6",
+      "scores": {
+        "5": -13.600000000000001,
+        "25": 13.8,
+        "100": 0.19999999999998863
+      },
+      "strongest": {
+        "move": 34,
+        "depth": 5,
+        "nodes": 44928,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 i7 f2 i6 h4 g4 e2 i5 i8 h8 i9 h9 i4 i9 g2 i8",
+        "plies": 12,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 c2 i6 f5",
+      "scores": {
+        "5": 6,
+        "25": 6,
+        "100": 0.1999999999999993
+      },
+      "strongest": {
+        "move": 71,
+        "depth": 5,
+        "nodes": 46976,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 c2 i6 f5 i5 i7 h7 i8 d4 h6 e3 c5 i3 h5 h4 e4 e5 c3 c4 i4 i5 f4 d3 f3 f6 d5 c6 e6 g5 e7 b5 e8 e2 e5",
+        "plies": 30,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 c8 a3 f7",
+      "scores": {
+        "5": 15.799999999999997,
+        "25": 20.9,
+        "100": 0.1999999999999993
+      },
+      "strongest": {
+        "move": 36,
+        "depth": 5,
+        "nodes": 45952,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 c8 a3 f7 a5 a6 a1 a2 b2 a4 b4 b5 a4 d4 a2",
+        "plies": 11,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 c8 i8 b7",
+      "scores": {
+        "5": 45.7,
+        "25": -167.2,
+        "100": 0.1999999999999993
+      },
+      "strongest": {
+        "move": 53,
+        "depth": 5,
+        "nodes": 46080,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 c8 i8 b7 e6 e8 c6 d8 b8 a8 b9 c9 d6 a9 b8 b9 f6 b8",
+        "plies": 14,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 f1 b1 c8",
+      "scores": {
+        "5": -133.6,
+        "25": 65.1,
+        "100": 0.1999999999999993
+      },
+      "strongest": {
+        "move": 3,
+        "depth": 5,
+        "nodes": 42112,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 f1 b1 c8 d1 e1 h1 d2 e4 f5 e6 c1 c2 d1 g1 b2 a1 a2 b1 a1 c3 b1",
+        "plies": 18,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 h3 b9 e6",
+      "scores": {
+        "5": -33.8,
+        "25": -271.2,
+        "100": 0.1999999999999993
+      },
+      "strongest": {
+        "move": 75,
+        "depth": 5,
+        "nodes": 44032,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 h3 b9 e6 d9 f9 e9 a9 a8 c9 c8 f5 a9 g4 c9",
+        "plies": 11,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 h3 c1 g5",
+      "scores": {
+        "5": 26,
+        "25": -13.600000000000001,
+        "100": 0.1999999999999993
+      },
+      "strongest": {
+        "move": 6,
+        "depth": 5,
+        "nodes": 43904,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 h3 c1 g5 g1 e1 d1 e2 e5 f2 g2 h4 i5 f6 e7 h6 h7 f5 i7 e6 f7 g7 g4 g6 d6 i6",
+        "plies": 22,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 i9 b6 h6",
+      "scores": {
+        "5": -44.7,
+        "25": 203.4,
+        "100": 0.1999999999999993
+      },
+      "strongest": {
+        "move": 48,
+        "depth": 4,
+        "nodes": 46464,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 i9 b6 h6 d6 h4 e6 c6 c5 h5 h7 h2 h3 g3 i3 i2 c7 i4 h3 i3 c6 h3",
+        "plies": 18,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 d9 a3 f7",
+      "scores": {
+        "5": -237.2,
+        "25": 41.8,
+        "100": 0.19999999999999996
+      },
+      "strongest": {
+        "move": 36,
+        "depth": 5,
+        "nodes": 46592,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 d9 a3 f7 a5 a6 a1 a2 b2 a4 b4 g6 a4 e8 a2",
+        "plies": 11,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 e9 c9 f2",
+      "scores": {
+        "5": 53.1,
+        "25": -201.2,
+        "100": 0.19999999999999996
+      },
+      "strongest": {
+        "move": 58,
+        "depth": 5,
+        "nodes": 39808,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 e9 c9 f2 e7 f4 e5 e3 f6 g5 d2 f1 g3 d4 c5 e4 c4 h7 f5 h4 g4 h6 i7 h5 h3 h8",
+        "plies": 22,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 a2 g2 h6",
+      "scores": {
+        "5": 160.9,
+        "25": 0.20000000000000284,
+        "100": 0.20000000000000284
+      },
+      "strongest": {
+        "move": 13,
+        "depth": 4,
+        "nodes": 38784,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 a2 g2 h6 e2 g6 e6 e4 f3 f5 h7 d2 h2 i2 g4 h5 d3 e3 e5 g3 g5 d4 g1 h3 h4 i3 i4 a4 i1 g3 h3 c4 g3",
+        "plies": 29,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 c8 f8 b7",
+      "scores": {
+        "5": 115.6,
+        "25": -94.9,
+        "100": -0.20000000000000284
+      },
+      "strongest": {
+        "move": 48,
+        "depth": 5,
+        "nodes": 42752,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 c8 f8 b7 d6 d7 e7 c5 d8 c6 c7 d5 e4 d7 c9 c4 c7 c2 c3 d7 g5 c7",
+        "plies": 18,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 c9 i9 d2",
+      "scores": {
+        "5": -155.4,
+        "25": 12.200000000000003,
+        "100": -0.20000000000000284
+      },
+      "strongest": {
+        "move": 32,
+        "depth": 5,
+        "nodes": 36480,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 c9 i9 d2 f4 e9 d9 d8 f9 a9 b9 b8 e8 d9 d6 b9",
+        "plies": 12,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 d9 g2 d8",
+      "scores": {
+        "5": 187.1,
+        "25": 0.20000000000000284,
+        "100": 0.20000000000000284
+      },
+      "strongest": {
+        "move": 13,
+        "depth": 4,
+        "nodes": 29184,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 d9 g2 d8 e6 f9 c9 h9 g9 g8 e9 e8 f8 g9 i9 e9",
+        "plies": 12,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 h7 f7 g4",
+      "scores": {
+        "5": 155.6,
+        "25": -76.5,
+        "100": 0.20000000000000284
+      },
+      "strongest": {
+        "move": 41,
+        "depth": 5,
+        "nodes": 42624,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 h7 f7 g4 f5 e4 f3 c4 f6 f4 d4 d5 d3 h5 h4 h3 i4 e3 e5 c3 d2 c6 f9 f8 c5 b5 h8 g7 c7 c2 b7 c5",
+        "plies": 28,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 i7 b3 a5",
+      "scores": {
+        "5": 177.6,
+        "25": 177.6,
+        "100": -0.20000000000000284
+      },
+      "strongest": {
+        "move": 37,
+        "depth": 4,
+        "nodes": 42496,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 i7 b3 a5 b5 b6 a4 d4 a7 a3 a6 a8 a2 e3 a3 c5 a5",
+        "plies": 13,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 b9 d8 e4",
+      "scores": {
+        "5": 98.7,
+        "25": -103.2,
+        "100": 0.29999999999999716
+      },
+      "strongest": {
+        "move": 49,
+        "depth": 5,
+        "nodes": 43136,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 b9 d8 e4 f8 e6 e7 c8 d7 c5 c7 f7 f6 g5 g7 b7 f7",
+        "plies": 13,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 d9 b8 a6",
+      "scores": {
+        "5": -82.3,
+        "25": -0.29999999999999716,
+        "100": -0.29999999999999716
+      },
+      "strongest": {
+        "move": 37,
+        "depth": 4,
+        "nodes": 42624,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 d9 b8 a6 b5 b9 c8 e8 f9 a8 b4 c5 d4 a5 b7 b6 a7 c7 a4 c6 e9 c4 c3 d8 a9 c9 g7 a8 c8 b8 e5 c8",
+        "plies": 28,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 i3 h8 f9",
+      "scores": {
+        "5": 21.5,
+        "25": -0.29999999999999716,
+        "100": -0.29999999999999716
+      },
+      "strongest": {
+        "move": 43,
+        "depth": 4,
+        "nodes": 44160,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 i3 h8 f9 h5 d9 h6 h7 e9 e8 g9 b9 c9 c8 h3 c9 h4 e9",
+        "plies": 14,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 f1 c6 e2",
+      "scores": {
+        "5": 207.6,
+        "25": -0.2999999999999998,
+        "100": -0.2999999999999998
+      },
+      "strongest": {
+        "move": 49,
+        "depth": 4,
+        "nodes": 43136,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 f1 c6 e2 e6 c2 g6 g2 d2 i2 h2 d5 f5 d6 d7 g4 c8 b9 c5 c7 b7 c4 c7 c9 e7 f7 a7",
+        "plies": 23,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 a9 g8 c4",
+      "scores": {
+        "5": -89.6,
+        "25": 170.5,
+        "100": -0.3000000000000007
+      },
+      "strongest": {
+        "move": 51,
+        "depth": 4,
+        "nodes": 44160,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 a9 g8 c4 g6 e4 g4 g7 e6 d4 b4 e5 f5 f6 f7 c3 f6 a1 b2 d6 d7 c8 h3",
+        "plies": 19,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 i9 b3 f7",
+      "scores": {
+        "5": -68.1,
+        "25": 184.2,
+        "100": -0.3000000000000007
+      },
+      "strongest": {
+        "move": 21,
+        "depth": 4,
+        "nodes": 42752,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 i9 b3 f7 d3 f5 f3 e4 e3 c3 c4 c2 g4 h7 h3 g3 g2 g6 g3",
+        "plies": 15,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 a9 h9 b4",
+      "scores": {
+        "5": -50.5,
+        "25": 157.8,
+        "100": -0.30000000000001137
+      },
+      "strongest": {
+        "move": 77,
+        "depth": 4,
+        "nodes": 46464,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 a9 h9 b4 f9 e9 e8 d9 c9 d4 g8 e4 c4 d8 i8 h8 h7 f8 f7 d5 h8 d7 f8",
+        "plies": 19,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 b2 h6 f6",
+      "scores": {
+        "5": 71.6,
+        "25": -166.5,
+        "100": 0.3999999999999986
+      },
+      "strongest": {
+        "move": 40,
+        "depth": 5,
+        "nodes": 39424,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 b2 h6 f6 e5 f4 h4 c4 f3 e4 b4 d3 g4 e2 b5 c2 f5 d2 f2 a2",
+        "plies": 16,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 b3 h9 g7",
+      "scores": {
+        "5": 49.8,
+        "25": -114.5,
+        "100": 0.3999999999999986
+      },
+      "strongest": {
+        "move": 76,
+        "depth": 5,
+        "nodes": 44288,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 b3 h9 g7 e9 f9 f8 d9 g9 i9 i8 e8 f9 f7 i9",
+        "plies": 11,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 b4 b1 c4",
+      "scores": {
+        "5": 82.9,
+        "25": -206.3,
+        "100": 0.3999999999999986
+      },
+      "strongest": {
+        "move": 31,
+        "depth": 5,
+        "nodes": 45568,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 b4 b1 c4 e4 e6 d5 f5 c6 b7 d7 f3 d8 d6 b5 e8 f7 f4 f2 e7 f8 e5 e9 c7 g3 b8",
+        "plies": 22,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 b7 h6 b3",
+      "scores": {
+        "5": 56.7,
+        "25": 56.7,
+        "100": -0.3999999999999986
+      },
+      "strongest": {
+        "move": 37,
+        "depth": 5,
+        "nodes": 45440,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 b7 h6 b3 d5 b5 c6 c4 b6 d3 a6 e6 e4 f3 e3 e2 f1 b2 b1 c2 d2 d1 f2 a2 c5 d2",
+        "plies": 22,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 c2 h9 g7",
+      "scores": {
+        "5": 56.599999999999994,
+        "25": 56.599999999999994,
+        "100": 0.3999999999999986
+      },
+      "strongest": {
+        "move": 76,
+        "depth": 5,
+        "nodes": 41728,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 c2 h9 g7 e9 f9 f8 d9 g9 i9 i8 e8 f9 f7 i9",
+        "plies": 11,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 g8 i3 e2",
+      "scores": {
+        "5": -217.2,
+        "25": -33.5,
+        "100": 0.3999999999999986
+      },
+      "strongest": {
+        "move": 44,
+        "depth": 5,
+        "nodes": 40064,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 g8 i3 e2 i5 i6 h6 i7 i1 i2 h2 i4 h4 h5 i4 g4 i2",
+        "plies": 13,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 h5 c2 d6",
+      "scores": {
+        "5": -231.4,
+        "25": -164.3,
+        "100": -0.3999999999999986
+      },
+      "strongest": {
+        "move": 41,
+        "depth": 5,
+        "nodes": 43008,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 h5 c2 d6 f5 f7 e6 d7 e4 g6 e8 e7 g7 c5 b4 d4 d3 b1 c4 h7 g8 h6 h8 d8 d5 h4 h3 f8 g9 f6 g5 e5 d4 e6",
+        "plies": 30,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 h5 i3 d7",
+      "scores": {
+        "5": -0.8999999999999986,
+        "25": -0.8999999999999986,
+        "100": 0.3999999999999986
+      },
+      "strongest": {
+        "move": 62,
+        "depth": 5,
+        "nodes": 39808,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 h5 i3 d7 i7 i5 g5 f5 g4 g3 f6 h4 g7 h6 h7 h2 h3 e7 g2 f3 e5 d4 e3 i2 g6 g8 h8 i9 i1 i4 h3 i3 i6 h3",
+        "plies": 30,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 h7 h3 f3",
+      "scores": {
+        "5": 69.6,
+        "25": -159.6,
+        "100": -0.3999999999999986
+      },
+      "strongest": {
+        "move": 41,
+        "depth": 5,
+        "nodes": 45056,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 h7 h3 f3 f5 e6 d5 h5 d3 e2 g4 e4 e7 c5 e3 d2 d7 c2 f2 c3 d4 d6 c4 f6 g6 b6 c6 c7 b2 c6",
+        "plies": 26,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 i2 c2 e4",
+      "scores": {
+        "5": 68.2,
+        "25": -48.2,
+        "100": -0.3999999999999986
+      },
+      "strongest": {
+        "move": 49,
+        "depth": 5,
+        "nodes": 43136,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 i2 c2 e4 e6 i4 i5 h5 e2 i6 i3 h3 d2 i5 i7 i3",
+        "plies": 12,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 i5 h1 b3",
+      "scores": {
+        "5": -161.6,
+        "25": -64.5,
+        "100": 0.3999999999999986
+      },
+      "strongest": {
+        "move": 5,
+        "depth": 5,
+        "nodes": 43392,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 i5 h1 b3 f1 e1 e2 d1 f3 b1 a1 a2 c1 c2 e4 a1 d5 c1",
+        "plies": 14,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 i6 e3 g6",
+      "scores": {
+        "5": 161.4,
+        "25": 197.4,
+        "100": 0.3999999999999986
+      },
+      "strongest": {
+        "move": 42,
+        "depth": 4,
+        "nodes": 40448,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 i6 e3 g6 g5 g4 e5 h5 e2 e6 e1 e4 h7 f5 h3 d5 g3 d3 c2 e5 c5 g5",
+        "plies": 18,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 a1 b6 d3",
+      "scores": {
+        "5": -56.9,
+        "25": 197.3,
+        "100": -0.4000000000000057
+      },
+      "strongest": {
+        "move": 47,
+        "depth": 4,
+        "nodes": 43776,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 a1 b6 d3 c6 e6 b3 e4 b5 b4 e8 d7 f5 c4 d4 d5 f4 d4 d6 a4",
+        "plies": 16,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 c1 b3 c8",
+      "scores": {
+        "5": -107.1,
+        "25": 0.4000000000000057,
+        "100": 0.4000000000000057
+      },
+      "strongest": {
+        "move": 37,
+        "depth": 4,
+        "nodes": 42112,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 c1 b3 c8 b5 e1 b6 b4 f1 a1 b1 b2 d1 d2 e2 d1 d3 b1",
+        "plies": 14,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 c1 c6 g4",
+      "scores": {
+        "5": -36.5,
+        "25": 198.5,
+        "100": 0.4000000000000057
+      },
+      "strongest": {
+        "move": 38,
+        "depth": 4,
+        "nodes": 38656,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 c1 c6 g4 c5 g5 e5 e6 c3 c7 d4 f6 c2 c4 b4 b2 c4",
+        "plies": 13,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 c1 h5 g8",
+      "scores": {
+        "5": 9.299999999999997,
+        "25": 170.7,
+        "100": 0.4000000000000057
+      },
+      "strongest": {
+        "move": 52,
+        "depth": 4,
+        "nodes": 46464,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 c1 h5 g8 h6 c3 g7 h4 f6 e5 e6 g6 g5 d6 i6 f4 g6",
+        "plies": 13,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 c9 e2 h3",
+      "scores": {
+        "5": -10.700000000000003,
+        "25": 0.4000000000000057,
+        "100": 0.4000000000000057
+      },
+      "strongest": {
+        "move": 14,
+        "depth": 4,
+        "nodes": 42240,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 c9 e2 h3 f2 e9 c2 d2 f9 a9 b9 b8 d9 d8 e8 d9 d6 b9",
+        "plies": 14,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 c9 f2 h3",
+      "scores": {
+        "5": 164.5,
+        "25": 0.4000000000000057,
+        "100": 0.4000000000000057
+      },
+      "strongest": {
+        "move": 12,
+        "depth": 4,
+        "nodes": 40832,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 c9 f2 h3 d2 e9 c2 e2 d9 d8 f9 a9 b9 b8 e3 d9 e1 b9",
+        "plies": 14,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 c9 g2 b3",
+      "scores": {
+        "5": -56.5,
+        "25": 0.4000000000000057,
+        "100": 0.4000000000000057
+      },
+      "strongest": {
+        "move": 13,
+        "depth": 4,
+        "nodes": 41856,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 c9 g2 b3 e2 f3 h2 f2 f4 e4 g4 g3 h3 h4 e3 f1 h5 d5 h6 c6 b7 g5 i4 h7 h4",
+        "plies": 21,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 f1 b2 e3",
+      "scores": {
+        "5": 96.7,
+        "25": -137.9,
+        "100": 0.4000000000000057
+      },
+      "strongest": {
+        "move": 40,
+        "depth": 5,
+        "nodes": 42368,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 f1 b2 e3 e5 e1 d1 h1 i1 i2 g1 g2 d4 i1 c3 g1",
+        "plies": 12,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 h1 g1 a8",
+      "scores": {
+        "5": 2.1999999999999993,
+        "25": 92.9,
+        "100": 0.4000000000000057
+      },
+      "strongest": {
+        "move": 14,
+        "depth": 4,
+        "nodes": 41472,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 h1 g1 a8 f2 a6 a5 b5 a4 c6 a2 a1 b1 a3 b3 d5 a1 e4 a3",
+        "plies": 15,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 h8 c9 h7",
+      "scores": {
+        "5": 72,
+        "25": 72,
+        "100": -0.4000000000000057
+      },
+      "strongest": {
+        "move": 43,
+        "depth": 5,
+        "nodes": 45824,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 h8 c9 h7 h5 f7 e9 g7 e7 e5 f6 f9 a9 b9 b8 d9 d8 g5 b9 g6 d9",
+        "plies": 17,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 i3 i6 g9",
+      "scores": {
+        "5": -93.6,
+        "25": 150.5,
+        "100": 0.4000000000000057
+      },
+      "strongest": {
+        "move": 25,
+        "depth": 4,
+        "nodes": 44672,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 i3 i6 g9 h3 e9 d9 d8 c9 i9 h9 h8 f9 f8 e8 f9 e7 h9",
+        "plies": 14,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 i7 b4 f8",
+      "scores": {
+        "5": -36.9,
+        "25": 156.5,
+        "100": 0.4000000000000057
+      },
+      "strongest": {
+        "move": 37,
+        "depth": 4,
+        "nodes": 39168,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 i7 b4 f8 b5 e7 b6 b7 e5 h7 g7 f6 d4 g5 b2 b3 c3 a1 a3 d8 b3",
+        "plies": 17,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 a7 b1 e2",
+      "scores": {
+        "5": -102.1,
+        "25": 84.9,
+        "100": -0.5
+      },
+      "strongest": {
+        "move": 3,
+        "depth": 5,
+        "nodes": 43520,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 a7 b1 e2 d1 e1 d4 a5 a6 b6 a4 a9 a8 b8 e4 a6 b4 a8",
+        "plies": 14,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 b6 h3 b5",
+      "scores": {
+        "5": 50.2,
+        "25": 50.2,
+        "100": -0.5
+      },
+      "strongest": {
+        "move": 55,
+        "depth": 5,
+        "nodes": 43776,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 b6 h3 b5 h5 f5 c5 e6 h2 h4 d5 c6 d6 d7 e7 e8 f9 a4",
+        "plies": 14,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 c9 f7 e3",
+      "scores": {
+        "5": -68.3,
+        "25": 184.5,
+        "100": -0.5
+      },
+      "strongest": {
+        "move": 57,
+        "depth": 4,
+        "nodes": 39680,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 c9 f7 e3 d7 g5 e6 f4 d2 g7 b7 h6 i7 c7 g4 e5 d5 g8 c8 f5 c4 b3 d6 i5 h5 h4 d4 h5",
+        "plies": 24,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 c9 h1 e2",
+      "scores": {
+        "5": -102.1,
+        "25": -65.6,
+        "100": -0.5
+      },
+      "strongest": {
+        "move": 5,
+        "depth": 5,
+        "nodes": 43904,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 c9 h1 e2 f1 e1 f4 e9 f9 a9 b9 b8 d9 d8 f5 d9 f3 b9",
+        "plies": 14,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 d1 b4 f2",
+      "scores": {
+        "5": -19.599999999999994,
+        "25": -0.5,
+        "100": -0.5
+      },
+      "strongest": {
+        "move": 46,
+        "depth": 4,
+        "nodes": 44672,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 d1 b4 f2 b6 f4 f6 f1 d6 e1 e6 c6 h6 g6 c1 h1 g1 g2 f3 g1",
+        "plies": 16,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 g1 h9 e8",
+      "scores": {
+        "5": -102.1,
+        "25": -65.6,
+        "100": -0.5
+      },
+      "strongest": {
+        "move": 77,
+        "depth": 5,
+        "nodes": 43392,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 g1 h9 e8 f9 e9 d6 e1 d1 i1 h1 h2 f1 f2 e2 f1 e5 h1",
+        "plies": 14,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 g2 f2 b6",
+      "scores": {
+        "5": 99.8,
+        "25": 99.8,
+        "100": -0.5
+      },
+      "strongest": {
+        "move": 24,
+        "depth": 4,
+        "nodes": 43008,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 g2 f2 b6 g3 d6 e5 e4 f4 c6 e6 f5 e3 d4 d3 c3 h3 d5 f3",
+        "plies": 15,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 g2 i4 e5",
+      "scores": {
+        "5": -295.2,
+        "25": -11.600000000000001,
+        "100": -0.5
+      },
+      "strongest": {
+        "move": 17,
+        "depth": 5,
+        "nodes": 45952,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 g2 i4 e5 i2 h3 i6 i3 i8 i7 h7 i5 h5 e3 i7 f3 i5",
+        "plies": 13,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 g9 g6 c4",
+      "scores": {
+        "5": -16.5,
+        "25": 198.5,
+        "100": -0.5
+      },
+      "strongest": {
+        "move": 33,
+        "depth": 4,
+        "nodes": 36736,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 g9 g6 c4 g4 e5 f5 h5 g3 g5 f6 h3 f4 f3 e4 h4 h7 d3 i8",
+        "plies": 15,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 g9 i4 i6",
+      "scores": {
+        "5": -92.7,
+        "25": 124.7,
+        "100": -0.5
+      },
+      "strongest": {
+        "move": 17,
+        "depth": 4,
+        "nodes": 43648,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 g9 i4 i6 i2 i5 h5 i7 i8 h8 i9 h9 f9 i9 f6 i8",
+        "plies": 12,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 h1 g1 c1",
+      "scores": {
+        "5": -24.7,
+        "25": 93.6,
+        "100": -0.5
+      },
+      "strongest": {
+        "move": 14,
+        "depth": 4,
+        "nodes": 43136,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 h1 g1 c1 f2 e1 d1 d2 b1 b2 d4 a1 e3 c5 f4 d1 f1 b1",
+        "plies": 14,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 h4 d2 g7",
+      "scores": {
+        "5": 94.7,
+        "25": 94.7,
+        "100": -0.5
+      },
+      "strongest": {
+        "move": 30,
+        "depth": 5,
+        "nodes": 45184,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 h4 d2 g7 g2 g5 f6 f2 i5 g6 g4 g3 f4 e4 f5 f7 e6 d7 e7 e8 h5 g8 g9 f9 i2 h3 h9 h8 d8 i9 g9 h9 c6 g9",
+        "plies": 30,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 h9 b6 g2",
+      "scores": {
+        "5": 165.6,
+        "25": 165.6,
+        "100": -0.5
+      },
+      "strongest": {
+        "move": 28,
+        "depth": 4,
+        "nodes": 39296,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 h9 b6 g2 b4 g4 d6 c5 e5 c7 b7 b8 e6 c6 c8 d8 c9 g5 g3 e4 d5 b3 d3 d4 f4 h2 e3 f3 c4 e2 d4 d2 e4",
+        "plies": 29,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 i6 g1 e6",
+      "scores": {
+        "5": -237.4,
+        "25": -23.4,
+        "100": -0.5
+      },
+      "strongest": {
+        "move": 4,
+        "depth": 5,
+        "nodes": 44800,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 i6 g1 e6 e1 d1 i1 h1 h2 f1 f2 g6 f1 f6 h1",
+        "plies": 11,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 i7 c4 f8",
+      "scores": {
+        "5": -44,
+        "25": 237.4,
+        "100": -0.5
+      },
+      "strongest": {
+        "move": 47,
+        "depth": 4,
+        "nodes": 42752,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 i7 c4 f8 c6 d5 e5 d8 c3 c5 d4 f6 f4 b4 g4 e4 e3 d6 e4",
+        "plies": 15,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 a6 e2 d8",
+      "scores": {
+        "5": -78.9,
+        "25": 151.8,
+        "100": 0.5999999999999943
+      },
+      "strongest": {
+        "move": 15,
+        "depth": 4,
+        "nodes": 41856,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 a6 e2 d8 g2 e4 d3 d5 f2 d2 c2 d1 c1 h2 e1 d2 d1 f1 d2",
+        "plies": 15,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 b2 h2 g3",
+      "scores": {
+        "5": 51.6,
+        "25": -153.2,
+        "100": -0.5999999999999943
+      },
+      "strongest": {
+        "move": 22,
+        "depth": 5,
+        "nodes": 42368,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 b2 h2 g3 h4 e3 f4 c3 f3 a3 d3 d4 f6 f2 f5 f7 e4 d2 g4 i4 e2 d3 b3 c5 b6 g1",
+        "plies": 22,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 c1 g4 d3",
+      "scores": {
+        "5": -76.5,
+        "25": -0.5999999999999943,
+        "100": -0.5999999999999943
+      },
+      "strongest": {
+        "move": 31,
+        "depth": 4,
+        "nodes": 42112,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 c1 g4 d3 e4 e1 f1 a1 b1 b2 d1 d2 d4 b1 f4 d1",
+        "plies": 12,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 c3 i5 d7",
+      "scores": {
+        "5": -236.5,
+        "25": 18.9,
+        "100": 0.5999999999999943
+      },
+      "strongest": {
+        "move": 26,
+        "depth": 5,
+        "nodes": 46464,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 c3 i5 d7 i3 i6 h6 i7 i1 i2 h2 i4 h4 h5 i4 g5 i2",
+        "plies": 13,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 c8 b9 c5",
+      "scores": {
+        "5": -264.1,
+        "25": -68.30000000000001,
+        "100": 0.5999999999999943
+      },
+      "strongest": {
+        "move": 76,
+        "depth": 5,
+        "nodes": 43392,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 1,
+        "final": "B9 c8 b9 c5 e9 c9 c7 b7 e6 d7 c6 d6 e7 e5 d5 b6 c4 c7 f4 c6",
+        "plies": 16,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 h7 i4 g2",
+      "scores": {
+        "5": 66.9,
+        "25": -0.5999999999999943,
+        "100": -0.5999999999999943
+      },
+      "strongest": {
+        "move": 31,
+        "depth": 4,
+        "nodes": 43904,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 h7 i4 g2 e4 h5 g4 g6 h4 f4 f5 f3 e6 h3 e3 e5 d5 e2 e7 e8 e5",
+        "plies": 17,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 g9 a2 f5",
+      "scores": {
+        "5": -225.4,
+        "25": 13.3,
+        "100": 0.5999999999999996
+      },
+      "strongest": {
+        "move": 27,
+        "depth": 5,
+        "nodes": 43520,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 g9 a2 f5 a4 a5 b5 b3 a7 a3 a6 b4 a8 a5 c3 a4 b2 d3 c4 a4 a5 a9 b9 c2 a9",
+        "plies": 21,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 c8 i3 d4",
+      "scores": {
+        "5": 12.899999999999999,
+        "25": 0.6000000000000014,
+        "100": 0.6000000000000014
+      },
+      "strongest": {
+        "move": 44,
+        "depth": 5,
+        "nodes": 41856,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 c8 i3 d4 i5 i6 i1 i2 h2 i4 h4 h5 i4 f4 i2",
+        "plies": 11,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 f9 b1 c5",
+      "scores": {
+        "5": 75.8,
+        "25": -186.7,
+        "100": 0.6000000000000014
+      },
+      "strongest": {
+        "move": 3,
+        "depth": 5,
+        "nodes": 44288,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 f9 b1 c5 d1 c2 f1 e1 e2 c1 h1 c4 c3 g1 g2 c7 g1 c6 e1",
+        "plies": 15,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 g6 c1 d4",
+      "scores": {
+        "5": -309.2,
+        "25": -36.3,
+        "100": 0.6000000000000014
+      },
+      "strongest": {
+        "move": 4,
+        "depth": 5,
+        "nodes": 46336,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 g6 c1 d4 e1 f1 a1 b1 b2 d1 d2 e2 d1 f4 b1",
+        "plies": 11,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 h3 g9 f4",
+      "scores": {
+        "5": 12.899999999999999,
+        "25": 0.6000000000000014,
+        "100": 0.6000000000000014
+      },
+      "strongest": {
+        "move": 76,
+        "depth": 5,
+        "nodes": 46848,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 h3 g9 f4 e9 d9 i9 h9 h8 f9 f8 e8 f9 f6 h9",
+        "plies": 11,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 a1 g1 h5",
+      "scores": {
+        "5": -49,
+        "25": 163.6,
+        "100": -0.6999999999999886
+      },
+      "strongest": {
+        "move": 4,
+        "depth": 4,
+        "nodes": 48000,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 a1 g1 h5 e1 d1 i1 f1 f2 h1 h2 e2 f1 f3 h1",
+        "plies": 11,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 b8 f7 d2",
+      "scores": {
+        "5": -117.8,
+        "25": 187.2,
+        "100": -0.6999999999999886
+      },
+      "strongest": {
+        "move": 58,
+        "depth": 4,
+        "nodes": 42368,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 b8 f7 d2 e7 f2 g6 e2 g2 d7 h7 i7 g4 g3 e4 f5 g8 b2 c2 g5 d5 f4 e6 c4 h9",
+        "plies": 21,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 d1 h1 g7",
+      "scores": {
+        "5": -136.3,
+        "25": -70.5,
+        "100": 0.6999999999999886
+      },
+      "strongest": {
+        "move": 40,
+        "depth": 5,
+        "nodes": 44672,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 d1 h1 g7 e5 f1 b1 g5 e4 e3 f3 f4 d3 h6 e2 e6 e3 e1 c3 g3 b3",
+        "plies": 17,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 e1 c1 c5",
+      "scores": {
+        "5": 69.8,
+        "25": -212.3,
+        "100": 0.6999999999999886
+      },
+      "strongest": {
+        "move": 40,
+        "depth": 5,
+        "nodes": 43904,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 e1 c1 c5 e5 d6 b6 d4 b4 f5 d3 e3 f2 d8 b5 b3 c4 d2 b8 b7 c3 f1 c7 d7 d5 c8 c6 e6 c5",
+        "plies": 25,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 e8 d2 e3",
+      "scores": {
+        "5": 60.2,
+        "25": -164.5,
+        "100": 0.6999999999999886
+      },
+      "strongest": {
+        "move": 40,
+        "depth": 5,
+        "nodes": 43904,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 e8 d2 e3 e5 d4 d6 c5 f2 f4 b6 c7 c4 f6 e2 c2 d3 b4 g3 g2 h2 g1 c3 f1 e4 e1 f3 d1 e3",
+        "plies": 25,
+        "termination": "winner"
+      }
+    },
+    {
+      "encoded": "B9 g4 g6 c6",
+      "scores": {
+        "5": 75.1,
+        "25": -94.5,
+        "100": 0.6999999999999886
+      },
+      "strongest": {
+        "move": 41,
+        "depth": 5,
+        "nodes": 44160,
+        "timedOut": true
+      },
+      "playout": {
+        "winner": 2,
+        "final": "B9 g4 g6 c6 f5 e4 d5 c4 f4 c7 c5 b5 e3 e8 g5 e5 d2 h6 c1",
+        "plies": 15,
+        "termination": "winner"
+      }
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "masterRevision": "4c9b1078a3b46e9e10dd0b338aee484a02372581",
+  "ply": 3,
+  "boardSize": 9,
+  "includeTranslationSymmetry": false,
+  "includeColorSymmetry": false,
+  "seed": 1,
+  "evaluationMs": [
+    5,
+    25,
+    100
+  ],
+  "playoutMs": 75,
+  "maxPlayoutPlies": 500,
+  "winsPerColor": 50,
+  "screeningMs": 10000,
+  "screeningMaxDepth": 64,
+  "screenedPoolSize": 300
+}
