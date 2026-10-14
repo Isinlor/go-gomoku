@@ -100,8 +100,6 @@ export class GogoAI {
   private triedMoveMarks = new Uint32Array(0);
   private proofAttackMarks = new Uint8Array(0);
   private triedMoveEpoch = 1;
-  private tacticalLibertyMarks = new Uint32Array(0);
-  private tacticalLibertyEpoch = 1;
   private scorerGroupMarks = new Uint32Array(0);
   private scorerGroupEpoch = 1;
   private scoredGroupEpoch = new Uint32Array(0);
@@ -342,8 +340,6 @@ export class GogoAI {
     this.triedMoveMarks = new Uint32Array(area);
     this.proofAttackMarks = new Uint8Array(area * (this.maxPly + 1));
     this.triedMoveEpoch = 1;
-    this.tacticalLibertyMarks = new Uint32Array(area);
-    this.tacticalLibertyEpoch = 1;
     this.scorerGroupMarks = new Uint32Array(area);
     this.scorerGroupEpoch = 1;
     this.scoredGroupEpoch = new Uint32Array(area);
@@ -497,7 +493,7 @@ export class GogoAI {
         // Keep immediate wins on the normal search/proof path so their scores
         // and outcome flags retain their meaning.
         if (position.winner !== EMPTY) return -1;
-        if (!this.hasImmediateWin(position)) {
+        if (this.findImmediateWin(position) === -1) {
           if (reply !== -1) return -1;
           reply = move;
         }
@@ -508,7 +504,7 @@ export class GogoAI {
     return reply;
   }
 
-  private hasImmediateWin(position: GogoPosition): boolean {
+  private findImmediateWin(position: GogoPosition): number {
     this.ensureBuffers(position.area);
     this.beginWindowPass(position);
     const mine = position.toMove === BLACK ? this.windowBlack : this.windowWhite;
@@ -523,11 +519,11 @@ export class GogoAI {
         for (let offset = 0; offset < 5; offset += 1) {
           const point = position.meta.windows[wi * 5 + offset];
           // Completing five is legal even in suicide; only occupancy and ko matter.
-          if (position.board[point] === EMPTY && point !== position.koPoint) return true;
+          if (position.board[point] === EMPTY && point !== position.koPoint) return point;
         }
       }
     }
-    return false;
+    return -1;
   }
 
   private pickFallbackMove(position: GogoPosition): number {
@@ -538,18 +534,13 @@ export class GogoAI {
 
     const moves = this.moveBuffers[0];
     const scores = this.scoreBuffers[0];
-    let count = this.generateOrderedMoves(position, moves, scores, -1, false);
-    for (let i = 0; i < count; i += 1) {
-      if (position.play(moves[i])) {
-        this.fallbackWins = position.winner !== EMPTY;
-        position.undo();
-        return moves[i];
-      }
-    }
-
-    count = this.generateFullBoardMoves(position, moves, scores, -1, false);
-    for (let i = 0; i < count; i += 1) {
-      if (position.play(moves[i])) {
+    // Broaden to distant moves only if every nearby candidate is illegal.
+    for (let stage = 0; stage < 2; stage += 1) {
+      const count = stage === 0
+        ? this.generateOrderedMoves(position, moves, scores, -1, false)
+        : this.generateFullBoardMoves(position, moves, scores, -1, false);
+      for (let i = 0; i < count; i += 1) {
+        if (!position.play(moves[i])) continue;
         this.fallbackWins = position.winner !== EMPTY;
         position.undo();
         return moves[i];
@@ -636,18 +627,19 @@ export class GogoAI {
     const moves = this.moveBuffers[0];
     const scores = this.scoreBuffers[0];
 
-    let count = this.generateOrderedMoves(position, moves, scores, hintMove, false);
-    // The first pass considers every candidate. Deeper discovery follows the
-    // strongest ordered moves so short budgets can finish another iteration.
-    // Exact proof searches retain the complete root move set.
-    if (!this.proofMode && depth > 1 && count > MAX_CANDIDATES) count = MAX_CANDIDATES;
     let alpha = -WIN_SCORE;
     let bestMove = -1;
     let bestScore = -WIN_SCORE;
     let legalCount = 0;
-    let usedFullBoard = false;
 
-    for (;;) {
+    // Search nearby candidates first, broadening only when none is legal.
+    for (let stage = 0; stage < 2; stage += 1) {
+      let count = stage === 0
+        ? this.generateOrderedMoves(position, moves, scores, hintMove, false)
+        : this.generateFullBoardMoves(position, moves, scores, hintMove, false);
+      // The first iteration considers every candidate. Deeper discovery caps
+      // nearby moves; proof searches and full-board fallbacks remain complete.
+      if (stage === 0 && !this.proofMode && depth > 1 && count > MAX_CANDIDATES) count = MAX_CANDIDATES;
       for (let i = 0; i < count; i += 1) {
         const move = moves[i];
         if (!position.play(move)) {
@@ -680,23 +672,21 @@ export class GogoAI {
         // Exact numeric searches still stop only at an immediate win.
         if (alpha >= WIN_SCORE - (this.proofMode ? 1 : depth)) break;
       }
-      if (legalCount !== 0 || usedFullBoard) {
-        return {
-          move: legalCount === 0 ? -1 : bestMove,
-          score: legalCount === 0 ? 0 : bestScore,
-          depth,
-          nodes: this.nodesVisited,
-          timedOut: false,
-          forcedDefensiveMove: false,
-          forcedWin: false,
-          forcedLoss: false,
-          heuristicWin: false,
-          heuristicLoss: false,
-        };
-      }
-      count = this.generateFullBoardMoves(position, moves, scores, hintMove, false);
-      usedFullBoard = true;
+      if (legalCount !== 0) break;
     }
+
+    return {
+      move: legalCount === 0 ? -1 : bestMove,
+      score: legalCount === 0 ? 0 : bestScore,
+      depth,
+      nodes: this.nodesVisited,
+      timedOut: false,
+      forcedDefensiveMove: false,
+      forcedWin: false,
+      forcedLoss: false,
+      heuristicWin: false,
+      heuristicLoss: false,
+    };
   }
 
   private search(position: GogoPosition, depth: number, alpha: number, beta: number, ply: number, canNullMove = true): number {
@@ -714,17 +704,17 @@ export class GogoAI {
     const hash = position.hash;
     const ttIndex = Number(hash & TT_MASK);
     let ttBest = -1;
-    // Always extract bestMove hint for ordering (even when flags are cleared)
+    // Extract ordering hints even when the score flag was cleared. Score
+    // cutoffs additionally require a valid entry at sufficient depth.
     if (this.ttHash[ttIndex] === hash) {
       ttBest = this.ttBestMove[ttIndex];
-    }
-    // Score cutoffs require a valid flag entry at sufficient depth
-    if (this.ttHash[ttIndex] === hash && this.ttFlag[ttIndex] !== TT_NONE && this.ttDepth[ttIndex] >= depth) {
-      const ttFlag = this.ttFlag[ttIndex];
-      const ttScore = this.ttAdjustRetrieve(this.ttScore[ttIndex], ply);
-      if (ttFlag === TT_EXACT) return ttScore;
-      if (ttFlag === TT_LOWERBOUND && ttScore >= beta) return ttScore;
-      if (ttFlag === TT_UPPERBOUND && ttScore <= alpha) return ttScore;
+      if (this.ttFlag[ttIndex] !== TT_NONE && this.ttDepth[ttIndex] >= depth) {
+        const ttFlag = this.ttFlag[ttIndex];
+        const ttScore = this.ttAdjustRetrieve(this.ttScore[ttIndex], ply);
+        if (ttFlag === TT_EXACT) return ttScore;
+        if (ttFlag === TT_LOWERBOUND && ttScore >= beta) return ttScore;
+        if (ttFlag === TT_UPPERBOUND && ttScore <= alpha) return ttScore;
+      }
     }
 
     // Null move pruning: if we give the opponent a free move and they still
@@ -754,22 +744,26 @@ export class GogoAI {
       }
     }
 
-    const hintMove = ttBest !== -1 ? ttBest : -1;
+    const hintMove = ttBest;
     const moves = this.moveBuffers[ply];
     const scores = this.scoreBuffers[ply];
     const responses = this.findThreatResponses(position, ply);
-    let count = responses >= 0 ? responses : this.generateOrderedMoves(position, moves, scores, hintMove, false, ply);
     let wasCapped = false;
-    if (!this.proofMode && count > MAX_CANDIDATES) {
-      count = MAX_CANDIDATES;
-      wasCapped = true;
-    }
-    let usedFullBoard = false;
     let legalCount = 0;
     let bestScore = -WIN_SCORE;
     let bestMove = -1;
 
-    for (;;) {
+    for (let stage = 0; stage < 2; stage += 1) {
+      let count: number;
+      if (stage === 0) {
+        count = responses >= 0 ? responses : this.generateOrderedMoves(position, moves, scores, hintMove, false, ply);
+      } else {
+        count = this.generateFullBoardMoves(position, moves, scores, hintMove, false, ply);
+      }
+      if (!this.proofMode && count > MAX_CANDIDATES) {
+        count = MAX_CANDIDATES;
+        wasCapped = true;
+      }
       for (let i = 0; i < count; i += 1) {
         const move = moves[i];
         if (!position.play(move)) {
@@ -806,28 +800,15 @@ export class GogoAI {
           bestScore = score;
           bestMove = move;
         }
-        if (score > alpha) {
-          alpha = score;
-          if (alpha >= beta) {
-            this.history[(position.toMove - 1) * this.bufferArea + move] += depth * depth * HISTORY_SCALE;
-            // Update killer moves for this ply
-            if (this.killerMoves[ply * 2] !== move) {
-              this.killerMoves[ply * 2 + 1] = this.killerMoves[ply * 2];
-              this.killerMoves[ply * 2] = move;
-            }
-            break;
-          }
+        if (score <= alpha) continue;
+        alpha = score;
+        if (alpha >= beta) {
+          this.history[(position.toMove - 1) * this.bufferArea + move] += depth * depth * HISTORY_SCALE;
+          this.recordKillerMove(ply, move);
+          break;
         }
       }
-      if (legalCount !== 0 || usedFullBoard) {
-        break;
-      }
-      count = this.generateFullBoardMoves(position, moves, scores, hintMove, false, ply);
-      if (!this.proofMode && count > MAX_CANDIDATES) {
-        count = MAX_CANDIDATES;
-        wasCapped = true;
-      }
-      usedFullBoard = true;
+      if (legalCount !== 0) break;
     }
 
     if (legalCount === 0) {
@@ -842,17 +823,13 @@ export class GogoAI {
     const storeFlag = bestScore <= origAlpha ? TT_UPPERBOUND
                     : alpha >= beta ? TT_LOWERBOUND
                     : TT_EXACT;
+    this.ttHash[ttIndex] = hash;
+    this.ttBestMove[ttIndex] = bestMove;
+    this.ttFlag[ttIndex] = TT_NONE;
     if (!wasCapped || storeFlag === TT_LOWERBOUND) {
-      this.ttHash[ttIndex] = hash;
       this.ttScore[ttIndex] = this.ttAdjustStore(bestScore, ply);
       this.ttDepth[ttIndex] = depth;
       this.ttFlag[ttIndex] = storeFlag;
-      this.ttBestMove[ttIndex] = bestMove;
-    } else {
-      // Still store best move for ordering even if we don't store the score
-      this.ttHash[ttIndex] = hash;
-      this.ttBestMove[ttIndex] = bestMove;
-      this.ttFlag[ttIndex] = TT_NONE;
     }
 
     return bestScore;
@@ -888,7 +865,7 @@ export class GogoAI {
     // A large positive static score suggests an own four. Confirm its legality
     // exactly before avoiding tactical generation; smaller scores take the
     // normal path without an extra window scan.
-    if (standPat >= EVAL_WEIGHTS[4] / 2 && this.hasImmediateWin(position)) {
+    if (standPat >= EVAL_WEIGHTS[4] / 2 && this.findImmediateWin(position) !== -1) {
       return store(WIN_SCORE - ply - 1);
     }
 
@@ -924,12 +901,9 @@ export class GogoAI {
       if (score > bestScore) {
         bestScore = score;
       }
-      if (score > alpha) {
-        alpha = score;
-        if (alpha >= beta) {
-          return store(score);
-        }
-      }
+      if (score <= alpha) continue;
+      alpha = score;
+      if (alpha >= beta) return store(score);
     }
 
     return store(legalCount === 0 ? standPat : bestScore);
@@ -1087,9 +1061,7 @@ export class GogoAI {
       }
     }
 
-    if (count > 1) {
-      sortMovesDescending(moves, scores, count);
-    }
+    sortMovesDescending(moves, scores, count);
     return count;
   }
 
@@ -1124,33 +1096,19 @@ export class GogoAI {
         const mine = mineCounts[windowIndex];
         const theirs = theirCounts[windowIndex];
         if (!((theirs === 0 && mine >= minimumStones) || (!attackingOnly && mine === 0 && theirs >= 3))) continue;
-        let emptyCount = 0;
-        let empty0 = -1;
-        let empty1 = -1;
-        let empty2 = -1;
-
+        // Every empty point of a qualifying window is a candidate. Mark it
+        // directly; the epoch already deduplicates overlapping windows.
         for (let offset = 0; offset < 5; offset += 1) {
           const point = windows[base + offset];
-          const cell = board[point];
-          if (cell === EMPTY && point !== position.koPoint) {
-            if (emptyCount === 0) empty0 = point;
-            else if (emptyCount === 1) empty1 = point;
-            else empty2 = point;
-            emptyCount += 1;
+          if (board[point] === EMPTY && point !== position.koPoint) {
+            this.markTacticalCandidate(point);
           }
-        }
-
-        if (theirs === 0 && mine >= minimumStones && emptyCount !== 0) {
-          this.insertTacticalWindowMoves(emptyCount, empty0, empty1, empty2, -1, -1);
-        }
-        if (!attackingOnly && mine === 0 && theirs >= 3 && emptyCount !== 0) {
-          this.insertTacticalWindowMoves(emptyCount, empty0, empty1, empty2, -1, -1);
         }
       }
     }
 
-    this.appendGroupTacticalMoves(position, opponent, true);
-    if (!attackingOnly) this.appendGroupTacticalMoves(position, player, false);
+    this.appendGroupTacticalMoves(position, opponent);
+    if (!attackingOnly) this.appendGroupTacticalMoves(position, player);
 
     let count = 0;
     for (let move = 0; move < position.area; move += 1) {
@@ -1165,31 +1123,13 @@ export class GogoAI {
       scores[count] = score;
       count += 1;
     }
-    if (count > 1) {
-      sortMovesDescending(moves, scores, count);
-    }
+    sortMovesDescending(moves, scores, count);
     return count;
-  }
-
-  private insertTacticalWindowMoves(
-    emptyCount: number,
-    empty0: number,
-    empty1: number,
-    empty2: number,
-    empty3: number,
-    empty4: number,
-  ): void {
-    if (emptyCount >= 1) this.markTacticalCandidate(empty0);
-    if (emptyCount >= 2) this.markTacticalCandidate(empty1);
-    if (emptyCount >= 3) this.markTacticalCandidate(empty2);
-    if (emptyCount >= 4) this.markTacticalCandidate(empty3);
-    if (emptyCount >= 5) this.markTacticalCandidate(empty4);
   }
 
   private appendGroupTacticalMoves(
     position: GogoPosition,
     groupColor: Player,
-    isCapture: boolean,
   ): void {
     const board = position.board;
     const neighbors = position.meta.neighbors4;
@@ -1205,23 +1145,9 @@ export class GogoAI {
       for (let index = 0; index < size; index += 1) {
         this.scorerGroupMarks[position.groupBuffer[index]] = groupEpoch;
       }
-      let bonus = 0;
-      if (isCapture) {
-        if (liberties === 1) {
-          bonus = CAPTURE_BONUS + (size * 300);
-        } else if (liberties === 2) {
-          bonus = size * 30;
-        }
-      } else if (liberties === 1) {
-        bonus = ESCAPE_BONUS + (size * 250);
-      } else if (liberties === 2) {
-        bonus = size * 20;
-      }
-      if (bonus === 0) {
-        continue;
-      }
-      this.tacticalLibertyEpoch += 1;
-      const libertyEpoch = this.tacticalLibertyEpoch;
+      // Both captures and escapes are tactical only at one or two liberties.
+      // Their distinct bonuses are applied by scoreMove, after deduplication.
+      if (liberties !== 1 && liberties !== 2) continue;
       for (let index = 0; index < size; index += 1) {
         const stone = position.groupBuffer[index];
         const neighborBase = stone * 4;
@@ -1230,12 +1156,11 @@ export class GogoAI {
           if (
             neighbor === -1 ||
             board[neighbor] !== EMPTY ||
-            neighbor === position.koPoint ||
-            this.tacticalLibertyMarks[neighbor] === libertyEpoch
+            neighbor === position.koPoint
           ) {
             continue;
           }
-          this.tacticalLibertyMarks[neighbor] = libertyEpoch;
+          // Marking is idempotent, including liberties shared by group stones.
           this.markTacticalCandidate(neighbor);
         }
       }
@@ -1268,9 +1193,7 @@ export class GogoAI {
       scores[count] = score;
       count += 1;
     }
-    if (count > 1) {
-      sortMovesDescending(moves, scores, count);
-    }
+    sortMovesDescending(moves, scores, count);
     return count;
   }
 
@@ -1284,17 +1207,16 @@ export class GogoAI {
 
   private primeScoredGroupInfo(position: GogoPosition, point: number, color: Player): void {
     this.beginScoredGroupPass(position);
-    if (this.scoredGroupEpoch[point] !== this.scoredGroupPassEpoch) {
-      const liberties = position.scanGroup(point, color);
-      const size = position.scanGroupSize;
-      const root = position.groupBuffer[0];
-      for (let i = 0; i < size; i += 1) {
-        const stone = position.groupBuffer[i];
-        this.scoredGroupEpoch[stone] = this.scoredGroupPassEpoch;
-        this.scoredGroupLiberties[stone] = liberties;
-        this.scoredGroupSizes[stone] = size;
-        this.scoredGroupRoots[stone] = root;
-      }
+    if (this.scoredGroupEpoch[point] === this.scoredGroupPassEpoch) return;
+    const liberties = position.scanGroup(point, color);
+    const size = position.scanGroupSize;
+    const root = position.groupBuffer[0];
+    for (let i = 0; i < size; i += 1) {
+      const stone = position.groupBuffer[i];
+      this.scoredGroupEpoch[stone] = this.scoredGroupPassEpoch;
+      this.scoredGroupLiberties[stone] = liberties;
+      this.scoredGroupSizes[stone] = size;
+      this.scoredGroupRoots[stone] = root;
     }
   }
 
@@ -1325,58 +1247,31 @@ export class GogoAI {
       return this.finalizeMoveScore(position, move, player, pattern, hintMove, ply);
     }
 
-    let capturePressure = 0;
-    let escapePressure = 0;
+    let groupPressure = 0;
     const neighbors = meta.neighbors4;
     const neighborBase = move * 4;
     this.scorerGroupEpoch += 1;
     for (let offset = 0; offset < 4; offset += 1) {
       const neighbor = neighbors[neighborBase + offset];
-      if (neighbor === -1) {
-        continue;
-      }
-      const cell = board[neighbor];
-      if (cell === opponent) {
-        this.primeScoredGroupInfo(position, neighbor, opponent);
-        const root = this.scoredGroupRoots[neighbor];
-        if (this.scorerGroupMarks[root] === this.scorerGroupEpoch) {
-          continue;
-        }
-        this.scorerGroupMarks[root] = this.scorerGroupEpoch;
-        const liberties = this.scoredGroupLiberties[neighbor];
-        const size = this.scoredGroupSizes[neighbor];
-        if (liberties === 1) {
-          capturePressure += CAPTURE_BONUS + (size * 300);
-        } else if (liberties === 2) {
-          capturePressure += size * 30;
-        }
-      } else if (cell === player) {
-        this.primeScoredGroupInfo(position, neighbor, player);
-        const root = this.scoredGroupRoots[neighbor];
-        if (this.scorerGroupMarks[root] === this.scorerGroupEpoch) {
-          continue;
-        }
-        this.scorerGroupMarks[root] = this.scorerGroupEpoch;
-        const liberties = this.scoredGroupLiberties[neighbor];
-        const size = this.scoredGroupSizes[neighbor];
-        if (liberties === 1) {
-          escapePressure += ESCAPE_BONUS + (size * 250);
-        } else if (liberties === 2) {
-          escapePressure += size * 20;
-        }
+      if (neighbor === -1 || board[neighbor] === EMPTY) continue;
+      const cell = board[neighbor] as Player;
+      this.primeScoredGroupInfo(position, neighbor, cell);
+      const root = this.scoredGroupRoots[neighbor];
+      if (this.scorerGroupMarks[root] === this.scorerGroupEpoch) continue;
+      this.scorerGroupMarks[root] = this.scorerGroupEpoch;
+      const liberties = this.scoredGroupLiberties[neighbor];
+      const size = this.scoredGroupSizes[neighbor];
+      // Captures and escapes share group traversal and deduplication. Only
+      // their weights differ; groups with more liberties exert no pressure.
+      if (liberties === 1) {
+        groupPressure += cell === opponent ? CAPTURE_BONUS + size * 300 : ESCAPE_BONUS + size * 250;
+      } else if (liberties === 2) {
+        groupPressure += size * (cell === opponent ? 30 : 20);
       }
     }
 
-    if (
-      tacticalOnly &&
-      pattern < TACTICAL_PATTERN_THRESHOLD &&
-      capturePressure === 0 &&
-      escapePressure === 0
-    ) {
-      return NO_SCORE;
-    }
-
-    return this.finalizeMoveScore(position, move, player, pattern + capturePressure + escapePressure, hintMove, ply);
+    if (tacticalOnly && groupPressure === 0) return NO_SCORE;
+    return this.finalizeMoveScore(position, move, player, pattern + groupPressure, hintMove, ply);
   }
 
   private insertOrPromoteMove(moves: Int16Array, scores: Float64Array, count: number, move: number, score: number): number {
@@ -1389,13 +1284,8 @@ export class GogoAI {
     for (let index = 0; index < count; index += 1) {
       if (moves[index] !== move) continue;
       if (score <= scores[index]) return count;
-      while (index > 0 && score > scores[index - 1]) {
-        moves[index] = moves[index - 1];
-        scores[index] = scores[index - 1];
-        index -= 1;
-      }
-      moves[index] = move;
-      scores[index] = score;
+      // Reinsert within the existing prefix, preserving stable equal scores.
+      insertMoveDescending(moves, scores, index, move, score);
       return count;
     }
 
@@ -1546,24 +1436,10 @@ export class GogoAI {
 
     // Completing five is legal even in suicide: only occupancy and ko can
     // forbid the point. Recognize it before generating and scoring attacks.
-    this.beginWindowPass(position);
-    const ownCounts = position.toMove === BLACK ? this.windowBlack : this.windowWhite;
-    const enemyCounts = position.toMove === BLACK ? this.windowWhite : this.windowBlack;
-    for (let word = 0; word < this.activeWindows.length; word += 1) {
-      let bits = this.activeWindows[word];
-      while (bits !== 0) {
-        const bit = bits & -bits;
-        bits ^= bit;
-        const wi = word * 32 + 31 - Math.clz32(bit);
-        if (ownCounts[wi] !== 4 || enemyCounts[wi] !== 0) continue;
-        for (let offset = 0; offset < 5; offset += 1) {
-          const move = position.meta.windows[wi * 5 + offset];
-          if (position.board[move] === EMPTY && move !== position.koPoint) {
-            this.storeProofTT(ttIdx, hash, depthLeft, 1, move);
-            return true;
-          }
-        }
-      }
+    const winningMove = this.findImmediateWin(position);
+    if (winningMove !== -1) {
+      this.storeProofTT(ttIdx, hash, depthLeft, 1, winningMove);
+      return true;
     }
 
     // With one attacking turn left, only completing an existing four can win.
@@ -1614,7 +1490,8 @@ export class GogoAI {
 
   /**
    * Defender (AND node): ALL legal moves must fail to refute the attacker's win.
-   * Generates ALL legal moves. If any defense survives, return false (not proven).
+   * Try defenses in stages, returning false as soon as a refutation survives.
+   * Loss verification exhausts the full board unless immediate threats suffice.
    */
   private proofDefend(position: GogoPosition, depthLeft: number, ply: number): boolean {
     this.checkTime(false);
@@ -1638,119 +1515,68 @@ export class GogoAI {
     if (ttBest === -1) ttBest = this.killerMoves[ply * 2];
 
     let anyLegalCount = 0;
-    const triedEpoch = this.triedMoveEpoch;
-    this.triedMoveEpoch += 1;
+    const triedEpoch = this.triedMoveEpoch++;
+    const moves = this.moveBuffers[ply];
+    const scores = this.scoreBuffers[ply];
+    const HINTS = 0;
+    const THREATS = 1;
+    const TACTICAL = 2;
+    const NEARBY = 3;
+    const FULL_BOARD = 4;
 
-    // Hash move first: try the TT best move (refutation from previous iteration)
-    // before generating all moves. Skips expensive move generation when refutation holds.
-    if (ttBest !== -1 && position.board[ttBest] === EMPTY && ttBest !== position.koPoint) {
-      this.triedMoveMarks[ttBest] = triedEpoch;
-      if (position.play(ttBest)) {
+    // Generate each stage only after the preceding defenses fail. All stages
+    // share the same legality, refutation, and undo path; epoch marks prevent
+    // a defense from being searched twice. Hints can refute before any scoring.
+    for (let stage = HINTS; stage <= FULL_BOARD; stage += 1) {
+      let count: number;
+      switch (stage) {
+        case HINTS:
+          moves[0] = ttBest;
+          moves[1] = this.killerMoves[ply * 2 + 1];
+          count = 2;
+          break;
+        case THREATS:
+          count = this.findThreatResponses(position, ply);
+          break;
+        case TACTICAL:
+          count = this.generateOrderedMoves(position, moves, scores, -1, true, ply);
+          break;
+        case NEARBY:
+          count = this.generateOrderedMoves(position, moves, scores, -1, false, ply);
+          break;
+        default:
+          count = this.generateFullBoardMoves(position, moves, scores, -1, false, ply);
+      }
+
+      let stageLegalCount = 0;
+      for (let i = 0; i < count; i += 1) {
+        const move = moves[i];
+        if (stage === HINTS && (move === -1 || position.board[move] !== EMPTY || move === position.koPoint)) continue;
+        if (this.triedMoveMarks[move] === triedEpoch) continue;
+        this.triedMoveMarks[move] = triedEpoch;
+        if (!position.play(move)) continue;
         anyLegalCount += 1;
+        stageLegalCount += 1;
         try {
-          if (!(position.winner === EMPTY && this.proofAttack(position, depthLeft - 1, ply + 1))) {
-            this.recordProofRefutation(ply, ttBest);
-            this.storeProofTT(ttIdx, hash, depthLeft, -1, ttBest);
+          if (position.winner !== EMPTY || !this.proofAttack(position, depthLeft - 1, ply + 1)) {
+            this.recordKillerMove(ply, move);
+            this.storeProofTT(ttIdx, hash, depthLeft, -1, move);
             return false;
           }
         } finally {
           position.undo();
         }
       }
-    }
 
-    const secondKiller = this.killerMoves[ply * 2 + 1];
-    if (secondKiller !== -1 && secondKiller !== ttBest && position.board[secondKiller] === EMPTY && secondKiller !== position.koPoint) {
-      this.triedMoveMarks[secondKiller] = triedEpoch;
-      if (position.play(secondKiller)) {
-        anyLegalCount += 1;
-        try {
-          if (!(position.winner === EMPTY && this.proofAttack(position, depthLeft - 1, ply + 1))) {
-            this.recordProofRefutation(ply, secondKiller);
-            this.storeProofTT(ttIdx, hash, depthLeft, -1, secondKiller);
-            return false;
-          }
-        } finally {
-          position.undo();
-        }
-      }
-    }
-
-    // Must-respond threat restriction: when the attacker has an immediate
-    // winning threat (open four), the defender MUST address it — either by
-    // blocking, capturing attacker stones, or winning immediately.
-    // Any other move allows the attacker to complete the four next turn.
-    // Try restricted moves first for speed; fall through to full generation
-    // for soundness (handles exotic cases like ko blocking the threat point).
-    const threatResponses = this.findThreatResponses(position, ply);
-
-    if (threatResponses > 0) {
-      const moves = this.moveBuffers[ply];
-      for (let i = 0; i < threatResponses; i += 1) {
-        const m = moves[i];
-        if (this.triedMoveMarks[m] === triedEpoch) continue;
-        this.triedMoveMarks[m] = triedEpoch;
-        if (position.play(m)) {
-          anyLegalCount += 1;
-          try {
-            if (!(position.winner === EMPTY && this.proofAttack(position, depthLeft - 1, ply + 1))) {
-              this.recordProofRefutation(ply, m);
-              this.storeProofTT(ttIdx, hash, depthLeft, -1, m);
-              return false;
-            }
-          } finally {
-            position.undo();
-          }
-        }
-      }
-
-      // Without a ko restriction, the restricted response set is complete:
-      // any non-response move loses immediately to the attacker's open-four threat.
-      // Skip full-board defense generation for substantial speedup in puzzle proofs.
-      if (position.koPoint === -1 && anyLegalCount > 0) {
+      // Without ko, a nonempty threat-response set is complete: every other
+      // move allows an immediate five. Ko requires the broader defense stages.
+      if (stage === THREATS && count > 0 && position.koPoint === -1 && anyLegalCount > 0) {
         this.storeProofTT(ttIdx, hash, depthLeft, 1);
         return true;
       }
-    }
-
-    // Full generation: generate ALL legal moves.
-    // Skip moves already tried in the TT-first and restricted-response stages.
-    const moves = this.moveBuffers[ply];
-    const scores = this.scoreBuffers[ply];
-    // Most failed attacks have a cheap forcing refutation. Try these before
-    // scoring all nearby defenses; a successful proof still checks both sets.
-    let count = this.generateOrderedMoves(position, moves, scores, -1, true, ply);
-    let usedOrdered = false;
-    let usedFullBoard = false;
-
-    for (;;) {
-      let stageLegalCount = 0;
-      for (let i = 0; i < count; i += 1) {
-        const m = moves[i];
-        if (this.triedMoveMarks[m] === triedEpoch) continue;
-        this.triedMoveMarks[m] = triedEpoch;
-        if (position.play(m)) {
-          anyLegalCount += 1;
-          stageLegalCount += 1;
-          try {
-            if (!(position.winner === EMPTY && this.proofAttack(position, depthLeft - 1, ply + 1))) {
-              this.recordProofRefutation(ply, m);
-              this.storeProofTT(ttIdx, hash, depthLeft, -1, m);
-              return false;
-            }
-          } finally {
-            position.undo();
-          }
-        }
-      }
-      if ((usedOrdered && !this.lossProofMode && stageLegalCount !== 0) || usedFullBoard) break;
-      if (!usedOrdered) {
-        count = this.generateOrderedMoves(position, moves, scores, -1, false, ply);
-        usedOrdered = true;
-      } else {
-        count = this.generateFullBoardMoves(position, moves, scores, -1, false, ply);
-        usedFullBoard = true;
-      }
+      // Preserve discovery's nearby-defense shortcut. Loss proofs always
+      // include distant defenses; an empty nearby set also needs the full board.
+      if (stage === NEARBY && !this.lossProofMode && stageLegalCount !== 0) break;
     }
 
     // No legal moves → neutral (not proven). Matches search()'s neutral semantics.
@@ -1760,7 +1586,7 @@ export class GogoAI {
     return true;
   }
 
-  private recordProofRefutation(ply: number, move: number): void {
+  private recordKillerMove(ply: number, move: number): void {
     if (this.killerMoves[ply * 2] !== move) {
       this.killerMoves[ply * 2 + 1] = this.killerMoves[ply * 2];
       this.killerMoves[ply * 2] = move;
@@ -1807,22 +1633,19 @@ export class GogoAI {
         const base = wi * 5;
         const atkCount = attackerCounts[wi];
         const defCount = defenderCounts[wi];
-        if (!((atkCount === 4 && defCount === 0) || (defCount === 4 && atkCount === 0))) continue;
-        let emptyCell = -1;
+        const threat = atkCount === 4 && defCount === 0;
+        const counterWin = defCount === 4 && atkCount === 0;
+        if (!threat && !counterWin) continue;
+        // A qualifying five-cell window has exactly one empty point.
+        let emptyCell = windows[base];
         for (let j = 0; j < 5; j += 1) {
-          if (board[windows[base + j]] === EMPTY) emptyCell = windows[base + j];
+          if (board[windows[base + j]] !== EMPTY) continue;
+          emptyCell = windows[base + j];
+          break;
         }
-
-        // Attacker has 4 in this window with 1 empty = immediate threat
-        if (atkCount === 4 && defCount === 0 && emptyCell !== -1 && emptyCell !== position.koPoint) {
-          hasThreat = true;
-          count = this.insertOrPromoteMove(moves, scores, count, emptyCell, 2_000_000);
-        }
-
-        // Defender has 4 in a window = can win immediately
-        if (defCount === 4 && atkCount === 0 && emptyCell !== -1 && emptyCell !== position.koPoint) {
-          count = this.insertOrPromoteMove(moves, scores, count, emptyCell, 3_000_000);
-        }
+        if (emptyCell === position.koPoint) continue;
+        if (threat) hasThreat = true;
+        count = this.insertOrPromoteMove(moves, scores, count, emptyCell, counterWin ? 3_000_000 : 2_000_000);
       }
     }
 
@@ -1837,16 +1660,15 @@ export class GogoAI {
       for (let gi = 0; gi < position.scanGroupSize; gi += 1) {
         this.scorerGroupMarks[position.groupBuffer[gi]] = this.scorerGroupEpoch;
       }
-      if (liberties === 1) {
-        // Find the single liberty cell among the group's neighbors
-        for (let gi = 0; gi < position.scanGroupSize; gi += 1) {
-          const stone = position.groupBuffer[gi];
-          const neighborBase = stone * 4;
-          for (let offset = 0; offset < 4; offset += 1) {
-            const n = meta.neighbors4[neighborBase + offset];
-            if (n !== -1 && board[n] === EMPTY && n !== position.koPoint) {
-              count = this.insertOrPromoteMove(moves, scores, count, n, 1_500_000);
-            }
+      if (liberties !== 1) continue;
+      // Find the single liberty cell among the group's neighbors.
+      for (let gi = 0; gi < position.scanGroupSize; gi += 1) {
+        const stone = position.groupBuffer[gi];
+        const neighborBase = stone * 4;
+        for (let offset = 0; offset < 4; offset += 1) {
+          const n = meta.neighbors4[neighborBase + offset];
+          if (n !== -1 && board[n] === EMPTY && n !== position.koPoint) {
+            count = this.insertOrPromoteMove(moves, scores, count, n, 1_500_000);
           }
         }
       }

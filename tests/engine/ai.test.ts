@@ -857,26 +857,6 @@ test('generateOrderedMoves tactical fast path matches brute-force scores when hi
   expect(Array.from(anyAI.scoreBuffers[0].slice(0, count))).toEqual(Array.from(expected.scores.slice(0, expected.count)));
 });
 
-test('insertTacticalWindowMoves handles empty counts from zero through five', () => {
-  const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
-  const anyAI = ai as any;
-  anyAI.ensureBuffers(81);
-
-  for (let emptyCount = 0; emptyCount <= 5; emptyCount += 1) {
-    anyAI.candidateEpoch += 1;
-    anyAI.insertTacticalWindowMoves(
-      emptyCount,
-      10,
-      11,
-      12,
-      13,
-      14,
-    );
-    const touchedMoves = [10, 11, 12, 13, 14].filter((move, index) => index < emptyCount);
-    expect(touchedMoves.filter((move) => anyAI.candidateMarks[move] === anyAI.candidateEpoch)).toEqual(touchedMoves);
-  }
-});
-
 test('appendGroupTacticalMoves returns capture moves for one- and two-liberty groups', () => {
   const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
   const anyAI = ai as any;
@@ -896,7 +876,6 @@ test('appendGroupTacticalMoves returns capture moves for one- and two-liberty gr
   anyAI.appendGroupTacticalMoves(
     captureOneLiberty,
     WHITE,
-    true,
   );
   expect(new Set(Array.from({ length: captureOneLiberty.area }, (_, move) => move)
     .filter((move) => anyAI.candidateMarks[move] === anyAI.candidateEpoch))).toEqual(new Set([
@@ -919,7 +898,6 @@ test('appendGroupTacticalMoves returns capture moves for one- and two-liberty gr
   anyAI.appendGroupTacticalMoves(
     captureTwoLiberties,
     WHITE,
-    true,
   );
   const captureMoves = new Set(Array.from({ length: captureTwoLiberties.area }, (_, move) => move)
     .filter((move) => anyAI.candidateMarks[move] === anyAI.candidateEpoch));
@@ -948,7 +926,6 @@ test('appendGroupTacticalMoves returns escape moves for one- and two-liberty gro
   anyAI.appendGroupTacticalMoves(
     escapeOneLiberty,
     BLACK,
-    false,
   );
   expect(new Set(Array.from({ length: escapeOneLiberty.area }, (_, move) => move)
     .filter((move) => anyAI.candidateMarks[move] === anyAI.candidateEpoch))).toEqual(new Set([
@@ -971,7 +948,6 @@ test('appendGroupTacticalMoves returns escape moves for one- and two-liberty gro
   anyAI.appendGroupTacticalMoves(
     escapeTwoLiberties,
     BLACK,
-    false,
   );
   const escapeMoves = new Set(Array.from({ length: escapeTwoLiberties.area }, (_, move) => move)
     .filter((move) => anyAI.candidateMarks[move] === anyAI.candidateEpoch));
@@ -1000,7 +976,6 @@ test('appendGroupTacticalMoves skips non-tactical groups', () => {
   anyAI.appendGroupTacticalMoves(
     nonTacticalGroup,
     WHITE,
-    true,
   );
   expect(Array.from({ length: nonTacticalGroup.area }, (_, move) => move)
     .some((move) => anyAI.candidateMarks[move] === anyAI.candidateEpoch)).toBe(false);
@@ -1021,7 +996,6 @@ test('appendGroupTacticalMoves skips non-tactical groups', () => {
   anyAI.appendGroupTacticalMoves(
     threeLibertyGroup,
     WHITE,
-    true,
   );
   expect(Array.from({ length: threeLibertyGroup.area }, (_, move) => move)
     .some((move) => anyAI.candidateMarks[move] === anyAI.candidateEpoch)).toBe(false);

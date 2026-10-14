@@ -56,12 +56,12 @@ test('immediate threat detection excludes ko and windows blocked by the opponent
     '.........', '.........', '.........', '.........',
     '.........', '.........', '.........', '.........',
   ], BLACK);
-  const detector = ai as unknown as { hasImmediateWin(position: GogoPosition): boolean };
-  expect(detector.hasImmediateWin(position)).toBe(true);
+  const detector = ai as unknown as { findImmediateWin(position: GogoPosition): number };
+  expect(detector.findImmediateWin(position)).toBe(position.index(4, 0));
   position.koPoint = decodeMove('e1', 9);
-  expect(detector.hasImmediateWin(position)).toBe(false);
+  expect(detector.findImmediateWin(position)).toBe(-1);
   position.board[decodeMove('e1', 9)] = WHITE;
-  expect(detector.hasImmediateWin(position)).toBe(false);
+  expect(detector.findImmediateWin(position)).toBe(-1);
 });
 
 test.each([BLACK, WHITE])('detects every location of the missing stone for attacker %s', (attacker) => {

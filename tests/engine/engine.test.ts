@@ -106,6 +106,16 @@ test('constructor, parser, coordinates, and helpers validate inputs', () => {
   expect(symbolGame.at(3, 0)).toBe(WHITE);
   expect(symbolGame.at(4, 0)).toBe(WHITE);
 
+  // Every accepted alias has the same canonical board and stone count.
+  const aliases = GogoPosition.fromAscii([
+    '.+XxBbOoW', 'w........', ...Array(7).fill('.........'),
+  ]);
+  expect(aliases.toAscii()).toEqual([
+    '..XXXXOOO', 'O........', ...Array(7).fill('.........'),
+  ]);
+  expect(aliases.stoneCount).toBe(8);
+  expect(aliases.hash).toBe(computeZobristHashes(aliases));
+
   const game = new GogoPosition(9);
   expect(game.index(-1, 0)).toBe(-1);
   expect(game.index(0, 9)).toBe(-1);
@@ -118,6 +128,9 @@ test('constructor, parser, coordinates, and helpers validate inputs', () => {
   expect(game.play(game.index(4, 4))).toBe(false);
   game.undo();
   expect(game.undo()).toBe(false);
+  game.board[0] = 3;
+  expect(game.toAscii()[0]).toBe('.........');
+  game.board[0] = EMPTY;
   expect(symbolGame.toAscii()).toEqual([
     '.XXOO....',
     '.........',
