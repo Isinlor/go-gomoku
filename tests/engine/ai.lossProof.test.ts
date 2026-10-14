@@ -154,3 +154,27 @@ test('a stale illegal heuristic winning reply leaves a loss unproven', () => {
   expect(position.hash).toBe(hash);
   expect(ai.lossProofMode).toBe(false);
 });
+
+test('loss proof reuses an independently verified opponent reply across root defenses', () => {
+  const position = GogoPosition.fromAscii(['.BBBB....', ...blank], WHITE);
+  const ai = proofAI(position);
+  const search = ai.searchDepths.bind(ai);
+  let discoveries = 0;
+  ai.searchDepths = (...args: any[]) => { discoveries++; return search(...args); };
+  expect(ai.proofSearchRoot(position, 2, -1)).toBe(-1_000_000_000 + 2);
+  expect(discoveries).toBeLessThanOrEqual(2);
+  expect(position.ply).toBe(0);
+  expect(ai.lossProofMode).toBe(false);
+});
+
+test('loss verification proves legal discovery hints before repeating child discovery', () => {
+  const position = GogoPosition.fromAscii(['.BBBB....', ...blank], WHITE);
+  const ai = proofAI(position);
+  ai.searchRoot(position, 2, -1);
+  const search = ai.searchDepths.bind(ai);
+  let discoveries = 0;
+  ai.searchDepths = (...args: any[]) => { discoveries++; return search(...args); };
+  expect(ai.proofSearchRoot(position, 2, -1)).toBe(-1_000_000_000 + 2);
+  expect(discoveries).toBe(0);
+  expect(position.ply).toBe(0);
+});

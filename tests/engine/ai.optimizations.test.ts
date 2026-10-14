@@ -25,6 +25,18 @@ test.each([9, 11, 13] as const)('AI window counts follow moves, captures, undo, 
     expect(Array.from(ai.windowWhite.slice(0, position.meta.windowCount))).toEqual(expectedWhite);
     ai.beginPatternPass(position);
     expect(ai.windowEvaluation).toBe(expectedEvaluation);
+    let local = 0;
+    for (let point = 0; point < position.area; point++) {
+      const cell = position.board[point];
+      if (cell === 0) continue;
+      const neighbors = Array.from(position.meta.neighbors4.slice(point * 4, point * 4 + 4));
+      const liberties = neighbors.filter(n => n !== -1 && position.board[n] === 0).length;
+      const score = position.meta.centerBias[point] * 0.9 + [-200, -80, 20, 60, 80][liberties];
+      local += cell === BLACK ? score : -score;
+    }
+    const evaluationScore = (expectedEvaluation + local) * (position.toMove === BLACK ? 1 : -1);
+    expect(ai.evaluate(position)).toBeCloseTo(evaluationScore, 8);
+
     const attack = [0, 12, 72, 540, 100_000, 500_000];
     const defense = [0, 16, 96, 720, 100_000, 500_000];
     const actualPatterns: number[][] = [];
@@ -232,4 +244,139 @@ test('a heuristic score is never accepted as an exact proof', () => {
   ai.ttFlag[index] = 1;
   expect(ai.proofAttack(position, 1, 0)).toBe(false);
   expect(position.hash).toBe(hash);
+});
+
+test('a nonterminal defense with no remaining attacker turn fails without generating or playing moves', () => {
+  const position = GogoPosition.fromAscii([
+    '.XXXX....', '.........', '.........', '.........', '.........',
+    '.........', '.........', '.........', '.........',
+  ], WHITE);
+  const ai = new GogoAI({ now: () => 0 }) as any;
+  ai.ensureBuffers(position.area);
+  ai.deadline = Infinity;
+  const play = position.play.bind(position);
+  let plays = 0;
+  position.play = (move: number) => { plays++; return play(move); };
+  expect(ai.proofDefend(position, 1, 0)).toBe(false);
+  expect(plays).toBe(0);
+});
+
+test('short attacking proofs generate own threats and captures without defensive three extensions', () => {
+  const position = GogoPosition.fromAscii([
+    '.XXX.....', '.........', '.........', '.........', '.........',
+    '.........', '.OOO.....', '.........', '.......XO',
+  ], BLACK);
+  const ai = new GogoAI({ now: () => 0 }) as any;
+  ai.ensureBuffers(position.area);
+  const count = ai.generateTacticalMoves(position, ai.moveBuffers[0], ai.scoreBuffers[0], -1, 0, true);
+  const moves = Array.from(ai.moveBuffers[0].slice(0, count));
+  expect(moves).toContain(0);
+  expect(moves).toContain(4);
+  expect(moves).toContain(71); // capture the corner white stone
+  expect(moves).not.toContain(54);
+  expect(moves).not.toContain(58);
+});
+
+test('static evaluation updates only stones affected by a board change', () => {
+  const position = GogoPosition.fromAscii([
+    'X.X.X.X.X', '.........', '.........', '.........', '....O....',
+    '.........', '.........', '.........', 'O.O.O.O.O',
+  ], BLACK);
+  const ai = new GogoAI() as any;
+  ai.ensureBuffers(position.area);
+  ai.evaluate(position);
+  let reads = 0;
+  const original = position.meta.centerBias;
+  const meta = Object.create(position.meta);
+  meta.centerBias = new Proxy(original, { get(target, key) {
+    if (typeof key === 'string' && /^\d+$/.test(key)) reads++;
+    return Reflect.get(target, key, target);
+  } });
+  Object.defineProperty(position, 'meta', { value: meta });
+  position.playXY(4, 3);
+  ai.evaluate(position);
+  expect(reads).toBeLessThan(5);
+});
+
+test('proof defenses reuse a refutation from another position at the same ply', () => {
+  const ai = new GogoAI({ now: () => 0 }) as any;
+  const rows = ['.XX......', ...Array(8).fill('.........')];
+  const first = GogoPosition.fromAscii(rows, WHITE);
+  ai.ensureBuffers(first.area);
+  ai.deadline = Infinity;
+  ai.resetProofSearch();
+  expect(ai.proofDefend(first, 3, 1)).toBe(false);
+  const second = GogoPosition.fromAscii([...rows.slice(0, 8), '........X'], WHITE);
+  const gen = ai.generateOrderedMoves.bind(ai);
+  let generations = 0;
+  ai.generateOrderedMoves = (...args: any[]) => { generations++; return gen(...args); };
+  expect(ai.proofDefend(second, 3, 1)).toBe(false);
+  expect(generations).toBe(0);
+  expect(second.ply).toBe(0);
+});
+
+test('setup attack generation includes own two-stone extensions without unrelated defensive extensions', () => {
+  const position = GogoPosition.fromAscii([
+    '.XX......', '.........', '.........', '.........', '.........',
+    '.........', '.OOO.....', '.........', '.........',
+  ], BLACK);
+  const ai = new GogoAI() as any;
+  ai.ensureBuffers(position.area);
+  const count = ai.generateTacticalMoves(position, ai.moveBuffers[0], ai.scoreBuffers[0], -1, 0, true, 2);
+  const moves = Array.from(ai.moveBuffers[0].slice(0, count));
+  expect(moves).toContain(0);
+  expect(moves).toContain(3);
+  expect(moves).not.toContain(54);
+  expect(moves).not.toContain(58);
+});
+
+test('broad attacking proofs retain quiet candidates when preferred setups do not win', () => {
+  const position = new GogoPosition(9);
+  const ai = new GogoAI({ now: () => 0 }) as any;
+  ai.ensureBuffers(position.area);
+  ai.deadline = Infinity;
+  ai.resetProofSearch();
+  const gen = ai.generateOrderedMoves.bind(ai);
+  let generations = 0;
+  ai.generateOrderedMoves = (...args: any[]) => { generations++; return gen(...args); };
+  expect(ai.proofAttack(position, 5, 0)).toBe(false);
+  expect(generations).toBeGreaterThan(0);
+  expect(position.ply).toBe(0);
+});
+
+test('broad attacking proofs do not retry preferred setup moves during quiet fallback', () => {
+  const position = GogoPosition.fromAscii(['.XX......', ...Array(8).fill('.........')], BLACK);
+  const ai = new GogoAI({ now: () => 0 }) as any;
+  ai.ensureBuffers(position.area);
+  ai.resetProofSearch();
+  ai.deadline = Infinity;
+  const play = position.play.bind(position);
+  const attempts = new Map<number, number>();
+  position.play = (move: number) => {
+    if (position.ply === 0) attempts.set(move, (attempts.get(move) ?? 0) + 1);
+    return play(move);
+  };
+  expect(ai.proofAttack(position, 5, 0)).toBe(false);
+  expect(Math.max(...attempts.values())).toBe(1);
+  expect(position.ply).toBe(0);
+});
+
+test('proof defenses can use the second refutation when the first is occupied', () => {
+  const ai = new GogoAI({ now: () => 0 }) as any;
+  const rows = ['.XX......', ...Array(8).fill('.........')];
+  const first = GogoPosition.fromAscii(rows, WHITE);
+  ai.ensureBuffers(first.area);
+  ai.deadline = Infinity;
+  ai.resetProofSearch();
+  expect(ai.proofDefend(first, 3, 1)).toBe(false);
+  const refutation = ai.killerMoves[2];
+  ai.killerMoves[2] = 1;
+  ai.killerMoves[3] = refutation;
+  const second = GogoPosition.fromAscii([...rows.slice(0, 8), '........X'], WHITE);
+  const gen = ai.generateOrderedMoves.bind(ai);
+  let generations = 0;
+  ai.generateOrderedMoves = (...args: any[]) => { generations++; return gen(...args); };
+  expect(ai.proofDefend(second, 3, 1)).toBe(false);
+  expect(generations).toBe(0);
+  expect(second.ply).toBe(0);
 });

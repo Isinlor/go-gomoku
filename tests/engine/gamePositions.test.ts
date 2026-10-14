@@ -25,3 +25,18 @@ test('edge attack keeps its forcing proof below the expanded setup search cost',
   expect(result.nodes).toBeLessThan(800_000);
   expect(position.encodeGame()).toBe(fixture.encoded);
 });
+
+test('a strong losing discovery is verified across every defense before deeper discovery', { timeout: 60000 }, () => {
+  const position = decodeGame('B9 e9 e8 f9');
+  const ai = new GogoAI({ maxDepth: 30, quiescenceDepth: 4, now: () => 0 }) as any;
+  const root = ai.searchRoot.bind(ai);
+  const depths: number[] = [];
+  const rootPly = position.ply;
+  ai.searchRoot = (...args: any[]) => { if (args[0].ply === rootPly) depths.push(args[1]); return root(...args); };
+  const result = ai.findBestMove(position, 60000);
+  expect(result.forcedLoss).toBe(true);
+  expect(result.heuristicLoss).toBe(true);
+  expect(result.timedOut).toBe(false);
+  expect(Math.max(...depths)).toBeLessThan(14);
+  expect(position.encodeGame()).toBe('B9 e9 e8 f9');
+});
