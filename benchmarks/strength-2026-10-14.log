@@ -1,0 +1,19 @@
+
+> gogomoku@1.0.0 test:strength
+> node scripts/ai-strength.mjs /workspace/gomoku-master --time-ms 25 --alpha .01 --require-gain
+
+Strict gain: 60.5% wins / 60%; corrected paired p 0.00950414 / 0.01.
+PASS strength (attempt 1/5): 200 games, candidate 121/200 points, loss evidence 0.002 / 20, gain evidence 38.331 / 500
+Candidate results at 25ms: 121 wins, 0 draws, 79 losses; win rate 60.5%; gain p bound 0.1304.
+master opening eval signs at 25ms: negative 79, zero 1, positive 20 (100 openings)
+master vs 100ms: moves 41/100 (41.0%), eval signs 52/100 (52.0%)
+master vs 10s: moves 29/100 (29.0%), eval signs 60/100 (60.0%)
+candidate opening eval signs at 25ms: negative 71, zero 1, positive 28 (100 openings)
+candidate vs 100ms: moves 41/100 (41.0%), eval signs 61/100 (61.0%)
+candidate vs 10s: moves 31/100 (31.0%), eval signs 54/100 (54.0%)
+Master–candidate exact move agreement: 68/100 (68.0%)
+Master–candidate evaluation-sign agreement: 73/100 (73.0%)
+Candidate alone matches the 10 s move: 8/100 (8.0%)
+Master alone matches the 10 s move: 6/100 (6.0%)
+Both match the 10 s move: 23/100 (23.0%)
+Neither matches the 10 s move: 63/100 (63.0%)

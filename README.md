@@ -44,13 +44,16 @@ To run locally, use Node 24 and run from the new version's checkout. The benchma
 needs no installed dependencies or test runner:
 
 ```bash
-npm run test:performance -- /path/to/master-checkout
+npm run test:performance -- /path/to/master-checkout --require-speedup
 ```
+
+`--require-speedup` requires at least 10% lower median runtime for cases whose
+master median exceeds 20 ms.
 
 Run locally with Node 24 from the candidate checkout:
 
 ```bash
-npm run test:strength -- /path/to/master-checkout --time-ms 25 --alpha 0.01
+npm run test:strength -- /path/to/master-checkout --time-ms 25 --alpha 0.01 --require-gain
 ```
 
 The strength test plays all 100 openings in `scripts/strength-openings.json` in
@@ -67,6 +70,9 @@ stored 100 ms and 10 s searches, plus candidate-only, master-only, both, and
 neither agreement with the 10 s move (zero is its own eval sign).
 Game results report strength gains when symmetric gain evidence reaches its threshold,
 with a one-sided alpha bound across at most five attempts (threshold `5 / alpha`).
+
+`--require-gain` requires at least 60% wins and a paired sign-flip p value below
+alpha, corrected across five complete attempts.
 
 ## Development
 

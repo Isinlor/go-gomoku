@@ -157,7 +157,7 @@ test('CLI runs directly from source without installed dependencies or test files
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test('entry point uses the working directory and command-line master checkout', async () => {
+test.each([false, true])('entry point forwards the master checkout and strict speedup flag %s', async (requireSpeedup) => {
   const root = createFixture(true);
   const originalCwd = process.cwd();
   const originalArgv = process.argv;
@@ -166,7 +166,7 @@ test('entry point uses the working directory and command-line master checkout', 
   const log = vi.spyOn(console, 'log').mockImplementation(() => {});
   try {
     process.chdir(root);
-    process.argv = [process.execPath, script, root];
+    process.argv = [process.execPath, script, root, ...(requireSpeedup ? ['--require-speedup'] : [])];
     vi.resetModules();
     await import('../scripts/puzzle-performance.mjs');
     expect(process.exitCode).toBe(2);
@@ -236,4 +236,13 @@ test('loads and runs candidate game positions against a master without the colle
     rmSync(master, { recursive: true, force: true });
     rmSync(candidate, { recursive: true, force: true });
   }
+});
+
+test('strict speedup mode reaches comparison and reports median timings', () => {
+  const master = {};
+  const candidate = { PUZZLES: [{ id: 'slow' }] };
+  const logs: string[] = [];
+  const measure = (engine: unknown) => engine === master ? 30 : 28;
+  expect(benchmarkPuzzles(master, candidate, s => logs.push(s), measure, true)).toBe(1);
+  expect(logs[0]).toContain('new 28.000 ms, master 30.000 ms');
 });
