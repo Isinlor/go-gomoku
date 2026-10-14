@@ -2865,9 +2865,9 @@ test('proofAttack: play() failure is handled (suicide move skipped)', () => {
   };
 
   // Inject an occupied candidate before real tactical candidates.
-  const realGen = anyAI.generateOrderedMoves.bind(anyAI);
+  const realGen = anyAI.generateTacticalMoves.bind(anyAI);
   let callCount = 0;
-  anyAI.generateOrderedMoves = function (...args: any[]) {
+  anyAI.generateTacticalMoves = function (...args: any[]) {
     callCount++;
     // On the first call (attacker's tactical generation), inject a bad move
     if (callCount === 1) {
@@ -2889,7 +2889,7 @@ test('proofAttack: play() failure is handled (suicide move skipped)', () => {
   const result = anyAI.proofAttack(pos, 3, 1);
   expect(result).toBe(false);
   expect(rejected).toBe(1);
-  anyAI.generateOrderedMoves = realGen;
+  anyAI.generateTacticalMoves = realGen;
 });
 
 test('proofDefend: play() failure is handled', () => {
@@ -3292,9 +3292,9 @@ test('proofAttack: illegal TT move is attempted before move generation and skipp
     playCalls.push(move);
     return realPlay(move);
   };
-  const realGen = anyAI.generateOrderedMoves.bind(anyAI);
+  const realGen = anyAI.generateTacticalMoves.bind(anyAI);
   let genCalls = 0;
-  anyAI.generateOrderedMoves = () => {
+  anyAI.generateTacticalMoves = () => {
     genCalls += 1;
     expect(playCalls).toEqual([40]);
     return 0;
@@ -3302,7 +3302,7 @@ test('proofAttack: illegal TT move is attempted before move generation and skipp
 
   expect(anyAI.proofAttack(pos, 3, 1)).toBe(false);
   expect(genCalls).toBe(1);
-  anyAI.generateOrderedMoves = realGen;
+  anyAI.generateTacticalMoves = realGen;
   (pos as any).play = realPlay;
 });
 
