@@ -329,6 +329,39 @@ export const PUZZLES: readonly Puzzle[] = [
     wonEncoded: 'B9 e5 c6 c3 g4 g3 a5 f4 d6 d4 f6 h2 i1 b2 a1 e6 b1 c1 d1 h1 e1 a2 a1 b1 f1 a1',
     winningMoves: ['e6', 'b1', 'c1', 'd1', 'h1', 'e1', 'a2', 'a1', 'b1', 'f1', 'a1'],
   },
+  // Atari Escape: connect the threatened blocker to keep Black from opening a winning gap.
+  {
+    id: 'gen-atari-escape',
+    encoded: 'B13 a1 b1 m1 l1 a13 b13 m13 m12 m3 m2 m7 l3 i1 h1 h2 i2 g7 d8 d7 h10 e8 i11 i4 f6 f7 e7 g9 h9 g5 g6 j7 e9 h7 i7 i3',
+    toMove: WHITE,
+    solution: 'e6',
+    depth: 7,
+    threshold: 4,
+    wonEncoded: 'B13 a1 b1 m1 l1 a13 b13 m13 m12 m3 m2 m7 l3 i1 h1 h2 i2 g7 d8 d7 h10 e8 i11 i4 f6 f7 e7 g9 h9 g5 g6 j7 e9 h7 i7 i3 e6 c1 d1 e1 j1 f1 k1 g1 i1',
+    winningMoves: ['e6', 'c1', 'd1', 'e1', 'j1', 'f1', 'k1', 'g1', 'i1'],
+  },
+  // Crossfire: build a diagonal threat while preparing an attack along the g-file.
+  {
+    id: 'gen-crossfire',
+    encoded: 'B9 e5 g7 c2 c9 i3 f5 d9 b3 h7 h3 c4',
+    toMove: WHITE,
+    solution: 'g4',
+    depth: 9,
+    threshold: 4,
+    wonEncoded: 'B9 e5 g7 c2 c9 i3 f5 d9 b3 h7 h3 c4 g4 a1 b1 c1 e6 d1 e1 f1 g1 h1 i2',
+    winningMoves: ['g4', 'a1', 'b1', 'c1', 'e6', 'd1', 'e1', 'f1', 'g1', 'h1', 'i2'],
+  },
+  // Unblockable Gap: a block at c6 falls to c7, reopening White's broken row.
+  {
+    id: 'gen-unblockable-gap',
+    encoded: 'B9 e5 c5 i8 e9 d7 h7 d8 e6 h6 h9 f4 h3 d9 d6 i4 g7 g8 h2 h4',
+    toMove: WHITE,
+    solution: 'b6',
+    depth: 9,
+    threshold: 4,
+    wonEncoded: 'B9 e5 c5 i8 e9 d7 h7 d8 e6 h6 h9 f4 h3 d9 d6 i4 g7 g8 h2 h4 b6 a1 b1 c1 e3 d1 f2 e1 d4',
+    winningMoves: ['b6', 'a1', 'b1', 'c1', 'e3', 'd1', 'f2', 'e1', 'd4'],
+  },
 ];
 
 export function getPuzzleById(id: string): Puzzle | undefined {
