@@ -53,6 +53,14 @@ Run locally with Node 24 from the candidate checkout:
 npm run test:strength -- /path/to/master-checkout
 ```
 
+The strength test samples `scripts/strength-openings.json` uniformly and plays each
+opening with colors swapped. The pool contains 50 Black and 50 White self-play
+wins; its original evaluation metadata and engine revision are retained.
+Both engines also search all 100 openings at 5 ms, reporting exact move and eval
+sign agreement with the stored 100 ms and 10 s searches (zero is its own sign).
+Game results report strength gains when symmetric gain evidence reaches 100,
+with a one-sided 5% bound across at most five attempts.
+
 ## Development
 
 ```bash

@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { beforeAll, expect, test } from 'vitest';
 import { stripTypeScriptTypes } from 'node:module';
-import { strengthEvidence, benchmarkStrength } from '../scripts/ai-strength.mjs';
+import { strengthEvidence, benchmarkStrength, evaluateOpenings } from '../scripts/ai-strength.mjs';
 
 // Initialize Node's native compiler once; each integration still loads fresh files.
 beforeAll(() => { stripTypeScriptTypes('const warmup: number = 0;'); });
@@ -42,7 +42,7 @@ test.each([19.999, 20, 20.001])('loss evidence fails at and above the threshold:
 });
 
 import { EventEmitter } from 'node:events';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -58,15 +58,23 @@ test.each([-2, 2, NaN, Infinity, undefined])('rejects invalid pair scores %s', (
   expect(() => strengthEvidence(1, score)).toThrow('pair score');
 });
 
-test('creates legal varied six-ply openings on a 9x9 board', () => {
-  const opening = createOpening(engine);
-  const position = engine.decodeGame(opening);
-  expect(position.ply).toBe(6);
-  expect(position.winner).toBe(0);
-  expect(position.size).toBe(9);
-  expect(createOpening(engine, () => 0)).not.toBe(createOpening(engine, n => n - 1));
-  expect(() => createOpening({ decodeGame: () => ({ isLegal: () => false }) })).toThrow('No legal opening');
-  expect(() => createOpening({ decodeGame: () => ({ isLegal: () => true, play: () => false }) })).toThrow('Illegal opening');
+test('samples the supplied balanced opening pool and preserves its provenance', () => {
+  const pool = JSON.parse(readFileSync(new URL('../scripts/strength-openings.json', import.meta.url), 'utf8'));
+  expect(pool.masterRevision).toBe('4c9b1078a3b46e9e10dd0b338aee484a02372581');
+  expect(pool.boards).toHaveLength(100);
+  expect(new Set(pool.boards.map((board: any) => board.encoded)).size).toBe(100);
+  for (const winner of [1, 2]) {
+    expect(pool.boards.filter((board: any) => board.playout.winner === winner)).toHaveLength(50);
+  }
+  for (let index = 0; index < pool.boards.length; index++) {
+    const opening = createOpening(engine, n => { expect(n).toBe(100); return index; });
+    expect(opening).toBe(pool.boards[index].encoded);
+    const position = engine.decodeGame(opening);
+    expect(position.size).toBe(9);
+    expect(position.ply).toBe(3);
+    expect(position.winner).toBe(0);
+  }
+  expect(pool.boards.map((board: any) => board.encoded)).toContain(createOpening(engine));
 });
 
 function sequenceEngine(moves: number[], budgets: number[] = []) {
@@ -196,7 +204,7 @@ test('accepts fifth attempt and does not retry operational errors', async () => 
   expect(attempts).toBe(1);
 });
 
-function fixture(aiBody = 'return { move: 0 };') {
+function fixture(aiBody = 'return { move: 0, score: 0 };') {
   const root = mkdtempSync(join(tmpdir(), 'strength-'));
   const dir = join(root, 'src/engine');
   mkdirSync(dir, { recursive: true });
@@ -312,4 +320,46 @@ test('worker entry posts completed pairs to its parent', async () => {
     vi.resetModules();
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+
+test('counts reference move agreement, sign agreement and sign frequencies', () => {
+  let calls = 0;
+  const fake = { decodeGame: (encoded: string) => encoded, GogoAI: class {
+    findBestMove(position: string, budget: number) {
+      expect(budget).toBe(5);
+      calls++;
+      return position === 'a' ? { move: 3, score: -2 } : { move: 4, score: 0 };
+    }
+  } };
+  const boards = [
+    { encoded: 'a', strongest: { move: 3 }, scores: { 100: -1 }, screening: { strongest: { move: 4 }, score: 1 } },
+    { encoded: 'b', strongest: { move: 4 }, scores: { 100: 0 }, screening: { strongest: { move: 4 }, score: 0 } },
+  ];
+  expect(evaluateOpenings(fake, boards)).toEqual({
+    total: 2, signs: { negative: 1, zero: 1, positive: 0 },
+    references: { '100ms': { moves: 2, signs: 2 }, '10s': { moves: 1, signs: 1 } },
+  });
+  expect(calls).toBe(2);
+  expect(evaluateOpenings({ ...fake, GogoAI: class { findBestMove() { return { move: 0, score: 1 }; } } }, boards).signs.positive).toBe(2);
+});
+
+test('tracks symmetric gain evidence and reports significant gains without failing', async () => {
+  const reports: any[] = [];
+  sampleStrength(engine, engine, s => reports.push(s), () => 0, () => 1);
+  expect(reports.at(-1).gainEvidence).toBeGreaterThan(100);
+  expect(reports.at(-1).evidence).toBeLessThan(1);
+  const logs: string[] = [];
+  const statistics = { total: 2, signs: { negative: 1, zero: 0, positive: 1 }, references: { '100ms': { moves: 1, signs: 2 }, '10s': { moves: 2, signs: 1 } } };
+  expect(await benchmarkStrength('m', 'c', s => logs.push(s), async () => ({ pairs: 10, score: 10, evidence: 0.1, gainEvidence: 100, openingStats: { master: statistics, candidate: statistics } }))).toBe(0);
+  expect(logs.join('\n')).toContain('Strength increase detected');
+  expect(logs.join('\n')).toContain('candidate vs 100ms: moves 1/2 (50.0%), eval signs 2/2 (100.0%)');
+  expect(logs.join('\n')).toContain('negative 1, zero 0, positive 1');
+});
+
+
+test.each([99.999, 100, 100.001])('gain evidence reports at the threshold: %s', async gainEvidence => {
+  const logs: string[] = [];
+  expect(await benchmarkStrength('m', 'c', s => logs.push(s), async () => ({ pairs: 10, score: 4, evidence: 1, gainEvidence }))).toBe(0);
+  expect(logs.some(s => s.includes('Strength increase detected'))).toBe(gainEvidence >= 100);
 });

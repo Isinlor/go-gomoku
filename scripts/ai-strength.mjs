@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomInt } from 'node:crypto';
 import { realpathSync } from 'node:fs';
+import openings from './strength-openings.json' with { type: 'json' };
 import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads';
 import { fileURLToPath } from 'node:url';
 import { loadEngine } from './puzzle-performance.mjs';
@@ -8,6 +9,8 @@ import { loadEngine } from './puzzle-performance.mjs';
 export const ITERATION_MS = 14_000; // One second of headroom below the 15s requirement.
 export const MOVE_MS = 5;
 const THRESHOLD = 20;
+// Five possible attempts: a 100 threshold bounds any gain claim at 5% overall.
+const GAIN_THRESHOLD = 100;
 const MAX_PAIRS = 128;
 const STAKES = [0.2, 0.5, 0.8];
 
@@ -17,21 +20,28 @@ export function strengthEvidence(previous, score, stake = 0.8) {
   return previous * (1 - stake * score);
 }
 
-/** Six random legal central moves cannot already contain a five-in-a-row. */
-export function createOpening(engine, random = randomInt) {
-  const position = engine.decodeGame('B9');
-  for (let ply = 0; ply < 6; ply++) {
-    const legal = [];
-    for (let y = 2; y <= 6; y++) {
-      for (let x = 2; x <= 6; x++) {
-        const move = y * 9 + x;
-        if (position.isLegal(move)) legal.push(move);
-      }
+/** Uniformly sample the curated pool; each opening is played with both colors. */
+export function createOpening(_engine, random = randomInt) {
+  return openings.boards[random(openings.boards.length)].encoded;
+}
+
+/** Compare every opening at the match budget against both stored searches. */
+export function evaluateOpenings(engine, boards = openings.boards) {
+  const result = { total: boards.length, signs: { negative: 0, zero: 0, positive: 0 },
+    references: { '100ms': { moves: 0, signs: 0 }, '10s': { moves: 0, signs: 0 } } };
+  for (const board of boards) {
+    const search = new engine.GogoAI().findBestMove(engine.decodeGame(board.encoded), MOVE_MS);
+    const sign = Math.sign(search.score);
+    result.signs[sign < 0 ? 'negative' : sign > 0 ? 'positive' : 'zero']++;
+    for (const [label, move, score] of [
+      ['100ms', board.strongest.move, board.scores['100']],
+      ['10s', board.screening.strongest.move, board.screening.score],
+    ]) {
+      result.references[label].moves += Number(search.move === move);
+      result.references[label].signs += Number(sign === Math.sign(score));
     }
-    assert(legal.length > 0, 'No legal opening moves');
-    assert(position.play(legal[random(legal.length)]), 'Illegal opening move');
   }
-  return position.encodeGame();
+  return result;
 }
 
 /** Own-version positions avoid passing incompatible class instances to an AI. */
@@ -60,6 +70,7 @@ export function sampleStrength(master, candidate, send, random = randomInt, play
   const engines = random(2) ? [master, candidate] : [candidate, master];
   for (const engine of engines) new engine.GogoAI().findBestMove(engine.decodeGame('B9 e5 d5'), MOVE_MS);
   let bets = STAKES.map(() => 1);
+  let gainBets = STAKES.map(() => 1);
   let score = 0;
   for (let pairs = 1; pairs <= MAX_PAIRS; pairs++) {
     const opening = createOpening(master, random);
@@ -69,13 +80,18 @@ export function sampleStrength(master, candidate, send, random = randomInt, play
     score += pairScore;
     bets = bets.map((value, index) => strengthEvidence(value, pairScore, STAKES[index]));
     const evidence = bets.reduce((sum, value) => sum + value, 0) / bets.length;
-    send({ pairs, score, evidence });
+    gainBets = gainBets.map((value, index) => strengthEvidence(value, -pairScore, STAKES[index]));
+    const gainEvidence = gainBets.reduce((sum, value) => sum + value, 0) / gainBets.length;
+    send({ pairs, score, evidence, gainEvidence });
     if (evidence >= THRESHOLD) break;
   }
 }
 
 export function startStrengthWorker(data, send, load = loadEngine) {
-  sampleStrength(load(data.masterRoot), load(data.candidateRoot), send);
+  const master = load(data.masterRoot);
+  const candidate = load(data.candidateRoot);
+  const openingStats = { master: evaluateOpenings(master), candidate: evaluateOpenings(candidate) };
+  sampleStrength(master, candidate, result => send({ ...result, openingStats }));
 }
 
 /** Kill synchronous searches at the deadline; discard any incomplete pair. */
@@ -109,8 +125,21 @@ export function runStrengthIteration(masterRoot, candidateRoot,
 export async function benchmarkStrength(masterRoot, candidateRoot, log = console.log, run = runStrengthIteration) {
   for (let attempt = 1; attempt <= 5; attempt++) {
     const result = await run(masterRoot, candidateRoot);
+    const { gainEvidence = 1 } = result;
     const passed = result.evidence < THRESHOLD;
-    log(`${passed ? 'PASS' : 'FAIL'} strength (attempt ${attempt}/5): ${result.pairs * 2} games, candidate ${result.pairs + result.score}/${result.pairs * 2} points, loss evidence ${result.evidence.toFixed(3)} / ${THRESHOLD}`);
+    log(`${passed ? 'PASS' : 'FAIL'} strength (attempt ${attempt}/5): ${result.pairs * 2} games, candidate ${result.pairs + result.score}/${result.pairs * 2} points, loss evidence ${result.evidence.toFixed(3)} / ${THRESHOLD}, gain evidence ${gainEvidence.toFixed(3)} / ${GAIN_THRESHOLD}`);
+    if (result.openingStats) {
+      for (const [name, stats] of Object.entries(result.openingStats)) {
+        log(`${name} opening eval signs at ${MOVE_MS}ms: negative ${stats.signs.negative}, zero ${stats.signs.zero}, positive ${stats.signs.positive} (${stats.total} openings)`);
+        for (const [reference, matches] of Object.entries(stats.references)) {
+          const percentage = count => `${count}/${stats.total} (${(100 * count / stats.total).toFixed(1)}%)`;
+          log(`${name} vs ${reference}: moves ${percentage(matches.moves)}, eval signs ${percentage(matches.signs)}`);
+        }
+      }
+    }
+    if (result.gainEvidence >= GAIN_THRESHOLD) {
+      log(`Strength increase detected: gain evidence ${result.gainEvidence.toFixed(3)} / ${GAIN_THRESHOLD} (one-sided 5% bound across up to five attempts).`);
+    }
     if (passed) return 0;
   }
   log('AI strength regression confirmed after five attempts.');
