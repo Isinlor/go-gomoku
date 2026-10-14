@@ -142,6 +142,14 @@ test('constructor, parser, coordinates, and helpers validate inputs', () => {
     '.........',
     '.........',
   ]);
+  const cloned = symbolGame.clone();
+  expect(cloned).not.toBe(symbolGame);
+  expect(cloned.toAscii()).toEqual(symbolGame.toAscii());
+  expect(cloned.toMove).toBe(symbolGame.toMove);
+  expect(cloned.hash).toBe(symbolGame.hash);
+  cloned.playXY(8, 8);
+  expect(cloned.at(8, 8)).toBe(BLACK);
+  expect(symbolGame.at(8, 8)).toBe(EMPTY);
   expect(playerName(BLACK)).toBe('black');
   expect(playerName(WHITE)).toBe('white');
 });
@@ -202,6 +210,33 @@ test('clone preserves playable state and toAscii serializes mixed, empty, and fu
 
   const full = GogoPosition.fromAscii(Array.from({ length: 9 }, () => 'XXXXXXXXX'), BLACK);
   expect(full.toAscii()).toEqual(Array.from({ length: 9 }, () => 'XXXXXXXXX'));
+  const fullClone = full.clone();
+  expect(fullClone).not.toBe(full);
+  expect(fullClone.toAscii()).toEqual(full.toAscii());
+  expect(fullClone.hash).toBe(full.hash);
+
+  const growth = GogoPosition.fromAscii([
+    '.XXX.....',
+    'XOOX.....',
+    'XO.......',
+    '.X.......',
+    'X........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+  ], BLACK, { historyCapacity: 1, captureCapacity: 1 });
+  expect(growth.playXY(2, 2)).toBe(true);
+  const growthClone = growth.clone();
+  expect(growthClone.getMoveAt(0)).toBe(growth.getMoveAt(0));
+  expect(growthClone.toAscii()).toEqual(growth.toAscii());
+  expect(growthClone.toMove).toBe(growth.toMove);
+  expect(growthClone.hash).toBe(growth.hash);
+  const nextPlayer = growthClone.toMove;
+  expect(growthClone.playXY(8, 8)).toBe(true);
+  expect(growthClone.getMoveAt(1)).toBe(growthClone.index(8, 8));
+  expect(growthClone.at(8, 8)).toBe(nextPlayer);
+  expect(growth.at(8, 8)).toBe(EMPTY);
 });
 
 test('existing winner detection and played wins cover vertical and anti-diagonal lines', () => {
@@ -446,7 +481,7 @@ test('isLegal checks do not mutate position state for legal moves, suicide, or k
     '.........',
     '.........',
   ], BLACK);
-  const suicideSnapshot = GogoPosition.fromAscii(suicide.toAscii(), suicide.toMove);
+  const suicideSnapshot = suicide.clone();
 
   expect(suicide.isLegal(suicide.index(1, 1))).toBe(false);
   expect(suicide.toAscii()).toEqual(suicideSnapshot.toAscii());
@@ -532,11 +567,19 @@ test('hash stays consistent through capture, ko updates, undo, and reconstructio
     '.........',
     '.........',
   ], BLACK);
-  const startSnapshot = GogoPosition.fromAscii(position.toAscii(), position.toMove);
+  const startSnapshot = position.clone();
 
   expect(position.playXY(2, 1)).toBe(true);
   expect(position.koPoint).toBe(position.index(2, 2));
   const afterCaptureHash = position.hash;
+  const clonedCapture = position.clone();
+  expect(clonedCapture.koPoint).toBe(position.koPoint);
+  expect(clonedCapture.hash).toBe(afterCaptureHash);
+  expect(clonedCapture.playXY(2, 2)).toBe(false);
+  expect(clonedCapture.undo()).toBe(true);
+  expect(clonedCapture.toAscii()).toEqual(startSnapshot.toAscii());
+  expect(clonedCapture.hash).toBe(startSnapshot.hash);
+
   const rebuiltAfterCapture = GogoPosition.fromAscii(position.toAscii(), position.toMove);
   expect(rebuiltAfterCapture.koPoint).toBe(-1);
   expect(rebuiltAfterCapture.hash).not.toBe(afterCaptureHash);

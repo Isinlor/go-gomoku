@@ -11,6 +11,11 @@ export interface PositionOptions {
   captureCapacity?: number;
 }
 
+interface GameSetup {
+  readonly rows: string[];
+  readonly toMove: Player;
+}
+
 export interface BoardMeta {
   readonly size: SupportedSize;
   readonly area: number;
@@ -218,6 +223,7 @@ export class GogoPosition {
   boardVersion = 0;
   readonly boardChanges = new Uint16Array(1024);
 
+  private initialSetup?: GameSetup;
   private historyMoves: Int16Array;
   private historyPlayers: Uint8Array;
   private historyKo: Int16Array;
@@ -290,6 +296,7 @@ export class GogoPosition {
       }
     }
 
+    position.initialSetup = { rows: position.toAscii(), toMove };
     position.winner = position.detectExistingWinner();
 
     position.hash = computeZobristHashes(position);
@@ -297,9 +304,9 @@ export class GogoPosition {
     return position;
   }
 
-  /** Replay a game played from the empty board, preserving history and ko. */
+  /** Replay game history from its initial board, preserving history and ko. */
   clone(): GogoPosition {
-    return decodeGame(this.encodeGame());
+    return decodeGame(this.encodeGame(), this.initialSetup);
   }
 
   toAscii(): string[] {
@@ -686,14 +693,16 @@ export function decodeMove(move: string, size: SupportedSize): number {
   return y * size + x;
 }
 
-export function decodeGame(encoded: string): GogoPosition {
+export function decodeGame(encoded: string, setup?: GameSetup): GogoPosition {
   const parts = encoded.trim().split(/\s+/);
   const sizeToken = parts[0];
   if (!/^B(9|11|13)$/.test(sizeToken)) {
     throw new Error(`Invalid board size token: ${sizeToken}`);
   }
   const size = parseInt(sizeToken.slice(1), 10) as SupportedSize;
-  const position = new GogoPosition(size);
+  const position = setup === undefined
+    ? new GogoPosition(size)
+    : GogoPosition.fromAscii(setup.rows, setup.toMove);
   for (let i = 1; i < parts.length; i += 1) {
     const moveStr = parts[i];
     const index = decodeMove(moveStr, size);

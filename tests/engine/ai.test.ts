@@ -143,7 +143,7 @@ test('verifyWinningMove rejects illegal candidates, proves winning candidates, a
     '.........',
     '.........',
   ], BLACK);
-  const snapshot = GogoPosition.fromAscii(position.toAscii(), position.toMove);
+  const snapshot = position.clone();
   const ai = new GogoAI({ maxDepth: 5, quiescenceDepth: 2, now: () => 0 });
 
   expect(ai.verifyWinningMove(position, position.index(0, 0), 100)).toBe(false);
@@ -1876,7 +1876,7 @@ test('verifyWinningMove only proves the real winning move and restores state on 
     '.........',
     '.........',
   ], BLACK);
-  const winningSnapshot = GogoPosition.fromAscii(winning.toAscii(), winning.toMove);
+  const winningSnapshot = winning.clone();
   const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4, now: () => 0 });
 
   expect(ai.verifyWinningMove(winning, winning.index(4, 0), 1000)).toBe(true);
@@ -1912,7 +1912,7 @@ test('verifyWinningMove only proves the real winning move and restores state on 
     '.........',
     '.........',
   ], BLACK);
-  const timeoutSnapshot = GogoPosition.fromAscii(timeoutPosition.toAscii(), timeoutPosition.toMove);
+  const timeoutSnapshot = timeoutPosition.clone();
   let tick = 0;
   const timeoutAI = new GogoAI({ maxDepth: 30, quiescenceDepth: 4, now: () => tick++ });
 
