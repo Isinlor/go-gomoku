@@ -50,15 +50,15 @@ import { vi } from 'vitest';
 import * as engine from '../src/engine';
 import { loadEngine } from '../scripts/puzzle-performance.mjs';
 import {
-  createOpening, playStrengthGame, sampleStrength, startStrengthWorker,
-  runStrengthIteration, runStrength, MOVE_MS, ITERATION_MS,
+  playStrengthGame, sampleStrength, startStrengthWorker,
+  runStrengthIteration, runStrength, MOVE_MS,
 } from '../scripts/ai-strength.mjs';
 
 test.each([-2, 2, NaN, Infinity, undefined])('rejects invalid pair scores %s', (score) => {
   expect(() => strengthEvidence(1, score)).toThrow('pair score');
 });
 
-test('samples the supplied balanced opening pool and preserves its provenance', () => {
+test('uses the supplied balanced opening pool and preserves its provenance', () => {
   const pool = JSON.parse(readFileSync(new URL('../scripts/strength-openings.json', import.meta.url), 'utf8'));
   expect(pool.masterRevision).toBe('4c9b1078a3b46e9e10dd0b338aee484a02372581');
   expect(pool.boards).toHaveLength(100);
@@ -67,14 +67,12 @@ test('samples the supplied balanced opening pool and preserves its provenance', 
     expect(pool.boards.filter((board: any) => board.playout.winner === winner)).toHaveLength(50);
   }
   for (let index = 0; index < pool.boards.length; index++) {
-    const opening = createOpening(engine, n => { expect(n).toBe(100); return index; });
-    expect(opening).toBe(pool.boards[index].encoded);
+    const opening = pool.boards[index].encoded;
     const position = engine.decodeGame(opening);
     expect(position.size).toBe(9);
     expect(position.ply).toBe(3);
     expect(position.winner).toBe(0);
   }
-  expect(pool.boards.map((board: any) => board.encoded)).toContain(createOpening(engine));
 });
 
 function sequenceEngine(moves: number[], budgets: number[] = []) {
@@ -96,18 +94,22 @@ test('plays actual legal games on own-version positions with equal time budgets'
   expect(budgets).toHaveLength(18);
   expect(new Set(budgets)).toEqual(new Set([5]));
   expect(MOVE_MS).toBe(5);
-  expect(ITERATION_MS).toBeLessThan(15_000);
 });
 
-test('draws at the ply cap or when no legal moves remain', () => {
+test('plays beyond 120 plies and draws only on repetition or no legal moves', () => {
   let moves = 0;
-  const capped = {
-    decodeGame: () => ({ winner: 0, toMove: 1, hasAnyLegalMove: () => true, isLegal: () => true, play: () => { moves++; return true; } }),
+  const long = {
+    decodeGame: () => ({ winner: 0, toMove: 1, ply: 0, get hash() { return BigInt(this.ply); },
+      hasAnyLegalMove: () => true, isLegal: () => true,
+      play() { moves++; this.ply++; if (this.ply === 130) this.winner = 1; return true; } }),
     GogoAI: class { findBestMove() { return { move: 0 }; } },
   };
-  expect(playStrengthGame(capped, capped, 'B9', 1)).toBe(0);
-  expect(moves).toBe(240);
-  const full = { ...capped, decodeGame: () => ({ winner: 0, hasAnyLegalMove: () => false }) };
+  expect(playStrengthGame(long, long, 'B9', 1)).toBe(1);
+  expect(moves).toBe(260);
+  const repeated = { ...long, decodeGame: () => ({ winner: 0, toMove: 1, hash: 0n,
+    hasAnyLegalMove: () => true, isLegal: () => true, play: () => true }) };
+  expect(playStrengthGame(repeated, repeated, 'B9', 1)).toBe(0);
+  const full = { ...long, decodeGame: () => ({ winner: 0, hasAnyLegalMove: () => false }) };
   expect(playStrengthGame(full, full, 'B9', 2)).toBe(0);
 });
 
@@ -125,23 +127,29 @@ test.each([0, 1])('swaps colors on identical openings, randomizing pair order (%
   const reports: any[] = [];
   sampleStrength(engine, engine, s => reports.push(s), () => coin, (_m, _c, opening, color) => {
     calls.push({ opening, color });
-    return -1; // Seven pairs exercise both orders; the full cap is checked by workers.
+    return -1;
   });
-  expect(reports).toHaveLength(7);
-  expect(reports.at(-1).score).toBe(-7);
+  expect(reports).toHaveLength(100);
+  expect(reports.at(-1).score).toBe(-100);
   for (let i = 0; i < calls.length; i += 2) {
     expect(calls[i].opening).toBe(calls[i + 1].opening);
     expect([calls[i].color, calls[i + 1].color]).toEqual([coin + 1, 2 - coin]);
   }
 });
 
-test('reports only complete pairs and stops when loss evidence crosses 20', () => {
+test('plays every opening exactly once despite early loss evidence, reporting complete pairs', () => {
   const reports: any[] = [];
   sampleStrength(engine, engine, s => reports.push(s), () => 0, () => -1);
-  expect(reports).toHaveLength(7);
-  expect(reports.at(-1).score).toBe(-7);
-  expect(reports.at(-2).evidence).toBeLessThan(20);
+  expect(reports).toHaveLength(100);
+  expect(reports.at(-1).score).toBe(-100);
+  expect(reports[5].evidence).toBeLessThan(20);
+  expect(reports[6].evidence).toBeGreaterThan(20);
   expect(reports.at(-1).evidence).toBeGreaterThan(20);
+  const played: string[] = [];
+  sampleStrength(engine, engine, () => {}, () => 0, (_m, _c, opening) => { played.push(opening); return 0; });
+  const pool = JSON.parse(readFileSync(new URL('../scripts/strength-openings.json', import.meta.url), 'utf8'));
+  expect([...new Set(played)].sort()).toEqual(pool.boards.map((b: any) => b.encoded).sort());
+  expect(played).toHaveLength(200);
   let calls = 0;
   const incomplete: any[] = [];
   expect(() => sampleStrength(engine, engine, s => incomplete.push(s), () => 0, () => {
@@ -155,23 +163,33 @@ class TestWorker extends EventEmitter {
   terminations = 0;
   async terminate() { this.terminations++; this.emit('exit', 1); return 1; }
 }
-async function supervise(events: (worker: TestWorker) => void, ms = 100) {
+async function supervise(events: (worker: TestWorker) => void) {
   const worker = new TestWorker();
   const result = runStrengthIteration('master', 'candidate', (data) => {
     expect(data).toEqual({ masterRoot: 'master', candidateRoot: 'candidate' });
     queueMicrotask(() => events(worker));
     return worker;
-  }, ms);
+  });
   return { result, worker };
 }
 
-test('watchdog discards unfinished work and terminates the worker', async () => {
-  const { result, worker } = await supervise(w => w.emit('message', { pairs: 3, score: 0, evidence: 1 }), 1);
-  expect(await result).toEqual({ pairs: 3, score: 0, evidence: 1 });
-  expect(worker.terminations).toBe(1);
+test('waits for worker completion beyond the former deadline and evidence threshold', async () => {
+  vi.useFakeTimers();
+  try {
+    const worker = new TestWorker();
+    let settled = false;
+    const result = runStrengthIteration('m', 'c', () => worker).then(value => { settled = true; return value; });
+    worker.emit('message', { pairs: 7, score: -7, evidence: 30 });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(settled).toBe(false);
+    expect(worker.terminations).toBe(0);
+    worker.emit('message', { pairs: 100, score: -10, evidence: 40 });
+    worker.emit('exit', 0);
+    expect(await result).toEqual({ pairs: 100, score: -10, evidence: 40 });
+  } finally { vi.useRealTimers(); }
 });
 
-test('threshold and clean exit finish early; repeated exit is harmless', async () => {
+test('clean exit finishes the iteration; repeated exit is harmless', async () => {
   for (const evidence of [1, 20]) {
     const { result, worker } = await supervise(w => {
       w.emit('message', { pairs: 6, score: -6, evidence });
@@ -188,9 +206,8 @@ test('worker errors, bad exits, and empty samples fail immediately', async () =>
     [(w: TestWorker) => w.emit('error', new Error('broken')), 'broken'],
     [(w: TestWorker) => w.emit('exit', 7), 'code 7'],
     [(w: TestWorker) => w.emit('exit', 0), 'No complete'],
-    [(_w: TestWorker) => {}, 'No complete'],
   ] as const) {
-    const { result } = await supervise(events, 1);
+    const { result } = await supervise(events);
     await expect(result).rejects.toThrow(message);
   }
 });
@@ -211,7 +228,7 @@ function fixture(aiBody = 'return { move: 0, score: 0 };') {
   writeFileSync(join(dir, 'ai.ts'), `export class GogoAI { findBestMove() { ${aiBody} } }`);
   writeFileSync(join(dir, 'gogomoku.ts'), `
     export function decodeGame() { return {
-      ply: 0, toMove: 1, winner: 0,
+      ply: 0, toMove: 1, winner: 0, get hash() { return BigInt(this.ply); },
       isLegal: (move) => move >= 0, hasAnyLegalMove: () => true,
       play() { this.ply++; this.toMove = 3 - this.toMove; if(this.ply === 7) this.winner = 1; return true; },
       encodeGame: () => 'B9'
@@ -227,7 +244,7 @@ test('loads both checkouts without dependencies and sends results', { tags: ['sl
   const reports: any[] = [];
   try {
     startStrengthWorker({ masterRoot: root, candidateRoot: root }, s => reports.push(s));
-    expect(reports).toHaveLength(128);
+    expect(reports).toHaveLength(100);
     const loadCalls: string[] = [];
     startStrengthWorker({ masterRoot: 'm', candidateRoot: 'c' }, () => {}, (path) => { loadCalls.push(path); return loadEngine(root); });
     expect(loadCalls).toEqual(['m', 'c']);
@@ -238,7 +255,7 @@ test('loads both checkouts without dependencies and sends results', { tags: ['sl
 test('real Node worker sends complete iteration results', { tags: ['slow'] }, async () => {
   const root = fixture();
   try {
-    expect((await runStrengthIteration(root, root)).pairs).toBe(128);
+    expect((await runStrengthIteration(root, root)).pairs).toBe(100);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -271,13 +288,6 @@ test('CLI search errors return exit code 2', { tags: ['slow'] }, () => {
     const cli = spawnSync(process.execPath, [resolve('scripts/ai-strength.mjs'), root], { cwd: root, encoding: 'utf8' });
     expect(cli.status).toBe(2);
     expect(cli.stdout).toContain('illegal move');
-  } finally { rmSync(root, { recursive: true, force: true }); }
-});
-
-test('a genuinely stuck search cannot escape the watchdog', { tags: ['slow'] }, async () => {
-  const root = fixture('while (true) {}');
-  try {
-    await expect(runStrengthIteration(root, root, undefined, 100)).rejects.toThrow('No complete');
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -314,7 +324,7 @@ test('worker entry posts completed pairs to its parent', async () => {
     }));
     vi.resetModules();
     await import('../scripts/ai-strength.mjs');
-    expect(reports).toHaveLength(128);
+    expect(reports).toHaveLength(100);
   } finally {
     vi.doUnmock('node:worker_threads');
     vi.resetModules();
@@ -323,25 +333,34 @@ test('worker entry posts completed pairs to its parent', async () => {
 });
 
 
-test('counts reference move agreement, sign agreement and sign frequencies', () => {
-  let calls = 0;
-  const fake = { decodeGame: (encoded: string) => encoded, GogoAI: class {
-    findBestMove(position: string, budget: number) {
-      expect(budget).toBe(5);
-      calls++;
-      return position === 'a' ? { move: 3, score: -2 } : { move: 4, score: 0 };
+test('interleaves evaluations and counts all six comparative diagnostics', () => {
+  const calls: string[] = [];
+  const makeEngine = (name: string, moves: number[], scores: number[]) => ({
+    decodeGame: (encoded: string) => Number(encoded), GogoAI: class {
+      findBestMove(index: number, budget: number) {
+        expect(budget).toBe(5);
+        calls.push(`${name}${index}`);
+        return { move: moves[index], score: scores[index] };
+      }
     }
-  } };
-  const boards = [
-    { encoded: 'a', strongest: { move: 3 }, scores: { 100: -1 }, screening: { strongest: { move: 4 }, score: 1 } },
-    { encoded: 'b', strongest: { move: 4 }, scores: { 100: 0 }, screening: { strongest: { move: 4 }, score: 0 } },
-  ];
-  expect(evaluateOpenings(fake, boards)).toEqual({
-    total: 2, signs: { negative: 1, zero: 1, positive: 0 },
-    references: { '100ms': { moves: 2, signs: 2 }, '10s': { moves: 1, signs: 1 } },
   });
-  expect(calls).toBe(2);
-  expect(evaluateOpenings({ ...fake, GogoAI: class { findBestMove() { return { move: 0, score: 1 }; } } }, boards).signs.positive).toBe(2);
+  const boards = [0, 1, 2, 3].map(index => ({ encoded: String(index), strongest: { move: 3 },
+    scores: { 100: -1 }, screening: { strongest: { move: 3 }, score: 1 } }));
+  const stats = evaluateOpenings(makeEngine('m', [3, 4, 3, 4], [-1, 0, 1, -1]),
+    makeEngine('c', [3, 3, 4, 5], [-1, -1, 1, 1]), boards);
+  expect(calls).toEqual(['m0', 'c0', 'c1', 'm1', 'm2', 'c2', 'c3', 'm3']);
+  expect(stats.master).toEqual({ total: 4, signs: { negative: 2, zero: 1, positive: 1 },
+    references: { '100ms': { moves: 2, signs: 2 }, '10s': { moves: 2, signs: 1 } } });
+  expect(stats.candidate).toEqual({ total: 4, signs: { negative: 2, zero: 0, positive: 2 },
+    references: { '100ms': { moves: 2, signs: 2 }, '10s': { moves: 2, signs: 2 } } });
+  expect(stats.diagnostics).toEqual({
+    'Master–candidate exact move agreement': 1,
+    'Master–candidate evaluation-sign agreement': 2,
+    'Candidate alone matches the 10 s move': 1,
+    'Master alone matches the 10 s move': 1,
+    'Both match the 10 s move': 1,
+    'Neither matches the 10 s move': 1,
+  });
 });
 
 test('tracks symmetric gain evidence and reports significant gains without failing', async () => {
@@ -351,10 +370,11 @@ test('tracks symmetric gain evidence and reports significant gains without faili
   expect(reports.at(-1).evidence).toBeLessThan(1);
   const logs: string[] = [];
   const statistics = { total: 2, signs: { negative: 1, zero: 0, positive: 1 }, references: { '100ms': { moves: 1, signs: 2 }, '10s': { moves: 2, signs: 1 } } };
-  expect(await benchmarkStrength('m', 'c', s => logs.push(s), async () => ({ pairs: 10, score: 10, evidence: 0.1, gainEvidence: 100, openingStats: { master: statistics, candidate: statistics } }))).toBe(0);
+  expect(await benchmarkStrength('m', 'c', s => logs.push(s), async () => ({ pairs: 10, score: 10, evidence: 0.1, gainEvidence: 100, openingStats: { master: statistics, candidate: statistics, diagnostics: { 'Both match the 10 s move': 1 } } }))).toBe(0);
   expect(logs.join('\n')).toContain('Strength increase detected');
   expect(logs.join('\n')).toContain('candidate vs 100ms: moves 1/2 (50.0%), eval signs 2/2 (100.0%)');
   expect(logs.join('\n')).toContain('negative 1, zero 0, positive 1');
+  expect(logs.join('\n')).toContain('Both match the 10 s move: 1/2 (50.0%)');
 });
 
 
