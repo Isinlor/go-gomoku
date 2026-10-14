@@ -190,9 +190,13 @@ test('root scout searches preserve an exhaustive score and re-search improvement
   const count = ai.generateOrderedMoves(position, ai.moveBuffers[0], ai.scoreBuffers[0], hint, false);
   const candidates = Array.from((ai.moveBuffers[0] as Int16Array).slice(0, count));
   let best = -Infinity;
+  let bestMove = -1;
+  const before = position.toAscii();
   for (const move of candidates) {
     expect(position.play(move)).toBe(true);
-    best = Math.max(best, -oracle.search(position, 3, -1_000_000_000, 1_000_000_000, 1));
+    const score = -oracle.search(position, 3, -1_000_000_000, 1_000_000_000, 1);
+    if (score > best) bestMove = move;
+    best = Math.max(best, score);
     position.undo();
   }
   const search = ai.search.bind(ai);
@@ -201,7 +205,10 @@ test('root scout searches preserve an exhaustive score and re-search improvement
     if (args[4] === 1) widths.push(args[3] - args[2]);
     return search(...args);
   };
-  expect(ai.searchRoot(position, 4, hint).score).toBeCloseTo(best, 10);
+  const result = ai.searchRoot(position, 4, hint);
+  expect(result.score).toBeCloseTo(best, 10);
+  expect(result.move).toBe(bestMove);
+  expect(position.toAscii()).toEqual(before);
   expect(widths).toContain(1);
   expect(widths.filter(width => width > 1).length).toBeGreaterThan(1);
 });

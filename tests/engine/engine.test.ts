@@ -280,6 +280,26 @@ test('existing winner detection and played wins cover vertical and anti-diagonal
   ], BLACK);
   expect(antiDiagonal.playXY(4, 0)).toBe(true);
   expect(antiDiagonal.winner).toBe(BLACK);
+
+  // Every placement along a five must agree, including board edges and both
+  // directions from the placement. A flat-index scan must never wrap a row.
+  for (const color of [BLACK, WHITE]) {
+    for (const [dx, dy] of [[1, 0], [0, 1], [1, 1], [1, -1]]) {
+      const line = new GogoPosition(9) as any;
+      const startY = dy < 0 ? 8 : 0;
+      for (let step = 0; step < 5; step++) {
+        line.board[line.index(step * dx, startY + step * dy)] = color;
+      }
+      expect(line.detectExistingWinner()).toBe(color);
+      for (let step = 0; step < 5; step++) {
+        expect(line.checkFiveFrom(line.index(step * dx, startY + step * dy), color)).toBe(true);
+      }
+    }
+  }
+  const wrapped = new GogoPosition(9) as any;
+  wrapped.board.set([BLACK, BLACK, BLACK, BLACK, BLACK], 7);
+  expect(wrapped.checkFiveFrom(9, BLACK)).toBe(false);
+  expect(wrapped.detectExistingWinner()).toBe(EMPTY);
 });
 
 test('forming six in a row in a single move still counts as a win', () => {

@@ -481,14 +481,7 @@ export class GogoPosition {
     const captureStart = this.historyCaptureStart[this.ply];
     const captureCount = this.historyCaptureCount[this.ply];
 
-    this.board[index] = EMPTY;
-    this.stoneCount -= 1;
-    for (let i = 0; i < captureCount; i += 1) {
-      const point = this.capturePositions[captureStart + i];
-      this.board[point] = opponent;
-    }
-    this.stoneCount += captureCount;
-    this.captureTop = captureStart;
+    this.rollbackIllegalMove(index, opponent, captureStart, captureCount);
     this.toMove = player;
     this.koPoint = this.historyKo[this.ply];
     this.winner = this.historyWinner[this.ply] as Cell;
@@ -528,14 +521,10 @@ export class GogoPosition {
           continue;
         }
         const cell = board[neighbor];
-        if (cell === EMPTY) {
-          if (this.libertyMarks[neighbor] !== libertyEpoch) {
-            this.libertyMarks[neighbor] = libertyEpoch;
-            liberties += 1;
-          }
-          continue;
-        }
-        if (cell === color && this.groupVisitMarks[neighbor] !== visitEpoch) {
+        if (cell === EMPTY && this.libertyMarks[neighbor] !== libertyEpoch) {
+          this.libertyMarks[neighbor] = libertyEpoch;
+          liberties += 1;
+        } else if (cell === color && this.groupVisitMarks[neighbor] !== visitEpoch) {
           this.groupVisitMarks[neighbor] = visitEpoch;
           stack[stackSize] = neighbor;
           stackSize += 1;
@@ -638,20 +627,17 @@ export class GogoPosition {
       const dy = LINE_DIRECTIONS[directionIndex][1];
       let count = 1;
 
-      let nx = x + dx;
-      let ny = y + dy;
-      while (nx >= 0 && nx < size && ny >= 0 && ny < size && this.board[ny * size + nx] === color) {
-        count += 1;
-        nx += dx;
-        ny += dy;
-      }
-
-      nx = x - dx;
-      ny = y - dy;
-      while (nx >= 0 && nx < size && ny >= 0 && ny < size && this.board[ny * size + nx] === color) {
-        count += 1;
-        nx -= dx;
-        ny -= dy;
+      // Both rays share the same bounds and counting rules.
+      for (let sign = 1; sign >= -1; sign -= 2) {
+        const stepX = dx * sign;
+        const stepY = dy * sign;
+        let nx = x + stepX;
+        let ny = y + stepY;
+        while (nx >= 0 && nx < size && ny >= 0 && ny < size && this.board[ny * size + nx] === color) {
+          count += 1;
+          nx += stepX;
+          ny += stepY;
+        }
       }
 
       if (count >= 5) {

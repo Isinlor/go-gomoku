@@ -163,19 +163,17 @@ export class GogoAI {
     this.timedOut = false;
     this.proofMode = false;
 
+    // Early exits share the same neutral defaults. Outcome flags are set only
+    // by the terminal check, exact tactical analysis, or independent proof.
+    const result: SearchResult = {
+      move: -1, score: 0, depth: 0, nodes: 0, timedOut: false,
+      forcedDefensiveMove: false, forcedWin: false, forcedLoss: false,
+      heuristicWin: false, heuristicLoss: false,
+    };
     if (position.winner !== EMPTY) {
-      return {
-        move: -1,
-        score: -WIN_SCORE,
-        depth: 0,
-        nodes: 0,
-        timedOut: false,
-        forcedDefensiveMove: false,
-        forcedWin: false,
-        forcedLoss: true,
-        heuristicWin: false,
-        heuristicLoss: true,
-      };
+      result.score = -WIN_SCORE;
+      result.forcedLoss = result.heuristicLoss = true;
+      return result;
     }
 
     const state: SearchState = {
@@ -186,18 +184,9 @@ export class GogoAI {
     };
     const fallbackMove = state.bestMove;
     if (fallbackMove === -1 || this.now() >= this.deadline) {
-      return {
-        move: fallbackMove,
-        score: 0,
-        depth: 0,
-        nodes: 0,
-        timedOut: fallbackMove !== -1,
-        forcedDefensiveMove: false,
-        forcedWin: false,
-        forcedLoss: false,
-        heuristicWin: false,
-        heuristicLoss: false,
-      };
+      result.move = fallbackMove;
+      result.timedOut = fallbackMove !== -1;
+      return result;
     }
 
     state.hintMove = fallbackMove;
@@ -210,48 +199,25 @@ export class GogoAI {
       const timedOut = this.now() >= this.deadline;
       // Choosing the only move that avoids losing next turn needs no deeper
       // evaluation. It does not establish a forced win or loss after the reply.
-      return {
-        move: timedOut ? fallbackMove : forcedDefensiveMove,
-        score: 0,
-        depth: 0,
-        nodes: 0,
-        timedOut,
-        forcedDefensiveMove: !timedOut,
-        forcedWin: false,
-        forcedLoss: false,
-        heuristicWin: false,
-        heuristicLoss: false,
-      };
+      result.move = timedOut ? fallbackMove : forcedDefensiveMove;
+      result.timedOut = timedOut;
+      result.forcedDefensiveMove = !timedOut;
+      return result;
     }
     // === Phase 1: Heuristic Discovery ===
     // Use NMP, LMR, and candidate capping for fast search.
     this.searchDepths(position, 1, state, this.maxDepth, true);
 
-    if (state.provenWin || state.provenLoss) {
-      return {
-        move: state.bestMove,
-        score: state.bestScore,
-        depth: state.completedDepth,
-        nodes: this.nodesVisited,
-        timedOut: this.timedOut,
-        forcedDefensiveMove: false,
-        forcedWin: !!state.provenWin,
-        forcedLoss: !!state.provenLoss,
-        heuristicWin: false,
-        heuristicLoss: !!state.provenLoss,
-      };
-    }
-
-    const heuristicWin = this.isForcedWinScore(state.bestScore, state.completedDepth);
+    const heuristicWin = !state.provenWin && this.isForcedWinScore(state.bestScore, state.completedDepth);
     const heuristicLoss = this.isForcedLossScore(state.bestScore, state.completedDepth);
-    let provenWin = false;
-    let provenLoss = false;
+    let provenWin = !!state.provenWin;
+    let provenLoss = !!state.provenLoss;
 
     // === Phase 2: Proof ===
     // When the heuristic search found a forced outcome, verify with exact search.
     // For wins: use AND/OR threat-space prover (fast for tactical wins).
     // For losses: verify an opponent win after every legal defense.
-    if ((heuristicWin || heuristicLoss) && this.now() < this.deadline) {
+    if (!provenLoss && (heuristicWin || heuristicLoss) && this.now() < this.deadline) {
       let proofFailed = false;
 
       if (heuristicWin) {
@@ -286,22 +252,18 @@ export class GogoAI {
       }
     }
 
-    // Recompute heuristic flags in case resume changed bestScore/completedDepth
-    const finalHeuristicWin = this.isForcedWinScore(state.bestScore, state.completedDepth);
-    const finalHeuristicLoss = this.isForcedLossScore(state.bestScore, state.completedDepth);
-
-    return {
-      move: state.bestMove,
-      score: state.bestScore,
-      depth: state.completedDepth,
-      nodes: this.nodesVisited,
-      timedOut: this.timedOut,
-      forcedDefensiveMove: false,
-      forcedWin: provenWin,
-      forcedLoss: provenLoss,
-      heuristicWin: finalHeuristicWin,
-      heuristicLoss: finalHeuristicLoss,
-    };
+    result.move = state.bestMove;
+    result.score = state.bestScore;
+    result.depth = state.completedDepth;
+    result.nodes = this.nodesVisited;
+    result.timedOut = this.timedOut;
+    result.forcedWin = provenWin;
+    result.forcedLoss = provenLoss;
+    // Recompute after a resumed discovery search. An early exact win bypassed
+    // heuristic mate discovery, so it retains only its proven-win flag.
+    result.heuristicWin = !state.provenWin && this.isForcedWinScore(state.bestScore, state.completedDepth);
+    result.heuristicLoss = this.isForcedLossScore(state.bestScore, state.completedDepth);
+    return result;
   }
 
   private ensureBuffers(area: number): void {
@@ -504,24 +466,7 @@ export class GogoAI {
 
   private findImmediateWin(position: GogoPosition): number {
     this.ensureBuffers(position.area);
-    this.beginWindowPass(position);
-    const mine = position.toMove === BLACK ? this.windowBlack : this.windowWhite;
-    const theirs = position.toMove === BLACK ? this.windowWhite : this.windowBlack;
-    for (let word = 0; word < this.activeWindows.length; word += 1) {
-      let bits = this.activeWindows[word];
-      while (bits !== 0) {
-        const bit = bits & -bits;
-        bits ^= bit;
-        const wi = word * 32 + 31 - Math.clz32(bit);
-        if (mine[wi] !== 4 || theirs[wi] !== 0) continue;
-        for (let offset = 0; offset < 5; offset += 1) {
-          const point = position.meta.windows[wi * 5 + offset];
-          // Completing five is legal even in suicide; only occupancy and ko matter.
-          if (position.board[point] === EMPTY && point !== position.koPoint) return point;
-        }
-      }
-    }
-    return -1;
+    return this.findThreatResponses(position, 0, true);
   }
 
   private pickFallbackMove(position: GogoPosition): number {
@@ -621,64 +566,11 @@ export class GogoAI {
     }
   }
 
-  private searchRoot(position: GogoPosition, depth: number, hintMove: number): SearchResult {
+  private searchRoot(position: GogoPosition, depth: number, hintMove: number): { move: number; score: number } {
     this.checkTime(true);
-    const beta = WIN_SCORE;
-    const moves = this.moveBuffers[0];
-    const scores = this.scoreBuffers[0];
-
-    let alpha = -WIN_SCORE;
-    let bestMove = -1;
-    let bestScore = -WIN_SCORE;
-    let legalCount = 0;
-
-    // Search nearby candidates first, broadening only when none is legal.
-    for (let stage = 0; stage < 2; stage += 1) {
-      let count = stage === 0
-        ? this.generateOrderedMoves(position, moves, scores, hintMove, false)
-        : this.generateFullBoardMoves(position, moves, scores, hintMove, false);
-      // The first iteration considers every candidate. Deeper discovery caps
-      // nearby moves; proof searches and full-board fallbacks remain complete.
-      if (stage === 0 && !this.proofMode && depth > 1 && count > MAX_CANDIDATES) count = MAX_CANDIDATES;
-      for (let i = 0; i < count; i += 1) {
-        const move = moves[i];
-        if (!position.play(move)) {
-          continue;
-        }
-        legalCount += 1;
-        let score = 0;
-        try {
-          score = this.searchChild(position, depth, alpha, beta, 1, legalCount, true);
-        } finally {
-          position.undo();
-        }
-        if (score > bestScore) {
-          bestScore = score;
-          bestMove = move;
-        }
-        if (score > alpha) {
-          alpha = score;
-        }
-        // Discovery needs a winning witness within this iteration's depth.
-        // The independent prover verifies it before claiming a forced win.
-        // Exact numeric searches still stop only at an immediate win.
-        if (alpha >= WIN_SCORE - (this.proofMode ? 1 : depth)) break;
-      }
-      if (legalCount !== 0) break;
-    }
-
-    return {
-      move: legalCount === 0 ? -1 : bestMove,
-      score: legalCount === 0 ? 0 : bestScore,
-      depth,
-      nodes: this.nodesVisited,
-      timedOut: false,
-      forcedDefensiveMove: false,
-      forcedWin: false,
-      forcedLoss: false,
-      heuristicWin: false,
-      heuristicLoss: false,
-    };
+    const result = { move: -1, score: 0 };
+    result.score = this.searchMoves(position, depth, -WIN_SCORE, WIN_SCORE, 0, hintMove, -1, result);
+    return result;
   }
 
   private search(position: GogoPosition, depth: number, alpha: number, beta: number, ply: number, canNullMove = true): number {
@@ -689,8 +581,6 @@ export class GogoAI {
     if (depth <= 0 || ply >= this.maxPly) {
       return this.quiescence(position, alpha, beta, ply, this.quiescenceDepth);
     }
-
-    const origAlpha = alpha;
 
     // Transposition table probe
     const hash = position.hash;
@@ -703,9 +593,9 @@ export class GogoAI {
       if (this.ttFlag[ttIndex] !== TT_NONE && this.ttDepth[ttIndex] >= depth) {
         const ttFlag = this.ttFlag[ttIndex];
         const ttScore = this.adjustMateScore(this.ttScore[ttIndex], -ply);
-        if (ttFlag === TT_EXACT) return ttScore;
-        if (ttFlag === TT_LOWERBOUND && ttScore >= beta) return ttScore;
-        if (ttFlag === TT_UPPERBOUND && ttScore <= alpha) return ttScore;
+        if (ttFlag === TT_EXACT
+          || (ttFlag === TT_LOWERBOUND && ttScore >= beta)
+          || (ttFlag === TT_UPPERBOUND && ttScore <= alpha)) return ttScore;
       }
     }
 
@@ -736,10 +626,31 @@ export class GogoAI {
       }
     }
 
-    const hintMove = ttBest;
+    const responses = this.findThreatResponses(position, ply);
+    return this.searchMoves(position, depth, alpha, beta, ply, ttBest, responses);
+  }
+
+  /**
+   * Shared root and inner-node move search. Root discovery searches every
+   * candidate at depth one and stops at a winning witness; inner nodes use
+   * the caller's beta bound and store only sound bounds from capped lists.
+   * Full-board fallback is generated only when no nearby candidate is legal.
+   */
+  private searchMoves(
+    position: GogoPosition,
+    depth: number,
+    alpha: number,
+    beta: number,
+    ply: number,
+    hintMove: number,
+    responses: number,
+    rootResult?: { move: number },
+  ): number {
+    const root = rootResult !== undefined;
+    const originalAlpha = alpha;
+    const cutoff = root ? WIN_SCORE - (this.proofMode ? 1 : depth) : beta;
     const moves = this.moveBuffers[ply];
     const scores = this.scoreBuffers[ply];
-    const responses = this.findThreatResponses(position, ply);
     let wasCapped = false;
     let legalCount = 0;
     let bestScore = -WIN_SCORE;
@@ -752,7 +663,7 @@ export class GogoAI {
       } else {
         count = this.generateFullBoardMoves(position, moves, scores, hintMove, false, ply);
       }
-      if (!this.proofMode && count > MAX_CANDIDATES) {
+      if (!this.proofMode && (!root || (stage === 0 && depth > 1)) && count > MAX_CANDIDATES) {
         count = MAX_CANDIDATES;
         wasCapped = true;
       }
@@ -764,7 +675,7 @@ export class GogoAI {
         legalCount += 1;
         let score = 0;
         try {
-          score = this.searchChild(position, depth, alpha, beta, ply + 1, legalCount);
+          score = this.searchChild(position, depth, alpha, beta, ply + 1, legalCount, root);
         } finally {
           position.undo();
         }
@@ -774,7 +685,8 @@ export class GogoAI {
         }
         if (score <= alpha) continue;
         alpha = score;
-        if (alpha >= beta) {
+        if (alpha >= cutoff) {
+          if (root) break;
           this.history[(position.toMove - 1) * this.bufferArea + move] += depth * depth * HISTORY_SCALE;
           this.recordKillerMove(ply, move);
           break;
@@ -787,12 +699,21 @@ export class GogoAI {
       return 0;
     }
 
+    // Root callers need a move, but inner nodes return a number without
+    // allocating a result object. Recursive children cannot overwrite locals.
+    if (rootResult !== undefined) {
+      rootResult.move = bestMove;
+      return bestScore;
+    }
+
+    const hash = position.hash;
+    const ttIndex = Number(hash & TT_MASK);
     // Transposition table store
     // Capped nodes (MAX_CANDIDATES applied) may have missed legal defenses.
     // Only TT_LOWERBOUND (fail-high on a real move) is safe from capped nodes.
     // TT_EXACT and TT_UPPERBOUND may be wrong because unsearched moves could
     // have produced a higher score.
-    const storeFlag = bestScore <= origAlpha ? TT_UPPERBOUND
+    const storeFlag = bestScore <= originalAlpha ? TT_UPPERBOUND
                     : alpha >= beta ? TT_LOWERBOUND
                     : TT_EXACT;
     this.ttHash[ttIndex] = hash;
@@ -867,20 +788,14 @@ export class GogoAI {
     }
 
     const responses = this.findThreatResponses(position, ply);
-    if (responses < 0 && standPat >= beta) {
-      return store(standPat);
-    }
-    if (responses < 0 && standPat > alpha) {
-      alpha = standPat;
+    if (responses < 0) {
+      if (standPat >= beta) return store(standPat);
+      alpha = Math.max(alpha, standPat);
     }
 
     const moves = this.moveBuffers[ply];
     const scores = this.scoreBuffers[ply];
     const count = responses >= 0 ? responses : this.generateOrderedMoves(position, moves, scores, -1, true);
-    if (count === 0) {
-      return store(standPat);
-    }
-
     let bestScore = responses >= 0 ? -WIN_SCORE : standPat;
     let legalCount = 0;
     for (let i = 0; i < count; i += 1) {
@@ -895,9 +810,7 @@ export class GogoAI {
       } finally {
         position.undo();
       }
-      if (score > bestScore) {
-        bestScore = score;
-      }
+      bestScore = Math.max(bestScore, score);
       if (score <= alpha) continue;
       alpha = score;
       if (alpha >= beta) return store(score);
@@ -1035,7 +948,6 @@ export class GogoAI {
       return this.generateTacticalMoves(position, moves, scores, hintMove, ply);
     }
     this.candidateEpoch += 1;
-    this.beginScoredGroupPass(position);
     let count = 0;
 
     for (let point = 0; point < position.area; point += 1) {
@@ -1048,18 +960,12 @@ export class GogoAI {
           continue;
         }
         this.candidateMarks[move] = this.candidateEpoch;
-        const score = this.scoreMove(position, move, hintMove, tacticalOnly, ply);
-        if (score === NO_SCORE) {
-          continue;
-        }
         moves[count] = move;
-        scores[count] = score;
         count += 1;
       }
     }
 
-    sortMovesDescending(moves, scores, count);
-    return count;
+    return this.generateFullBoardMoves(position, moves, scores, hintMove, false, ply, false, count);
   }
 
   private generateTacticalMoves(
@@ -1166,7 +1072,12 @@ export class GogoAI {
     return count;
   }
 
-  /** Score and stably sort empty points, optionally limited to this epoch's marks. */
+  /**
+   * Score and stably sort candidates. Without an explicit prefix, enumerate
+   * empty board points (optionally restricted to tactical marks). Nearby
+   * discovery supplies its own prefix to preserve its original stable ties.
+   * Compaction writes only behind the read cursor, so in-place scoring is safe.
+   */
   private generateFullBoardMoves(
     position: GogoPosition,
     moves: Int16Array,
@@ -1175,13 +1086,15 @@ export class GogoAI {
     tacticalOnly: boolean,
     ply = 0,
     markedOnly = false,
+    candidateCount?: number,
   ): number {
-    this.beginScoredGroupPass(position);
     let count = 0;
-    for (let move = 0; move < position.area; move += 1) {
-      if (markedOnly
+    const limit = candidateCount ?? position.area;
+    for (let cursor = 0; cursor < limit; cursor += 1) {
+      const move = candidateCount === undefined ? cursor : moves[cursor];
+      if (candidateCount === undefined && (markedOnly
         ? this.candidateMarks[move] !== this.candidateEpoch
-        : position.board[move] !== EMPTY || move === position.koPoint) {
+        : position.board[move] !== EMPTY || move === position.koPoint)) {
         continue;
       }
       const score = this.scoreMove(position, move, hintMove, tacticalOnly, ply);
@@ -1196,16 +1109,11 @@ export class GogoAI {
     return count;
   }
 
-  private beginScoredGroupPass(position: GogoPosition): void {
-    if (this.scoredGroupHash === position.hash) {
-      return;
-    }
-    this.scoredGroupPassEpoch += 1;
-    this.scoredGroupHash = position.hash;
-  }
-
   private primeScoredGroupInfo(position: GogoPosition, point: number, color: Player): void {
-    this.beginScoredGroupPass(position);
+    if (this.scoredGroupHash !== position.hash) {
+      this.scoredGroupPassEpoch += 1;
+      this.scoredGroupHash = position.hash;
+    }
     if (this.scoredGroupEpoch[point] === this.scoredGroupPassEpoch) return;
     const liberties = position.scanGroup(point, color);
     const size = position.scanGroupSize;
@@ -1440,9 +1348,10 @@ export class GogoAI {
     // Longer wins can need quiet setup moves before the forcing sequence.
     // Loss verification keeps a bounded forcing attack set and exhaustive defenses.
     // With at most two attacking turns, a four or tactical capture is needed.
+    const forcingOnly = depthLeft <= 4 || this.lossProofMode || this.forcingProofMode;
     let count = responses >= 0 ? responses
       : this.generateTacticalMoves(position, moves, scores, -1, ply, true,
-        depthLeft <= 4 || this.lossProofMode || this.forcingProofMode ? 3 : 2);
+        forcingOnly ? 3 : 2);
 
     const markBase = ply * this.bufferArea;
     this.proofAttackMarks.fill(0, markBase, markBase + this.bufferArea);
@@ -1459,7 +1368,7 @@ export class GogoAI {
         }
       }
 
-      if (usedQuiet || responses >= 0 || depthLeft <= 4 || this.lossProofMode || this.forcingProofMode) break;
+      if (usedQuiet || responses >= 0 || forcingOnly) break;
       count = this.generateOrderedMoves(position, moves, scores, -1, false, ply);
       usedQuiet = true;
     }
@@ -1578,6 +1487,10 @@ export class GogoAI {
    * winning threat (open four). Returns the number of response moves written
    * to moveBuffers[ply], or -1 if no immediate threat exists.
    *
+   * With immediateOnly, return the first own winning point (or -1), without
+   * constructing a response list. Completing five permits suicide; occupancy
+   * and ko are checked against the same windows used for threat responses.
+   *
    * Response moves include:
    * 1. Blocking cells — empty cells in attacker's four-windows
    * 2. Capture cells — last-liberty cells of attacker groups
@@ -1586,7 +1499,7 @@ export class GogoAI {
    * This is sound because any other defender move allows the attacker to
    * complete the four on the next turn.
    */
-  private findThreatResponses(position: GogoPosition, ply: number): number {
+  private findThreatResponses(position: GogoPosition, ply: number, immediateOnly = false): number {
     const attacker: Player = position.toMove === BLACK ? WHITE : BLACK;
     const defender = position.toMove;
     const meta = position.meta;
@@ -1615,15 +1528,16 @@ export class GogoAI {
         const defCount = defenderCounts[wi];
         const threat = atkCount === 4 && defCount === 0;
         const counterWin = defCount === 4 && atkCount === 0;
-        if (!threat && !counterWin) continue;
+        if (immediateOnly ? !counterWin : !threat && !counterWin) continue;
         // A qualifying five-cell window has exactly one empty point.
-        let emptyCell = windows[base];
+        let emptyCell = -1;
         for (let j = 0; j < 5; j += 1) {
           if (board[windows[base + j]] !== EMPTY) continue;
           emptyCell = windows[base + j];
           break;
         }
-        if (emptyCell === position.koPoint) continue;
+        if (emptyCell === -1 || emptyCell === position.koPoint) continue;
+        if (immediateOnly) return emptyCell;
         if (threat) hasThreat = true;
         count = this.insertOrPromoteMove(moves, scores, count, emptyCell, counterWin ? 3_000_000 : 2_000_000);
       }
