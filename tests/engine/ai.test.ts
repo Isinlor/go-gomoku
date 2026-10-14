@@ -266,7 +266,7 @@ test('AI constructor clamps explicit maxPly values', () => {
 test('AI constructor also uses default search parameters when options are omitted', () => {
   const ai = new GogoAI();
   expect(ai.maxDepth).toBe(6);
-  expect(ai.quiescenceDepth).toBe(6);
+  expect(ai.quiescenceDepth).toBe(4);
   expect(ai.maxPly).toBe(64);
 });
 
