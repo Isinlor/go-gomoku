@@ -214,6 +214,9 @@ export class GogoPosition {
   lastMove = -1;
   lastCapturedCount = 0;
   hash = 0n;
+  /** Bounded, non-destructive board mutation journal for incremental consumers. */
+  boardVersion = 0;
+  readonly boardChanges = new Uint16Array(1024);
 
   private historyMoves: Int16Array;
   private historyPlayers: Uint8Array;
@@ -385,6 +388,7 @@ export class GogoPosition {
     let capturedCount = 0;
 
     this.board[index] = player;
+    this.recordBoardChange(index);
     this.stoneCount += 1;
     this.hash ^= this.meta.zobristStones64[index * 2 + (player - 1)];
 
@@ -413,6 +417,7 @@ export class GogoPosition {
         this.capturePositions[this.captureTop] = point;
         this.captureTop += 1;
         this.board[point] = EMPTY;
+        this.recordBoardChange(point);
         this.hash ^= this.meta.zobristStones64[point * 2 + (opponent - 1)];
       }
       capturedCount += this.scanGroupSize;
@@ -572,13 +577,19 @@ export class GogoPosition {
     this.capturePositions = growTypedArray(this.capturePositions, minimumLength, Int16Array);
   }
 
+  private recordBoardChange(point: number): void {
+    this.boardChanges[this.boardVersion++ & (this.boardChanges.length - 1)] = point;
+  }
+
   /** Restore stones and capture storage for both undo and rejected suicide. */
   private restoreStones(index: number, opponent: Player, captureStart: number, capturedCount: number): void {
     this.board[index] = EMPTY;
+    this.recordBoardChange(index);
     this.stoneCount -= 1;
     for (let i = captureStart; i < this.captureTop; i += 1) {
       const point = this.capturePositions[i];
       this.board[point] = opponent;
+      this.recordBoardChange(point);
     }
     this.stoneCount += capturedCount;
     this.captureTop = captureStart;
