@@ -64,7 +64,7 @@ function xorshift64(state: bigint): bigint {
   return state & UINT64_MASK;
 }
 
-function computePositionHashes(position: Pick<GogoPosition, 'area' | 'board' | 'meta' | 'toMove' | 'koPoint'>): bigint {
+export function computeZobristHashes(position: GogoPosition): bigint {
   let hash64 = 0n;
   if (position.toMove === BLACK) {
     hash64 ^= position.meta.zobristBlackToMove64;
@@ -79,10 +79,6 @@ function computePositionHashes(position: Pick<GogoPosition, 'area' | 'board' | '
     }
   }
   return hash64;
-}
-
-export function computeZobristHashes(position: GogoPosition): bigint {
-  return computePositionHashes(position);
 }
 
 function createBoardMeta(size: SupportedSize): BoardMeta {
@@ -303,7 +299,7 @@ export class GogoPosition {
 
     position.winner = position.detectExistingWinner();
 
-    position.hash = computePositionHashes(position);
+    position.hash = computeZobristHashes(position);
 
     return position;
   }
@@ -413,16 +409,7 @@ export class GogoPosition {
       }
       // A directly adjacent empty point proves this group cannot be captured.
       // No flood fill or group marking is needed for that common case.
-      const base = neighbor * 4;
-      let safe = false;
-      for (let direction = 0; direction < 4; direction += 1) {
-        const point = neighbors[base + direction];
-        if (point !== -1 && this.board[point] === EMPTY) {
-          safe = true;
-          break;
-        }
-      }
-      if (safe) continue;
+      if (this.hasDirectLiberty(neighbor)) continue;
       const liberties = this.scanGroup(neighbor, opponent);
       for (let groupIndex = 0; groupIndex < this.scanGroupSize; groupIndex += 1) {
         this.adjacentGroupMarks[this.groupBuffer[groupIndex]] = this.adjacentGroupEpoch;
@@ -445,15 +432,7 @@ export class GogoPosition {
     const madeFive = this.checkFiveFrom(index, player);
     // Exact size and liberty counts are only needed for single-stone ko.
     // Otherwise one direct liberty is enough to establish legality.
-    let directLiberty = false;
-    for (let offset = 0; offset < 4; offset += 1) {
-      const point = neighbors[neighborBase + offset];
-      if (point !== -1 && this.board[point] === EMPTY) {
-        directLiberty = true;
-        break;
-      }
-    }
-    const needsGroup = !directLiberty || capturedCount === 1;
+    const needsGroup = !this.hasDirectLiberty(index) || capturedCount === 1;
     const ownLiberties = needsGroup ? this.scanGroup(index, player) : 1;
     const ownGroupSize = needsGroup ? this.scanGroupSize : 0;
     if (ownLiberties === 0 && !madeFive) {
@@ -634,6 +613,19 @@ export class GogoPosition {
       moves.push(encodeMove(this.historyMoves[i], this.meta));
     }
     return `B${this.size}${moves.length > 0 ? ' ' + moves.join(' ') : ''}`;
+  }
+
+  /** A direct empty neighbor is enough to establish at least one liberty. */
+  private hasDirectLiberty(index: number): boolean {
+    const neighbors = this.meta.neighbors4;
+    const base = index * 4;
+    const board = this.board;
+    // The four entries are left, right, up and down. Off-board entries are -1;
+    // typed-array reads there return undefined, which cannot equal EMPTY.
+    return board[neighbors[base]] === EMPTY
+      || board[neighbors[base + 1]] === EMPTY
+      || board[neighbors[base + 2]] === EMPTY
+      || board[neighbors[base + 3]] === EMPTY;
   }
 
   private checkFiveFrom(index: number, color: Player): boolean {

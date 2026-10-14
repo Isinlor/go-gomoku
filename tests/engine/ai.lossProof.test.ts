@@ -188,9 +188,9 @@ test('a failed heuristic reply is not retried among tactical alternatives', () =
   ai.ttHash[index] = childHash;
   ai.ttBestMove[index] = 4;
   position.undo();
-  const prove = ai.proveLossReply.bind(ai);
+  const prove = ai.proveAttackMove.bind(ai);
   let attempts = 0;
-  ai.proveLossReply = (searched: GogoPosition, move: number, depth: number) => {
+  ai.proveAttackMove = (searched: GogoPosition, move: number, depth: number) => {
     if (searched.hash === childHash && move === 4) attempts++;
     return prove(searched, move, depth);
   };
