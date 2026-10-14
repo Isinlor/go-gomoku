@@ -1,3 +1,4 @@
+/** Stable insertion keeps the parallel move and score buffers aligned. */
 export function insertMoveDescending(
   moves: Int16Array,
   scores: Float64Array | Int32Array,
@@ -15,21 +16,13 @@ export function insertMoveDescending(
   scores[index] = score;
 }
 
+/** Sort only the populated prefix, preserving the order of equal scores. */
 export function sortMovesDescending(
   moves: Int16Array,
   scores: Float64Array | Int32Array,
   count: number,
 ): void {
   for (let i = 1; i < count; i += 1) {
-    const move = moves[i];
-    const score = scores[i];
-    let j = i;
-    while (j > 0 && scores[j - 1] < score) {
-      moves[j] = moves[j - 1];
-      scores[j] = scores[j - 1];
-      j -= 1;
-    }
-    moves[j] = move;
-    scores[j] = score;
+    insertMoveDescending(moves, scores, i, moves[i], scores[i]);
   }
 }

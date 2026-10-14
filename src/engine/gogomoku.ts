@@ -99,46 +99,41 @@ function createBoardMeta(size: SupportedSize): BoardMeta {
   const windows: number[] = [];
   let windowCount = 0;
 
-  for (let y = 0; y < size; y += 1) {
-    for (let x = 0; x < size; x += 1) {
-      const index = y * size + x;
-      xs[index] = x;
-      ys[index] = y;
-      neighbors4[index * 4] = x > 0 ? index - 1 : -1;
-      neighbors4[index * 4 + 1] = x + 1 < size ? index + 1 : -1;
-      neighbors4[index * 4 + 2] = y > 0 ? index - size : -1;
-      neighbors4[index * 4 + 3] = y + 1 < size ? index + size : -1;
-      const manhattan = Math.abs(x - center) + Math.abs(y - center);
-      centerBias[index] = size - manhattan;
+  for (let index = 0; index < area; index += 1) {
+    const x = index % size;
+    const y = Math.floor(index / size);
+    xs[index] = x;
+    ys[index] = y;
+    neighbors4[index * 4] = x > 0 ? index - 1 : -1;
+    neighbors4[index * 4 + 1] = x + 1 < size ? index + 1 : -1;
+    neighbors4[index * 4 + 2] = y > 0 ? index - size : -1;
+    neighbors4[index * 4 + 3] = y + 1 < size ? index + size : -1;
+    const manhattan = Math.abs(x - center) + Math.abs(y - center);
+    centerBias[index] = size - manhattan;
 
-      for (let ny = Math.max(0, y - 2); ny <= Math.min(size - 1, y + 2); ny += 1) {
-        for (let nx = Math.max(0, x - 2); nx <= Math.min(size - 1, x + 2); nx += 1) {
-          if (nx !== x || ny !== y) {
-            near2Buckets[index].push(ny * size + nx);
-          }
-        }
+    for (let ny = Math.max(0, y - 2); ny <= Math.min(size - 1, y + 2); ny += 1) {
+      for (let nx = Math.max(0, x - 2); nx <= Math.min(size - 1, x + 2); nx += 1) {
+        const neighbor = ny * size + nx;
+        if (neighbor !== index) near2Buckets[index].push(neighbor);
       }
     }
   }
 
-  for (let y = 0; y < size; y += 1) {
-    for (let x = 0; x < size; x += 1) {
-      for (let dir = 0; dir < LINE_DIRECTIONS.length; dir += 1) {
-        const dx = LINE_DIRECTIONS[dir][0];
-        const dy = LINE_DIRECTIONS[dir][1];
-        const endX = x + dx * 4;
-        const endY = y + dy * 4;
-        if (endX < 0 || endX >= size || endY < 0 || endY >= size) {
-          continue;
-        }
-        const windowIndex = windowCount;
-        for (let step = 0; step < 5; step += 1) {
-          const point = (y + dy * step) * size + (x + dx * step);
-          windows.push(point);
-          windowsBucket[point].push(windowIndex);
-        }
-        windowCount += 1;
+  // Enumerate windows in the same row-major, direction-major order used by
+  // scoring and proof search. Every window contains five in-bounds points.
+  for (let index = 0; index < area; index += 1) {
+    const x = xs[index];
+    const y = ys[index];
+    for (const [dx, dy] of LINE_DIRECTIONS) {
+      const endX = x + dx * 4;
+      const endY = y + dy * 4;
+      if (endX < 0 || endX >= size || endY < 0 || endY >= size) continue;
+      for (let step = 0; step < 5; step += 1) {
+        const point = (y + dy * step) * size + (x + dx * step);
+        windows.push(point);
+        windowsBucket[point].push(windowCount);
       }
+      windowCount += 1;
     }
   }
 
@@ -287,6 +282,11 @@ export class GogoPosition {
     const position = new GogoPosition(parseSupportedSize(size), options);
     position.toMove = toMove;
 
+    const symbols: Readonly<Record<string, Cell>> = {
+      '.': EMPTY, '+': EMPTY,
+      X: BLACK, x: BLACK, B: BLACK, b: BLACK,
+      O: WHITE, o: WHITE, W: WHITE, w: WHITE,
+    };
     for (let y = 0; y < size; y += 1) {
       const row = rows[y];
       if (row.length !== size) {
@@ -294,21 +294,10 @@ export class GogoPosition {
       }
       for (let x = 0; x < size; x += 1) {
         const symbol = row[x];
-        const index = y * size + x;
-        if (symbol === '.' || symbol === '+') {
-          continue;
-        }
-        if (symbol === 'X' || symbol === 'x' || symbol === 'B' || symbol === 'b') {
-          position.board[index] = BLACK;
-          position.stoneCount += 1;
-          continue;
-        }
-        if (symbol === 'O' || symbol === 'o' || symbol === 'W' || symbol === 'w') {
-          position.board[index] = WHITE;
-          position.stoneCount += 1;
-          continue;
-        }
-        throw new Error(`Unsupported board symbol: ${symbol}`);
+        const cell = symbols[symbol];
+        if (cell === undefined) throw new Error(`Unsupported board symbol: ${symbol}`);
+        position.board[y * size + x] = cell;
+        if (cell !== EMPTY) position.stoneCount += 1;
       }
     }
 
@@ -333,7 +322,7 @@ export class GogoPosition {
       const rowBase = y * this.size;
       for (let x = 0; x < this.size; x += 1) {
         const cell = this.board[rowBase + x];
-        row += cell === BLACK ? 'X' : cell === WHITE ? 'O' : '.';
+        row += '.XO'[cell] ?? '.';
       }
       rows.push(row);
     }
@@ -565,7 +554,9 @@ export class GogoPosition {
             this.libertyMarks[neighbor] = libertyEpoch;
             liberties += 1;
           }
-        } else if (cell === color && this.groupVisitMarks[neighbor] !== visitEpoch) {
+          continue;
+        }
+        if (cell === color && this.groupVisitMarks[neighbor] !== visitEpoch) {
           this.groupVisitMarks[neighbor] = visitEpoch;
           stack[stackSize] = neighbor;
           stackSize += 1;

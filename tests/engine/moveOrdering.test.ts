@@ -10,6 +10,12 @@ test('insertMoveDescending keeps moves and scores sorted together', () => {
 
   expect(Array.from(moves.slice(0, 4))).toEqual([11, 22, 44, 33]);
   expect(Array.from(scores.slice(0, 4))).toEqual([90, 70, 50, 10]);
+
+  // Extremes and ties still use stable insertion and leave unused slots alone.
+  const extremes = new Float64Array([Infinity, 0, -Infinity, 123]);
+  insertMoveDescending(moves, extremes, 3, 55, Infinity);
+  expect(Array.from(moves)).toEqual([11, 55, 22, 44]);
+  expect(Array.from(extremes)).toEqual([Infinity, Infinity, 0, -Infinity]);
 });
 
 test('sortMovesDescending reorders an unsorted score buffer in place', () => {
@@ -20,6 +26,11 @@ test('sortMovesDescending reorders an unsorted score buffer in place', () => {
 
   expect(Array.from(moves)).toEqual([22, 44, 33, 11]);
   expect(Array.from(scores)).toEqual([90, 70, 50, 10]);
+
+  scores.set([10, 10, -10, -10]);
+  const before = moves.slice();
+  sortMovesDescending(moves, scores, 4);
+  expect(moves).toEqual(before);
 });
 
 test.each([69, 70, 71])('insertion compares against the neighboring score without reversing ties: %s', score => {
