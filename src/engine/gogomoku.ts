@@ -44,8 +44,9 @@ type GrowableTypedArrayConstructor<T extends GrowableTypedArray> = {
   new(length: number): T;
 };
 
+/** The two player codes sum to three, so subtraction swaps their colors. */
 export function otherPlayer(player: Player): Player {
-  return player === BLACK ? WHITE : BLACK;
+  return (BLACK + WHITE - player) as Player;
 }
 
 export function parseSupportedSize(size: number): SupportedSize {
@@ -133,25 +134,14 @@ function createBoardMeta(size: SupportedSize): BoardMeta {
     }
   }
 
-  let near2Total = 0;
-  let windowsByPointTotal = 0;
   const near2Offsets = new Uint16Array(area + 1);
   const windowsByPointOffsets = new Uint16Array(area + 1);
   for (let i = 0; i < area; i += 1) {
-    near2Offsets[i] = near2Total;
-    windowsByPointOffsets[i] = windowsByPointTotal;
-    near2Total += near2Buckets[i].length;
-    windowsByPointTotal += windowsBucket[i].length;
+    near2Offsets[i + 1] = near2Offsets[i] + near2Buckets[i].length;
+    windowsByPointOffsets[i + 1] = windowsByPointOffsets[i] + windowsBucket[i].length;
   }
-  near2Offsets[area] = near2Total;
-  windowsByPointOffsets[area] = windowsByPointTotal;
-
-  const near2 = new Int16Array(near2Total);
-  const windowsByPoint = new Int16Array(windowsByPointTotal);
-  for (let i = 0; i < area; i += 1) {
-    near2.set(near2Buckets[i], near2Offsets[i]);
-    windowsByPoint.set(windowsBucket[i], windowsByPointOffsets[i]);
-  }
+  const near2 = Int16Array.from(near2Buckets.flat());
+  const windowsByPoint = Int16Array.from(windowsBucket.flat());
 
   let rngState64 = (0x9E3779B97F4A7C15n ^ BigInt(size * 0x12345)) & UINT64_MASK;
   const zobristStones64 = new BigUint64Array(area * 2);
@@ -437,7 +427,7 @@ export class GogoPosition {
     const ownGroupSize = needsGroup ? this.scanGroupSize : 0;
     if (ownLiberties === 0 && !madeFive) {
       this.hash = this.historyHash[this.ply];
-      this.rollbackIllegalMove(index, opponent, captureStart, capturedCount);
+      this.restoreStones(index, opponent, captureStart, capturedCount);
       return false;
     }
 
@@ -481,14 +471,7 @@ export class GogoPosition {
     const captureStart = this.historyCaptureStart[this.ply];
     const captureCount = this.historyCaptureCount[this.ply];
 
-    this.board[index] = EMPTY;
-    this.stoneCount -= 1;
-    for (let i = 0; i < captureCount; i += 1) {
-      const point = this.capturePositions[captureStart + i];
-      this.board[point] = opponent;
-    }
-    this.stoneCount += captureCount;
-    this.captureTop = captureStart;
+    this.restoreStones(index, opponent, captureStart, captureCount);
     this.toMove = player;
     this.koPoint = this.historyKo[this.ply];
     this.winner = this.historyWinner[this.ply] as Cell;
@@ -589,7 +572,8 @@ export class GogoPosition {
     this.capturePositions = growTypedArray(this.capturePositions, minimumLength, Int16Array);
   }
 
-  private rollbackIllegalMove(index: number, opponent: Player, captureStart: number, capturedCount: number): void {
+  /** Restore stones and capture storage for both undo and rejected suicide. */
+  private restoreStones(index: number, opponent: Player, captureStart: number, capturedCount: number): void {
     this.board[index] = EMPTY;
     this.stoneCount -= 1;
     for (let i = captureStart; i < this.captureTop; i += 1) {

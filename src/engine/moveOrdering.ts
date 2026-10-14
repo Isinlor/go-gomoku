@@ -1,4 +1,7 @@
-/** Stable insertion keeps the parallel move and score buffers aligned. */
+/**
+ * Stable insertion keeps parallel move/score buffers aligned without allocation.
+ * Strict comparison preserves ties, including fractional scores and infinities.
+ */
 export function insertMoveDescending(
   moves: Int16Array,
   scores: Float64Array | Int32Array,

@@ -719,7 +719,7 @@ test('white-box internals cover helper branches that are otherwise hard to trigg
   game.stoneCount = 1;
   game.capturePositions[0] = 1;
   game.captureTop = 1;
-  game.rollbackIllegalMove(0, WHITE, 0, 1);
+  game.restoreStones(0, WHITE, 0, 1);
   expect(game.board[0]).toBe(EMPTY);
   expect(game.board[1]).toBe(WHITE);
   expect(game.captureTop).toBe(0);
@@ -734,6 +734,27 @@ test('white-box internals cover helper branches that are otherwise hard to trigg
   expect(game.checkFiveFrom(game.index(3, 3), BLACK)).toBe(false);
   game.board[game.index(4, 4)] = BLACK;
   expect(game.checkFiveFrom(game.index(4, 4), BLACK)).toBe(true);
+  // Five can straddle the played point in every direction and near each edge.
+  for (const size of [9, 11, 13] as const) {
+    const position = new GogoPosition(size) as any;
+    for (const color of [BLACK, WHITE]) {
+      for (const [dx, dy] of [[1, 0], [0, 1], [1, 1], [1, -1]]) {
+        for (let split = 0; split <= 4; split++) {
+          const startX = dx === 0 ? size - 1 : 0;
+          const startY = dy < 0 ? size - 1 : 0;
+          const move = position.index(startX + dx * split, startY + dy * split);
+          position.board.fill(EMPTY);
+          for (let step = 0; step < 5; step++) {
+            position.board[position.index(startX + dx * step, startY + dy * step)] = color;
+          }
+          expect(position.checkFiveFrom(move, color)).toBe(true);
+          const missing = split === 4 ? 0 : 4;
+          position.board[position.index(startX + dx * missing, startY + dy * missing)] = EMPTY;
+          expect(position.checkFiveFrom(move, color)).toBe(false);
+        }
+      }
+    }
+  }
 });
 
 test('hash tracks ko state and matches reconstructed positions after ko clears', () => {
