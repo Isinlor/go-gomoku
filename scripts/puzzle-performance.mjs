@@ -62,17 +62,10 @@ export function measurePuzzle(engine, puzzle, now = () => performance.now()) {
   return elapsed;
 }
 
-export function comparePuzzleRuns(masterRuns, newRuns, requireSpeedup = false) {
+export function comparePuzzleRuns(masterRuns, newRuns) {
   assert(masterRuns.length === RUNS && newRuns.length === RUNS, 'Expected exactly three measurements per version');
   for (const time of [...masterRuns, ...newRuns]) {
     assert(Number.isFinite(time) && time >= 0, 'Invalid puzzle timing');
-  }
-  if (requireSpeedup) {
-    const masterMs = [...masterRuns].sort((a, b) => a - b)[1];
-    if (masterMs > 20) {
-      const newMs = [...newRuns].sort((a, b) => a - b)[1];
-      return { masterMs, newMs, passed: newMs <= masterMs * 0.9 };
-    }
   }
   const masterMs = Math.max(...masterRuns);
   const newMs = Math.min(...newRuns);
@@ -80,7 +73,7 @@ export function comparePuzzleRuns(masterRuns, newRuns, requireSpeedup = false) {
 }
 
 /** Use the candidate's puzzles and game positions as identical inputs for both engines. */
-export function benchmarkPuzzles(master, candidate, log = console.log, measure = measurePuzzle, requireSpeedup = false) {
+export function benchmarkPuzzles(master, candidate, log = console.log, measure = measurePuzzle) {
   const puzzles = [...candidate.PUZZLES, ...(candidate.GAME_POSITIONS ?? [])];
   assert(puzzles.length > 0, 'No puzzles to benchmark');
   assert.equal(new Set(puzzles.map((puzzle) => puzzle.id)).size, puzzles.length, 'Duplicate puzzle IDs');
@@ -94,10 +87,8 @@ export function benchmarkPuzzles(master, candidate, log = console.log, measure =
         masterRuns.push(measure(master, puzzle));
         newRuns.push(measure(candidate, puzzle));
       }
-      const result = comparePuzzleRuns(masterRuns, newRuns, requireSpeedup);
-      const timingLabel = requireSpeedup ? 'new' : 'fastest new';
-      const masterLabel = requireSpeedup ? 'master' : 'slowest master';
-      log(`${result.passed ? 'PASS' : 'FAIL'} ${puzzle.id} (attempt ${attempt}/${MAX_ATTEMPTS}): ${timingLabel} ${result.newMs.toFixed(3)} ms, ${masterLabel} ${result.masterMs.toFixed(3)} ms`);
+      const result = comparePuzzleRuns(masterRuns, newRuns);
+      log(`${result.passed ? 'PASS' : 'FAIL'} ${puzzle.id} (attempt ${attempt}/${MAX_ATTEMPTS}): fastest new ${result.newMs.toFixed(3)} ms, slowest master ${result.masterMs.toFixed(3)} ms`);
       if (result.passed) {
         // Sum medians rather than the optimistic extremes used for the noise-
         // tolerant individual regression check.
@@ -116,12 +107,12 @@ export function benchmarkPuzzles(master, candidate, log = console.log, measure =
   return 0;
 }
 
-export function runPuzzlePerformance(masterRoot, newRoot = process.cwd(), log = console.log, requireSpeedup = false) {
+export function runPuzzlePerformance(masterRoot, newRoot = process.cwd(), log = console.log) {
   try {
     assert(masterRoot, 'Usage: node scripts/puzzle-performance.mjs MASTER_CHECKOUT');
     const master = loadEngine(realpathSync(masterRoot));
     const candidate = loadEngine(realpathSync(newRoot));
-    return benchmarkPuzzles(master, candidate, log, measurePuzzle, requireSpeedup);
+    return benchmarkPuzzles(master, candidate, log, measurePuzzle);
   } catch (error) {
     log(error.message);
     return 2;
@@ -129,5 +120,5 @@ export function runPuzzlePerformance(masterRoot, newRoot = process.cwd(), log = 
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  process.exitCode = runPuzzlePerformance(process.argv[2], process.cwd(), console.log, process.argv.includes('--require-speedup'));
+  process.exitCode = runPuzzlePerformance(process.argv[2], process.cwd(), console.log);
 }

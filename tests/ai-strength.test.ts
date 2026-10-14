@@ -295,7 +295,7 @@ test('CLI search errors return exit code 2', { tags: ['slow'] }, () => {
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test.each([false, true])('CLI entry forwards the master and strict gain flag %s', { timeout: 5_000 }, async (requireGain) => {
+test('CLI entry defaults to cwd and uses the supplied master path', { tags: ['slow'] }, async () => {
   const root = fixture();
   const originalCwd = process.cwd();
   const originalArgv = process.argv;
@@ -303,11 +303,11 @@ test.each([false, true])('CLI entry forwards the master and strict gain flag %s'
   const log = vi.spyOn(console, 'log').mockImplementation(() => {});
   try {
     process.chdir(root);
-    process.argv = [process.execPath, resolve(originalCwd, 'scripts/ai-strength.mjs'), root, ...(requireGain ? ['--require-gain'] : [])];
+    process.argv = [process.execPath, resolve(originalCwd, 'scripts/ai-strength.mjs'), root];
     vi.resetModules();
     await import('../scripts/ai-strength.mjs');
-    expect(process.exitCode).toBe(requireGain ? 1 : 0);
-    expect(log).toHaveBeenCalledWith(expect.stringContaining(requireGain ? 'FAIL strength' : 'PASS strength'));
+    expect(process.exitCode).toBe(0);
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('PASS strength'));
   } finally {
     process.chdir(originalCwd);
     process.argv = originalArgv;
@@ -419,10 +419,10 @@ test('custom move budget reaches game searches, evaluations, warmup, and workers
 
 
 test('CLI time budget defaults to 5 ms and accepts an explicit budget in either order', () => {
-  expect(parseStrengthArgs(['master'])).toEqual({ masterRoot: 'master', timeMs: 5, alpha: .05, requireGain: false });
-  expect(parseStrengthArgs(['master', '--time-ms', '25'])).toEqual({ masterRoot: 'master', timeMs: 25, alpha: .05, requireGain: false });
-  expect(parseStrengthArgs(['--time-ms', '2.5', 'master'])).toEqual({ masterRoot: 'master', timeMs: 2.5, alpha: .05, requireGain: false });
-  expect(parseStrengthArgs([])).toEqual({ masterRoot: undefined, timeMs: 5, alpha: .05, requireGain: false });
+  expect(parseStrengthArgs(['master'])).toEqual({ masterRoot: 'master', timeMs: 5, alpha: .05 });
+  expect(parseStrengthArgs(['master', '--time-ms', '25'])).toEqual({ masterRoot: 'master', timeMs: 25, alpha: .05 });
+  expect(parseStrengthArgs(['--time-ms', '2.5', 'master'])).toEqual({ masterRoot: 'master', timeMs: 2.5, alpha: .05 });
+  expect(parseStrengthArgs([])).toEqual({ masterRoot: undefined, timeMs: 5, alpha: .05 });
 });
 
 test.each([['--time-ms'], ['--time-ms', '0'], ['--time-ms', '-1'], ['--time-ms', 'NaN'], ['--time-ms', 'Infinity'], ['--unknown'], ['m', 'c']].map(args => [args]))('rejects malformed CLI arguments %s', args => {
@@ -469,53 +469,4 @@ test.each([-1, 0, 1])('reports separate wins, draws, and losses for outcome %s',
   const reports: any[] = [];
   sampleStrength(engine, engine, s => reports.push(s), () => 0, () => outcome);
   expect(reports.at(-1).outcomes).toEqual({ wins: outcome === 1 ? 200 : 0, draws: outcome === 0 ? 200 : 0, losses: outcome === -1 ? 200 : 0 });
-});
-
-import { fixedStrengthPValue } from '../scripts/ai-strength.mjs';
-
-test('fixed strength significance treats color-swapped games as paired observations', () => {
-  expect(fixedStrengthPValue([])).toBe(1);
-  expect(fixedStrengthPValue([0, 0])).toBe(1);
-  expect(fixedStrengthPValue([1, -1])).toBe(.75);
-  expect(fixedStrengthPValue([.5, .5])).toBe(.25);
-  expect(fixedStrengthPValue(Array(10).fill(1))).toBe(1 / 1024);
-  const scores = [1, .5, -.5, 0];
-  let extreme = 0;
-  for (let bits = 0; bits < 16; bits++) {
-    const sum = scores.reduce((s, x, i) => s + Math.abs(x) * (bits & (1 << i) ? 1 : -1), 0);
-    if (sum >= 1) extreme++;
-  }
-  expect(fixedStrengthPValue(scores)).toBe(extreme / 16);
-});
-
-test.each([NaN, Infinity, -1.5, .1])('fixed strength test rejects an invalid pair result %s', score => {
-  expect(() => fixedStrengthPValue([score])).toThrow('pair score');
-});
-
-test('strength reports preserve each completed pair for a fixed-sample significance test', () => {
-  const reports: any[] = [];
-  let games = 0;
-  sampleStrength(engine, engine, s => reports.push(s), () => 0, () => ++games % 4 < 2 ? 1 : -1);
-  expect(reports[0].pairScores).toEqual([0]);
-  expect(reports[1].pairScores).toEqual([0, 0]);
-  expect(reports.at(-1).pairScores).toHaveLength(100);
-});
-
-test('strict strength mode requires 60% wins and corrected p below alpha', async () => {
-  const significant = { pairs: 100, score: 20, evidence: 1, outcomes: { wins: 120, draws: 0, losses: 80 },
-    pairScores: [...Array(30).fill(1), ...Array(10).fill(-1), ...Array(60).fill(0)] };
-  const logs: string[] = [];
-  let calls = 0;
-  const run = async () => { calls++; return significant; };
-  expect(await benchmarkStrength('m', 'c', s => logs.push(s), run, 25, .01, true)).toBe(0);
-  expect(calls).toBe(1);
-  expect(logs.join('\n')).toContain('corrected paired p');
-  expect(await benchmarkStrength('m', 'c', () => {}, async () => ({ ...significant, outcomes: { wins: 119, draws: 0, losses: 81 } }), 25, .01, true)).toBe(1);
-  const p = 5 * fixedStrengthPValue(significant.pairScores);
-  expect(await benchmarkStrength('m', 'c', () => {}, run, 25, p, true)).toBe(1);
-  await expect(benchmarkStrength('m', 'c', () => {}, async () => ({ pairs: 100, score: 0, evidence: 1 }), 25, .01, true)).rejects.toThrow('complete paired results');
-});
-
-test('CLI can explicitly require significant strength gains', () => {
-  expect(parseStrengthArgs(['m', '--require-gain', '--time-ms', '25', '--alpha', '.01'])).toEqual({ masterRoot: 'm', timeMs: 25, alpha: .01, requireGain: true });
 });

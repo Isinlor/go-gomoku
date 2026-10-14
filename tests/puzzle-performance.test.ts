@@ -94,10 +94,3 @@ test('rejects incorrect game-position SearchResult assertions', () => {
   expect(() => measurePuzzle(engine, { ...gamePosition, expectedResult: { forcedLoss: true } })).toThrow('forcedLoss');
   expect(() => measurePuzzle(engine, { ...gamePosition, expectedResult: { move: -1 } })).toThrow('move');
 });
-
-test('strict speedup requires ten percent on median baselines above twenty milliseconds', () => {
-  expect(comparePuzzleRuns([29, 30, 100], [20, 29, 31], true).passed).toBe(false);
-  expect(comparePuzzleRuns([29, 30, 100], [26, 27, 100], true)).toEqual({ masterMs: 30, newMs: 27, passed: true });
-  expect(comparePuzzleRuns([19, 20, 100], [19, 20, 100], true).passed).toBe(true);
-  expect(comparePuzzleRuns([20, 20.001, 100], [20, 20, 20], true).passed).toBe(false);
-});

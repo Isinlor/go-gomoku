@@ -12,7 +12,6 @@ export function parseStrengthArgs(args) {
   let masterRoot;
   let timeMs = MOVE_MS;
   let alpha = DEFAULT_ALPHA;
-  let requireGain = false;
   for (let index = 0; index < args.length; index++) {
     const arg = args[index];
     if (arg === '--time-ms') {
@@ -21,14 +20,12 @@ export function parseStrengthArgs(args) {
     } else if (arg === '--alpha') {
       alpha = Number(args[++index]);
       assert(Number.isFinite(alpha) && alpha > 0 && alpha < 1, '--alpha must be between 0 and 1');
-    } else if (arg === '--require-gain') {
-      requireGain = true;
     } else {
       assert(!arg.startsWith('-') && masterRoot === undefined, `Unexpected argument: ${arg}`);
       masterRoot = arg;
     }
   }
-  return { masterRoot, timeMs, alpha, requireGain };
+  return { masterRoot, timeMs, alpha };
 }
 const THRESHOLD = 20;
 // Correct gain claims for the five possible attempts (100 at default alpha).
@@ -39,31 +36,6 @@ const STAKES = [0.2, 0.5, 0.8];
 export function strengthEvidence(previous, score, stake = 0.8) {
   assert(Number.isFinite(score) && score >= -1 && score <= 1, 'Invalid pair score');
   return previous * (1 - stake * score);
-}
-
-/** Exact one-sided sign-flip test for a single, predeclared color-paired sample.
- * Do not use this fixed-sample p value for repeated looks or retry selection. */
-export function fixedStrengthPValue(pairScores) {
-  let distribution = new Map([[0, 1]]);
-  let observed = 0;
-  for (const score of pairScores) {
-    assert(Number.isFinite(score) && Math.abs(score) <= 1 && Number.isInteger(score * 2), 'Invalid pair score');
-    const magnitude = Math.abs(score * 2);
-    observed += score * 2;
-    const next = new Map();
-    for (const [sum, probability] of distribution) {
-      for (const sign of [-1, 1]) {
-        const value = sum + sign * magnitude;
-        next.set(value, (next.get(value) ?? 0) + probability / 2);
-      }
-    }
-    distribution = next;
-  }
-  let probability = 0;
-  for (const [sum, mass] of distribution) {
-    if (sum >= observed) probability += mass;
-  }
-  return probability;
 }
 
 /** Search both versions together, alternating which engine goes first. */
@@ -139,7 +111,6 @@ export function sampleStrength(master, candidate, send, random = randomInt, play
   let gainBets = STAKES.map(() => 1);
   let score = 0;
   const outcomes = [0, 0, 0];
-  const pairScores = [];
   const shuffled = [...openings.boards];
   for (let index = shuffled.length - 1; index > 0; index--) {
     const other = random(index + 1);
@@ -154,12 +125,11 @@ export function sampleStrength(master, candidate, send, random = randomInt, play
     outcomes[second + 1]++;
     const pairScore = (first + second) / 2;
     score += pairScore;
-    pairScores.push(pairScore);
     bets = bets.map((value, index) => strengthEvidence(value, pairScore, STAKES[index]));
     const evidence = bets.reduce((sum, value) => sum + value, 0) / bets.length;
     gainBets = gainBets.map((value, index) => strengthEvidence(value, -pairScore, STAKES[index]));
     const gainEvidence = gainBets.reduce((sum, value) => sum + value, 0) / gainBets.length;
-    send({ pairs, score, evidence, gainEvidence, pairScores: pairScores.slice(), outcomes: { wins: outcomes[2], draws: outcomes[1], losses: outcomes[0] } });
+    send({ pairs, score, evidence, gainEvidence, outcomes: { wins: outcomes[2], draws: outcomes[1], losses: outcomes[0] } });
   }
 }
 
@@ -195,21 +165,12 @@ export function runStrengthIteration(masterRoot, candidateRoot,
   });
 }
 
-export async function benchmarkStrength(masterRoot, candidateRoot, log = console.log, run = runStrengthIteration, timeMs = MOVE_MS, alpha = DEFAULT_ALPHA, requireGain = false) {
+export async function benchmarkStrength(masterRoot, candidateRoot, log = console.log, run = runStrengthIteration, timeMs = MOVE_MS, alpha = DEFAULT_ALPHA) {
   const gainThreshold = 5 / alpha;
   for (let attempt = 1; attempt <= 5; attempt++) {
     const result = await run(masterRoot, candidateRoot, undefined, timeMs);
     const { gainEvidence = 1 } = result;
-    let passed = result.evidence < THRESHOLD;
-    if (requireGain) {
-      assert(result.pairScores?.length === result.pairs && result.outcomes, 'Strict strength requires complete paired results');
-      const winRate = result.outcomes.wins / (result.pairs * 2);
-      // Union bound across the five permitted complete attempts; never inspect
-      // fixed-sample significance to stop within an attempt.
-      const p = Math.min(1, 5 * fixedStrengthPValue(result.pairScores));
-      passed = winRate >= 0.6 && p < alpha;
-      log(`Strict gain: ${(100 * winRate).toFixed(1)}% wins / 60%; corrected paired p ${p.toPrecision(6)} / ${alpha}.`);
-    }
+    const passed = result.evidence < THRESHOLD;
     log(`${passed ? 'PASS' : 'FAIL'} strength (attempt ${attempt}/5): ${result.pairs * 2} games, candidate ${result.pairs + result.score}/${result.pairs * 2} points, loss evidence ${result.evidence.toFixed(3)} / ${THRESHOLD}, gain evidence ${gainEvidence.toFixed(3)} / ${gainThreshold}`);
     if (result.outcomes) {
       const { wins, draws, losses } = result.outcomes;
@@ -234,14 +195,14 @@ export async function benchmarkStrength(masterRoot, candidateRoot, log = console
     }
     if (passed) return 0;
   }
-  log(requireGain ? 'No significant 60% win rate after five attempts.' : 'AI strength regression confirmed after five attempts.');
+  log('AI strength regression confirmed after five attempts.');
   return 1;
 }
 
-export async function runStrength(masterRoot, candidateRoot = process.cwd(), log = console.log, timeMs = MOVE_MS, alpha = DEFAULT_ALPHA, requireGain = false) {
+export async function runStrength(masterRoot, candidateRoot = process.cwd(), log = console.log, timeMs = MOVE_MS, alpha = DEFAULT_ALPHA) {
   try {
     assert(masterRoot, 'Usage: node scripts/ai-strength.mjs MASTER_CHECKOUT');
-    return await benchmarkStrength(realpathSync(masterRoot), realpathSync(candidateRoot), log, runStrengthIteration, timeMs, alpha, requireGain);
+    return await benchmarkStrength(realpathSync(masterRoot), realpathSync(candidateRoot), log, runStrengthIteration, timeMs, alpha);
   } catch (error) {
     log(error.message);
     return 2;
@@ -252,8 +213,8 @@ if (!isMainThread) {
   startStrengthWorker(workerData, (message) => parentPort.postMessage(message));
 } else if (process.argv[1] === fileURLToPath(import.meta.url)) {
   try {
-    const { masterRoot, timeMs, alpha, requireGain } = parseStrengthArgs(process.argv.slice(2));
-    process.exitCode = await runStrength(masterRoot, process.cwd(), console.log, timeMs, alpha, requireGain);
+    const { masterRoot, timeMs, alpha } = parseStrengthArgs(process.argv.slice(2));
+    process.exitCode = await runStrength(masterRoot, process.cwd(), console.log, timeMs, alpha);
   } catch (error) {
     console.log(error.message);
     process.exitCode = 2;
