@@ -53,6 +53,14 @@ Run locally with Node 24 from the candidate checkout:
 npm run test:strength -- /path/to/master-checkout
 ```
 
+Generate the resumable ply-3 strength dataset with Node 24:
+
+```bash
+npm run evaluate:boards -- /path/to/master-checkout [output-directory]
+```
+
+Outputs default to `data/strength-ply3`: all scores in `evaluations.jsonl` and equality-ranked boards in `ranked.json`. The 10-second screening saves 300 eligible boards in `screened-ranked.json`, then collects 50 wins per color in `collection-10s.json`. Repeat the command with the unchanged master checkout to resume.
+
 ## Development
 
 ```bash
