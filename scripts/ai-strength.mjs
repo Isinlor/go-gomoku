@@ -67,7 +67,7 @@ export function playStrengthGame(master, candidate, opening, candidateColor) {
   const referee = positions[0];
   // Repeating a full position (including turn and ko) ends a capture cycle.
   const seen = new Set();
-  while (referee.winner === 0) {
+  while (referee.winner === 0 && referee.ply < 100) {
     if (!referee.hasAnyLegalMove() || seen.has(referee.hash)) break;
     seen.add(referee.hash);
     const index = referee.toMove === candidateColor ? 1 : 0;
@@ -128,8 +128,9 @@ export function runStrengthIteration(masterRoot, candidateRoot,
       finished = true;
       await worker.terminate();
       if (error) reject(error);
-      else if (result.pairs === 0) reject(new Error('No complete strength pairs'));
-      else resolve(result);
+      else if (result.pairs !== openings.boards.length) {
+        reject(new Error(`Incomplete strength iteration: expected ${openings.boards.length} pairs, received ${result.pairs}`));
+      } else resolve(result);
     };
     worker.on('message', (message) => {
       if (finished) return;

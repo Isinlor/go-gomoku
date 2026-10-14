@@ -54,8 +54,10 @@ npm run test:strength -- /path/to/master-checkout
 ```
 
 The strength test plays all 100 openings in `scripts/strength-openings.json` in
-random order with colors swapped (200 games per attempt), without a time or ply
-cap or early evidence stop. Repeated positions and no legal moves are draws. The pool contains 50 Black and 50 White self-play
+random order with colors swapped (200 games per attempt), without an iteration
+deadline or early evidence stop. Only a full set of 100 pairs is accepted. Games
+are draws at 100 total plies (including the opening), on repetition, or when no
+legal moves remain. The pool contains 50 Black and 50 White self-play
 wins; its original evaluation metadata and engine revision are retained.
 Opening searches interleave master and candidate at 5 ms, alternating who goes
 first. Reports include move and eval-sign agreement between engines and with the

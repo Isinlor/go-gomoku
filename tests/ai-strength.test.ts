@@ -96,20 +96,24 @@ test('plays actual legal games on own-version positions with equal time budgets'
   expect(MOVE_MS).toBe(5);
 });
 
-test('plays beyond 120 plies and draws only on repetition or no legal moves', () => {
+test.each([99, 100, 101])('caps games at 100 total plies, including the opening (win at %s)', winPly => {
   let moves = 0;
   const long = {
-    decodeGame: () => ({ winner: 0, toMove: 1, ply: 0, get hash() { return BigInt(this.ply); },
+    decodeGame: () => ({ winner: 0, toMove: 1, ply: 3, get hash() { return BigInt(this.ply); },
       hasAnyLegalMove: () => true, isLegal: () => true,
-      play() { moves++; this.ply++; if (this.ply === 130) this.winner = 1; return true; } }),
+      play() { moves++; this.ply++; if (this.ply === winPly) this.winner = 1; return true; } }),
     GogoAI: class { findBestMove() { return { move: 0 }; } },
   };
-  expect(playStrengthGame(long, long, 'B9', 1)).toBe(1);
-  expect(moves).toBe(260);
-  const repeated = { ...long, decodeGame: () => ({ winner: 0, toMove: 1, hash: 0n,
-    hasAnyLegalMove: () => true, isLegal: () => true, play: () => true }) };
+  expect(playStrengthGame(long, long, 'B9 e5 d5 c5', 1)).toBe(winPly <= 100 ? 1 : 0);
+  expect(moves).toBe(2 * (Math.min(winPly, 100) - 3));
+});
+
+test('draws on repetition or no legal moves before the ply limit', () => {
+  const repeated = { decodeGame: () => ({ winner: 0, toMove: 1, ply: 3, hash: 0n,
+    hasAnyLegalMove: () => true, isLegal: () => true, play: () => true }),
+    GogoAI: class { findBestMove() { return { move: 0 }; } } };
   expect(playStrengthGame(repeated, repeated, 'B9', 1)).toBe(0);
-  const full = { ...long, decodeGame: () => ({ winner: 0, hasAnyLegalMove: () => false }) };
+  const full = { ...repeated, decodeGame: () => ({ winner: 0, ply: 3, hasAnyLegalMove: () => false }) };
   expect(playStrengthGame(full, full, 'B9', 2)).toBe(0);
 });
 
@@ -192,7 +196,7 @@ test('waits for worker completion beyond the former deadline and evidence thresh
 test('clean exit finishes the iteration; repeated exit is harmless', async () => {
   for (const evidence of [1, 20]) {
     const { result, worker } = await supervise(w => {
-      w.emit('message', { pairs: 6, score: -6, evidence });
+      w.emit('message', { pairs: 100, score: -6, evidence });
       w.emit('exit', 0);
       w.emit('message', { pairs: 99, score: 0, evidence: 0 });
     });
@@ -205,7 +209,7 @@ test('worker errors, bad exits, and empty samples fail immediately', async () =>
   for (const [events, message] of [
     [(w: TestWorker) => w.emit('error', new Error('broken')), 'broken'],
     [(w: TestWorker) => w.emit('exit', 7), 'code 7'],
-    [(w: TestWorker) => w.emit('exit', 0), 'No complete'],
+    [(w: TestWorker) => w.emit('exit', 0), 'Incomplete strength iteration'],
   ] as const) {
     const { result } = await supervise(events);
     await expect(result).rejects.toThrow(message);
@@ -382,4 +386,13 @@ test.each([99.999, 100, 100.001])('gain evidence reports at the threshold: %s', 
   const logs: string[] = [];
   expect(await benchmarkStrength('m', 'c', s => logs.push(s), async () => ({ pairs: 10, score: 4, evidence: 1, gainEvidence }))).toBe(0);
   expect(logs.some(s => s.includes('Strength increase detected'))).toBe(gainEvidence >= 100);
+});
+
+
+test.each([1, 99, 101, undefined])('rejects a clean worker exit with an invalid pair count: %s', async pairs => {
+  const { result } = await supervise(w => {
+    w.emit('message', { pairs, score: 0, evidence: 1 });
+    w.emit('exit', 0);
+  });
+  await expect(result).rejects.toThrow('Incomplete strength iteration: expected 100 pairs');
 });
