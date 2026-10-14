@@ -13,10 +13,10 @@ test.each([-1, 0, 1])('mate score normalization changes exactly at its cutoff (%
   const ai = new GogoAI({ maxPly: 8 }) as any;
   const win = 1_000_000_000 - 8 + offset;
   const loss = -win;
-  expect(ai.ttAdjustStore(win, 3)).toBe(offset >= 0 ? win + 3 : win);
-  expect(ai.ttAdjustStore(loss, 3)).toBe(offset >= 0 ? loss - 3 : loss);
-  expect(ai.ttAdjustRetrieve(win, 3)).toBe(offset >= 0 ? win - 3 : win);
-  expect(ai.ttAdjustRetrieve(loss, 3)).toBe(offset >= 0 ? loss + 3 : loss);
+  expect(ai.adjustMateScore(win, 3)).toBe(offset >= 0 ? win + 3 : win);
+  expect(ai.adjustMateScore(loss, 3)).toBe(offset >= 0 ? loss - 3 : loss);
+  expect(ai.adjustMateScore(win, -3)).toBe(offset >= 0 ? win - 3 : win);
+  expect(ai.adjustMateScore(loss, -3)).toBe(offset >= 0 ? loss + 3 : loss);
 });
 
 test.each([0, 1, 2, 3])('constructor clamps only values below each lower bound (%s)', value => {

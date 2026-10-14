@@ -882,6 +882,20 @@ test('appendGroupTacticalMoves returns capture moves for one- and two-liberty gr
     captureOneLiberty.index(2, 1),
   ]));
 
+  // Response generation includes only actual captures and preserves the
+  // higher priority of a block/counter-win already occupying the same point.
+  const capture = captureOneLiberty.index(2, 1);
+  anyAI.candidateEpoch += 1;
+  anyAI.moveBuffers[0][0] = capture;
+  anyAI.scoreBuffers[0][0] = 2_000_000;
+  anyAI.candidateMarks[capture] = anyAI.candidateEpoch;
+  expect(anyAI.appendGroupTacticalMoves(captureOneLiberty, WHITE, 0, 1)).toBe(1);
+  expect(anyAI.scoreBuffers[0][0]).toBe(2_000_000);
+  anyAI.candidateEpoch += 1;
+  expect(anyAI.appendGroupTacticalMoves(captureOneLiberty, WHITE, 0)).toBe(1);
+  expect(anyAI.moveBuffers[0][0]).toBe(capture);
+  expect(anyAI.scoreBuffers[0][0]).toBe(1_500_000);
+
   const captureTwoLiberties = GogoPosition.fromAscii([
     '.X.......',
     '.O.......',
@@ -905,6 +919,8 @@ test('appendGroupTacticalMoves returns capture moves for one- and two-liberty gr
     captureTwoLiberties.index(0, 1),
     captureTwoLiberties.index(2, 1),
   ]));
+  anyAI.candidateEpoch += 1;
+  expect(anyAI.appendGroupTacticalMoves(captureTwoLiberties, WHITE, 0)).toBe(0);
 });
 
 test('appendGroupTacticalMoves returns escape moves for one- and two-liberty groups', () => {
@@ -1249,20 +1265,20 @@ test('TT score adjustment correctly handles forced win/loss scores and pass-thro
   const anyAI = ai as any;
 
   // Regular scores pass through unchanged
-  expect(anyAI.ttAdjustStore(100, 5)).toBe(100);
-  expect(anyAI.ttAdjustRetrieve(100, 5)).toBe(100);
-  expect(anyAI.ttAdjustStore(-100, 5)).toBe(-100);
-  expect(anyAI.ttAdjustRetrieve(-100, 5)).toBe(-100);
+  expect(anyAI.adjustMateScore(100, 5)).toBe(100);
+  expect(anyAI.adjustMateScore(100, -5)).toBe(100);
+  expect(anyAI.adjustMateScore(-100, 5)).toBe(-100);
+  expect(anyAI.adjustMateScore(-100, -5)).toBe(-100);
 
   // Win scores are adjusted by ply
   const winScore = 1_000_000_000 - 3;
-  expect(anyAI.ttAdjustStore(winScore, 5)).toBe(winScore + 5);
-  expect(anyAI.ttAdjustRetrieve(winScore + 5, 5)).toBe(winScore);
+  expect(anyAI.adjustMateScore(winScore, 5)).toBe(winScore + 5);
+  expect(anyAI.adjustMateScore(winScore + 5, -5)).toBe(winScore);
 
   // Loss scores are adjusted by ply
   const lossScore = -1_000_000_000 + 3;
-  expect(anyAI.ttAdjustStore(lossScore, 5)).toBe(lossScore - 5);
-  expect(anyAI.ttAdjustRetrieve(lossScore - 5, 5)).toBe(lossScore);
+  expect(anyAI.adjustMateScore(lossScore, 5)).toBe(lossScore - 5);
+  expect(anyAI.adjustMateScore(lossScore - 5, -5)).toBe(lossScore);
 });
 
 function lmrPosition(): GogoPosition {
