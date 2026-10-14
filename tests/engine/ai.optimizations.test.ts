@@ -23,6 +23,10 @@ test.each([9, 11, 13] as const)('AI window counts follow moves, captures, undo, 
     }
     expect(Array.from(ai.windowBlack.slice(0, position.meta.windowCount))).toEqual(expectedBlack);
     expect(Array.from(ai.windowWhite.slice(0, position.meta.windowCount))).toEqual(expectedWhite);
+    const active = Array.from({ length: position.meta.windowCount }, (_, wi) =>
+      (ai.activeWindows[wi >>> 5] & (1 << (wi & 31))) !== 0);
+    expect(active).toEqual(expectedBlack.map((black, wi) =>
+      (black >= 2 && expectedWhite[wi] === 0) || (expectedWhite[wi] >= 2 && black === 0)));
     ai.beginPatternPass(position);
     expect(ai.windowEvaluation).toBe(expectedEvaluation);
     let local = 0;
@@ -379,4 +383,54 @@ test('proof defenses can use the second refutation when the first is occupied', 
   expect(ai.proofDefend(second, 3, 1)).toBe(false);
   expect(generations).toBe(0);
   expect(second.ply).toBe(0);
+});
+
+test('quiescence cannot stand pat instead of answering an immediate threat', () => {
+  const position = GogoPosition.fromAscii(['.........', '.OOOO....', ...Array(7).fill('.........')], BLACK);
+  const ai = new GogoAI({ now: () => 0 }) as any;
+  ai.ensureBuffers(position.area);
+  ai.deadline = Infinity;
+  const encoded = position.toAscii();
+  expect(ai.quiescence(position, -1_000_000_000, -999_000_000, 0, 4)).toBe(-999_999_998);
+  expect(position.toAscii()).toEqual(encoded);
+});
+
+test('loss proofs check forcing replies before heuristic discovery', () => {
+  const position = GogoPosition.fromAscii(['.........', '.OOOO....', ...Array(7).fill('.........')], BLACK);
+  const ai = new GogoAI({ now: () => 0 }) as any;
+  ai.ensureBuffers(position.area);
+  ai.deadline = Infinity;
+  const search = ai.searchDepths.bind(ai);
+  let discoveries = 0;
+  ai.searchDepths = (...args: any[]) => { discoveries++; return search(...args); };
+  expect(ai.proofSearchRoot(position, 3, -1)).toBe(-999_999_997);
+  expect(discoveries).toBe(0);
+  expect(position.ply).toBe(0);
+});
+
+test('deeper discovery focuses on the best twelve root candidates while exact search remains exhaustive', () => {
+  const position = new GogoPosition(9);
+  position.playXY(4, 4);
+  const ai = new GogoAI({ quiescenceDepth: 0, maxPly: 2, now: () => 0 }) as any;
+  ai.ensureBuffers(position.area);
+  ai.deadline = Infinity;
+  const play = position.play.bind(position);
+  let roots = 0;
+  position.play = (move: number) => { if (position.ply === 1) roots++; return play(move); };
+  ai.searchRoot(position, 2, -1);
+  expect(roots).toBe(12);
+  roots = 0;
+  ai.proofMode = true;
+  ai.resetSearchHeuristics(true);
+  ai.searchRoot(position, 2, -1);
+  expect(roots).toBeGreaterThan(12);
+  expect(position.ply).toBe(1);
+});
+
+test('quiescence recognizes an immediate win even in a narrow fail-high window', () => {
+  const position = GogoPosition.fromAscii(['XXXX.....', ...Array(8).fill('.........')], BLACK);
+  const ai = new GogoAI({ now: () => 0 }) as any;
+  ai.ensureBuffers(position.area);
+  ai.deadline = Infinity;
+  expect(ai.quiescence(position, -1, 1, 0, 4)).toBe(999_999_999);
 });

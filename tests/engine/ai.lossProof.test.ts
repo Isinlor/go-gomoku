@@ -178,3 +178,33 @@ test('loss verification proves legal discovery hints before repeating child disc
   expect(discoveries).toBe(0);
   expect(position.ply).toBe(0);
 });
+
+test('a failed heuristic reply is not retried among tactical alternatives', () => {
+  const position = GogoPosition.fromAscii(['..BB.....', ...blank], WHITE);
+  const ai = proofAI(position);
+  position.play(80);
+  const childHash = position.hash;
+  const index = Number(childHash & ((1n << 18n) - 1n));
+  ai.ttHash[index] = childHash;
+  ai.ttBestMove[index] = 4;
+  position.undo();
+  const prove = ai.proveLossReply.bind(ai);
+  let attempts = 0;
+  ai.proveLossReply = (searched: GogoPosition, move: number, depth: number) => {
+    if (searched.hash === childHash && move === 4) attempts++;
+    return prove(searched, move, depth);
+  };
+  expect(ai.proofSearchRoot(position, 4, 80)).toBe(0);
+  expect(attempts).toBe(1);
+  expect(position.ply).toBe(0);
+});
+
+test('loss discovery remains available when tactical generation omits a winning witness', () => {
+  const position = GogoPosition.fromAscii(['.BBBB....', ...blank], WHITE);
+  const ai = proofAI(position);
+  const generate = ai.generateTacticalMoves.bind(ai);
+  ai.generateTacticalMoves = (...args: any[]) => position.ply === 1 ? 0 : generate(...args);
+  expect(ai.proofSearchRoot(position, 2, -1)).toBe(-1_000_000_000 + 2);
+  expect(position.ply).toBe(0);
+  expect(ai.lossProofMode).toBe(false);
+});
