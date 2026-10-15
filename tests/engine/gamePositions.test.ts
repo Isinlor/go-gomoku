@@ -40,3 +40,12 @@ test('a strong losing discovery is verified across every defense before deeper d
   expect(Math.max(...depths)).toBeLessThan(14);
   expect(position.encodeGame()).toBe('B9 e9 e8 f9');
 });
+
+test.each(['B9 i1 g6', 'B9 f9 h9'])('quiet opening %s retains its archived forced win', { timeout: 65000 }, encoded => {
+  const position = decodeGame(encoded);
+  const result = new GogoAI({ maxDepth: 30, quiescenceDepth: 4, maxPly: 64 }).findBestMove(position, 60000);
+  expect(result.forcedWin).toBe(true);
+  expect(result.timedOut).toBe(false);
+  expect(position.isLegal(result.move)).toBe(true);
+  expect(position.encodeGame()).toBe(encoded);
+});
