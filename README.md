@@ -50,21 +50,13 @@ npm run test:performance -- /path/to/master-checkout
 Run locally with Node 24 from the candidate checkout:
 
 ```bash
-npm run test:strength -- /path/to/master-checkout --time-ms 25 --alpha 0.01
+npm run test:strength -- /path/to/master-checkout --time-ms 5 --alpha 0.05
 ```
 
 The strength test plays all 100 openings in `scripts/strength-openings.json` in
-random order with colors swapped (200 games per attempt), without an iteration
-deadline or early evidence stop. Only a full set of 100 pairs is accepted. Games
-are draws at 100 total plies (including the opening), on repetition, or when no
-legal moves remain. The pool contains 50 Black and 50 White self-play
-wins; its original evaluation metadata and engine revision are retained.
-The CLI defaults to 5 ms per move and alpha 0.05; `--time-ms` and `--alpha`
-configure the shared move budget and gain significance. Opening searches
-interleave master and candidate, alternating who goes first. Reports include
-move and eval-sign agreement between engines and with the
-stored 100 ms and 10 s searches, plus candidate-only, master-only, both, and
-neither agreement with the 10 s move (zero is its own eval sign).
+random order with colors swapped (200 games per attempt). The pool contains 
+50 Black and 50 White self-play wins; The CLI defaults to 5 ms per move and alpha 0.05; 
+`--time-ms` and `--alpha` configure the shared move budget and gain significance.
 Game results report strength gains when symmetric gain evidence reaches its threshold,
 with a one-sided alpha bound across at most five attempts (threshold `5 / alpha`).
 

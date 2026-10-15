@@ -11,6 +11,11 @@ export interface PositionOptions {
   captureCapacity?: number;
 }
 
+interface GameSetup {
+  readonly rows: string[];
+  readonly toMove: Player;
+}
+
 export interface BoardMeta {
   readonly size: SupportedSize;
   readonly area: number;
@@ -25,6 +30,8 @@ export interface BoardMeta {
   readonly windowsByPoint: Int16Array;
   readonly centerBias: Int16Array;
   readonly zobristStones64: BigUint64Array;
+  /** Stone placement combined with the side-to-move toggle for make-move. */
+  readonly zobristMoves64: BigUint64Array;
   readonly zobristBlackToMove64: bigint;
   /** Zobrist keys for ko point: index 0..area-1 for each square, index area for "no ko". */
   readonly zobristKo64: BigUint64Array;
@@ -151,6 +158,10 @@ function createBoardMeta(size: SupportedSize): BoardMeta {
   }
   rngState64 = xorshift64(rngState64);
   const zobristBlackToMove64 = rngState64;
+  const zobristMoves64 = new BigUint64Array(area * 2);
+  for (let i = 0; i < zobristMoves64.length; i += 1) {
+    zobristMoves64[i] = zobristStones64[i] ^ zobristBlackToMove64;
+  }
   const zobristKo64 = new BigUint64Array(area + 1);
   for (let i = 0; i < area + 1; i += 1) {
     rngState64 = xorshift64(rngState64);
@@ -171,6 +182,7 @@ function createBoardMeta(size: SupportedSize): BoardMeta {
     windowsByPoint,
     centerBias,
     zobristStones64,
+    zobristMoves64,
     zobristBlackToMove64,
     zobristKo64,
   };
@@ -214,7 +226,11 @@ export class GogoPosition {
   lastMove = -1;
   lastCapturedCount = 0;
   hash = 0n;
+  /** Bounded, non-destructive board mutation journal for incremental consumers. */
+  boardVersion = 0;
+  readonly boardChanges = new Uint16Array(1024);
 
+  private initialSetup?: GameSetup;
   private historyMoves: Int16Array;
   private historyPlayers: Uint8Array;
   private historyKo: Int16Array;
@@ -287,6 +303,7 @@ export class GogoPosition {
       }
     }
 
+    position.initialSetup = { rows: position.toAscii(), toMove };
     position.winner = position.detectExistingWinner();
 
     position.hash = computeZobristHashes(position);
@@ -294,11 +311,9 @@ export class GogoPosition {
     return position;
   }
 
+  /** Replay game history from its initial board, preserving history and ko. */
   clone(): GogoPosition {
-    return GogoPosition.fromAscii(this.toAscii(), this.toMove, {
-      historyCapacity: this.historyMoves.length,
-      captureCapacity: this.capturePositions.length,
-    });
+    return decodeGame(this.encodeGame(), this.initialSetup);
   }
 
   toAscii(): string[] {
@@ -382,42 +397,12 @@ export class GogoPosition {
     const player = this.toMove;
     const opponent = otherPlayer(player);
     const captureStart = this.captureTop;
-    let capturedCount = 0;
-
     this.board[index] = player;
+    this.recordBoardChange(index);
     this.stoneCount += 1;
-    this.hash ^= this.meta.zobristStones64[index * 2 + (player - 1)];
+    this.hash ^= this.meta.zobristMoves64[index * 2 + (player - 1)];
 
-    const neighbors = this.meta.neighbors4;
-    const neighborBase = index * 4;
-    this.adjacentGroupEpoch += 1;
-
-    for (let offset = 0; offset < 4; offset += 1) {
-      const neighbor = neighbors[neighborBase + offset];
-      if (neighbor === -1 || this.board[neighbor] !== opponent || this.adjacentGroupMarks[neighbor] === this.adjacentGroupEpoch) {
-        continue;
-      }
-      // A directly adjacent empty point proves this group cannot be captured.
-      // No flood fill or group marking is needed for that common case.
-      if (this.hasDirectLiberty(neighbor)) continue;
-      const liberties = this.scanGroup(neighbor, opponent);
-      for (let groupIndex = 0; groupIndex < this.scanGroupSize; groupIndex += 1) {
-        this.adjacentGroupMarks[this.groupBuffer[groupIndex]] = this.adjacentGroupEpoch;
-      }
-      if (liberties !== 0) {
-        continue;
-      }
-      this.ensureCaptureCapacity(this.captureTop + this.scanGroupSize);
-      for (let groupIndex = 0; groupIndex < this.scanGroupSize; groupIndex += 1) {
-        const point = this.groupBuffer[groupIndex];
-        this.capturePositions[this.captureTop] = point;
-        this.captureTop += 1;
-        this.board[point] = EMPTY;
-        this.hash ^= this.meta.zobristStones64[point * 2 + (opponent - 1)];
-      }
-      capturedCount += this.scanGroupSize;
-      this.stoneCount -= this.scanGroupSize;
-    }
+    const capturedCount = this.captureAdjacentGroups(index, opponent);
 
     const madeFive = this.checkFiveFrom(index, player);
     // Exact size and liberty counts are only needed for single-stone ko.
@@ -444,7 +429,6 @@ export class GogoPosition {
     this.historyCaptureCount[this.ply] = capturedCount;
     this.ply += 1;
 
-    this.hash ^= this.meta.zobristBlackToMove64;
     // Update ko in hash: XOR out old ko, XOR in new ko
     if (nextKo !== this.koPoint) {
       const oldKoIdx = this.koPoint === -1 ? this.area : this.koPoint;
@@ -457,6 +441,44 @@ export class GogoPosition {
     this.lastMove = index;
     this.lastCapturedCount = capturedCount;
     return true;
+  }
+
+  /** Keep capture traversal separate from move bookkeeping in CPU profiles. */
+  private captureAdjacentGroups(index: number, opponent: Player): number {
+    let capturedCount = 0;
+    const neighbors = this.meta.neighbors4;
+    const neighborBase = index * 4;
+    this.adjacentGroupEpoch += 1;
+
+    for (let offset = 0; offset < 4; offset += 1) {
+      const neighbor = neighbors[neighborBase + offset];
+      if (neighbor === -1 || this.board[neighbor] !== opponent || this.adjacentGroupMarks[neighbor] === this.adjacentGroupEpoch) {
+        continue;
+      }
+      // A directly adjacent empty point proves this group cannot be captured.
+      // No flood fill or group marking is needed for that common case.
+      if (this.hasDirectLiberty(neighbor)) continue;
+      const liberties = this.scanGroup(neighbor, opponent);
+      for (let groupIndex = 0; groupIndex < this.scanGroupSize; groupIndex += 1) {
+        this.adjacentGroupMarks[this.groupBuffer[groupIndex]] = this.adjacentGroupEpoch;
+      }
+      if (liberties !== 0) {
+        continue;
+      }
+      this.ensureCaptureCapacity(this.captureTop + this.scanGroupSize);
+      for (let groupIndex = 0; groupIndex < this.scanGroupSize; groupIndex += 1) {
+        const point = this.groupBuffer[groupIndex];
+        this.capturePositions[this.captureTop] = point;
+        this.captureTop += 1;
+        this.board[point] = EMPTY;
+        this.recordBoardChange(point);
+        this.hash ^= this.meta.zobristStones64[point * 2 + (opponent - 1)];
+      }
+      capturedCount += this.scanGroupSize;
+      this.stoneCount -= this.scanGroupSize;
+    }
+
+    return capturedCount;
   }
 
   undo(): boolean {
@@ -572,13 +594,19 @@ export class GogoPosition {
     this.capturePositions = growTypedArray(this.capturePositions, minimumLength, Int16Array);
   }
 
+  private recordBoardChange(point: number): void {
+    this.boardChanges[this.boardVersion++ & (this.boardChanges.length - 1)] = point;
+  }
+
   /** Restore stones and capture storage for both undo and rejected suicide. */
   private restoreStones(index: number, opponent: Player, captureStart: number, capturedCount: number): void {
     this.board[index] = EMPTY;
+    this.recordBoardChange(index);
     this.stoneCount -= 1;
     for (let i = captureStart; i < this.captureTop; i += 1) {
       const point = this.capturePositions[i];
       this.board[point] = opponent;
+      this.recordBoardChange(point);
     }
     this.stoneCount += capturedCount;
     this.captureTop = captureStart;
@@ -677,14 +705,19 @@ export function decodeMove(move: string, size: SupportedSize): number {
   return y * size + x;
 }
 
-export function decodeGame(encoded: string): GogoPosition {
+export function decodeGame(encoded: string, setup?: GameSetup): GogoPosition {
   const parts = encoded.trim().split(/\s+/);
   const sizeToken = parts[0];
   if (!/^B(9|11|13)$/.test(sizeToken)) {
     throw new Error(`Invalid board size token: ${sizeToken}`);
   }
   const size = parseInt(sizeToken.slice(1), 10) as SupportedSize;
-  const position = new GogoPosition(size);
+  if (setup !== undefined && setup.rows.length !== size) {
+    throw new Error(`Setup board size ${setup.rows.length} does not match record size ${size}`);
+  }
+  const position = setup === undefined
+    ? new GogoPosition(size)
+    : GogoPosition.fromAscii(setup.rows, setup.toMove);
   for (let i = 1; i < parts.length; i += 1) {
     const moveStr = parts[i];
     const index = decodeMove(moveStr, size);

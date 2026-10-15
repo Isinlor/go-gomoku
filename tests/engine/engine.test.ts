@@ -227,14 +227,14 @@ test('clone preserves playable state and toAscii serializes mixed, empty, and fu
     '.........',
   ], BLACK, { historyCapacity: 1, captureCapacity: 1 });
   expect(growth.playXY(2, 2)).toBe(true);
-  const growthClone = growth.clone() as any;
-  expect(growthClone.getMoveAt(0)).toBe(-1);
+  const growthClone = growth.clone();
+  expect(growthClone.getMoveAt(0)).toBe(growth.getMoveAt(0));
   expect(growthClone.toAscii()).toEqual(growth.toAscii());
   expect(growthClone.toMove).toBe(growth.toMove);
   expect(growthClone.hash).toBe(growth.hash);
   const nextPlayer = growthClone.toMove;
   expect(growthClone.playXY(8, 8)).toBe(true);
-  expect(growthClone.getMoveAt(0)).toBe(growthClone.index(8, 8));
+  expect(growthClone.getMoveAt(1)).toBe(growthClone.index(8, 8));
   expect(growthClone.at(8, 8)).toBe(nextPlayer);
   expect(growth.at(8, 8)).toBe(EMPTY);
 });
@@ -572,6 +572,14 @@ test('hash stays consistent through capture, ko updates, undo, and reconstructio
   expect(position.playXY(2, 1)).toBe(true);
   expect(position.koPoint).toBe(position.index(2, 2));
   const afterCaptureHash = position.hash;
+  const clonedCapture = position.clone();
+  expect(clonedCapture.koPoint).toBe(position.koPoint);
+  expect(clonedCapture.hash).toBe(afterCaptureHash);
+  expect(clonedCapture.playXY(2, 2)).toBe(false);
+  expect(clonedCapture.undo()).toBe(true);
+  expect(clonedCapture.toAscii()).toEqual(startSnapshot.toAscii());
+  expect(clonedCapture.hash).toBe(startSnapshot.hash);
+
   const rebuiltAfterCapture = GogoPosition.fromAscii(position.toAscii(), position.toMove);
   expect(rebuiltAfterCapture.koPoint).toBe(-1);
   expect(rebuiltAfterCapture.hash).not.toBe(afterCaptureHash);
@@ -899,4 +907,136 @@ test('decodeGame throws on invalid board size token, unrecognised move, and ille
   expect(() => decodeGame('B10 e5')).toThrow(/Invalid board size token/);
   expect(() => decodeGame('B9 z1')).toThrow(/Invalid move/);
   expect(() => decodeGame('B9 e5 e5')).toThrow(/Illegal move/);
+});
+
+test.each([9, 11, 13] as const)('clone preserves history and ko rules on size %s', (size) => {
+  const original = decodeGame(`B${size} b3 c3 d3 c1 c4 b2 i9 d2 c2`);
+  const clone = original.clone();
+  const recapture = original.index(2, 2);
+  expect(original.koPoint).toBe(recapture);
+  expect(clone).not.toBe(original);
+  expect(clone.board).not.toBe(original.board);
+  expect(clone.toAscii()).toEqual(original.toAscii());
+  expect(clone.encodeGame()).toBe(original.encodeGame());
+  for (const field of ['toMove', 'winner', 'koPoint', 'ply', 'stoneCount', 'lastMove', 'lastCapturedCount', 'hash'] as const) {
+    expect(clone[field]).toBe(original[field]);
+  }
+  expect(clone.hash).toBe(computeZobristHashes(clone));
+  expect(clone.isLegal(recapture)).toBe(false);
+  expect(clone.play(recapture)).toBe(false);
+  expect(clone.playXY(8, 7)).toBe(true);
+  expect(clone.playXY(7, 7)).toBe(true);
+  expect(clone.isLegal(recapture)).toBe(true);
+  expect(clone.play(recapture)).toBe(true);
+  expect(clone.lastCapturedCount).toBe(1);
+  expect(clone.koPoint).toBe(clone.index(2, 1));
+  expect(clone.undo()).toBe(true);
+  expect(clone.undo()).toBe(true);
+  expect(clone.undo()).toBe(true);
+  expect(clone.hash).toBe(original.hash);
+  expect(clone.koPoint).toBe(recapture);
+  expect(clone.play(recapture)).toBe(false);
+  while (original.ply > 0) {
+    expect(clone.undo()).toBe(true);
+    expect(original.undo()).toBe(true);
+    expect(clone.toAscii()).toEqual(original.toAscii());
+    expect(clone.hash).toBe(original.hash);
+    expect(clone.encodeGame()).toBe(original.encodeGame());
+  }
+  expect(clone.undo()).toBe(false);
+});
+
+test.each([BLACK, WHITE] as const)('ASCII setup and ko history survive repeated cloning with player %s starting', (player) => {
+  const rows = ['..O......', '.O.O.....', '.XOX.....', '..X......', ...Array(5).fill('.........')];
+  const setupRows = player === BLACK ? rows : rows.map(row => row.replace(/[XO]/g, stone => stone === 'X' ? 'O' : 'X'));
+  const game = GogoPosition.fromAscii(setupRows, player, { historyCapacity: 1, captureCapacity: 1 });
+  const setup = game.clone();
+  // Caller-owned ASCII input must not become the stored replay baseline.
+  setupRows[0] = '.........';
+  expect(game.playXY(2, 1)).toBe(true);
+  const captured = game.clone().clone();
+  expect(captured.encodeGame()).toBe('B9 c2');
+  expect(captured.lastCapturedCount).toBe(1);
+  expect(captured.toMove).toBe(player === BLACK ? WHITE : BLACK);
+  expect(captured.hash).toBe(game.hash);
+  expect(captured.playXY(2, 2)).toBe(false);
+  expect(captured.playXY(8, 8)).toBe(true);
+  expect(captured.playXY(7, 8)).toBe(true);
+  expect(captured.playXY(2, 2)).toBe(true);
+  expect(captured.lastCapturedCount).toBe(1);
+  const recaptured = captured.clone().clone();
+  expect(recaptured.encodeGame()).toBe('B9 c2 i9 h9 c3');
+  expect(recaptured.hash).toBe(captured.hash);
+  expect(recaptured.playXY(2, 1)).toBe(false);
+  for (let ply = 0; ply < 4; ply += 1) {
+    expect(recaptured.undo()).toBe(true);
+    expect(captured.undo()).toBe(true);
+    expect(recaptured.toAscii()).toEqual(captured.toAscii());
+    expect(recaptured.hash).toBe(captured.hash);
+    expect(recaptured.hash).toBe(computeZobristHashes(recaptured));
+    expect(recaptured.encodeGame()).toBe(captured.encodeGame());
+    expect(recaptured.koPoint).toBe(captured.koPoint);
+  }
+  expect(recaptured.toAscii()).toEqual(setup.toAscii());
+  expect(recaptured.hash).toBe(setup.hash);
+  expect(recaptured.toMove).toBe(player);
+  expect(recaptured.undo()).toBe(false);
+  expect(game.ply).toBe(1);
+  expect(game.playXY(2, 2)).toBe(false);
+});
+
+test('cloning an ASCII game after undo replays only the retained history and permits an independent branch', () => {
+  const game = GogoPosition.fromAscii(['X.O......', ...Array(8).fill('.........')], WHITE);
+  const setup = game.clone();
+  expect(game.playXY(4, 4)).toBe(true);
+  const retained = game.clone();
+  expect(game.playXY(3, 3)).toBe(true);
+  expect(game.undo()).toBe(true);
+  const branch = game.clone();
+  expect(branch.encodeGame()).toBe('B9 e5');
+  expect(branch.getMoveAt(1)).toBe(-1);
+  expect(branch.hash).toBe(retained.hash);
+  expect(branch.playXY(5, 5)).toBe(true);
+  expect(branch.encodeGame()).toBe('B9 e5 f6');
+  expect(game.at(5, 5)).toBe(EMPTY);
+  expect(game.encodeGame()).toBe('B9 e5');
+  const branchClone = branch.clone();
+  expect(branchClone.undo()).toBe(true);
+  expect(branchClone.hash).toBe(retained.hash);
+  expect(branchClone.undo()).toBe(true);
+  expect(branchClone.toAscii()).toEqual(setup.toAscii());
+  expect(branchClone.hash).toBe(setup.hash);
+  expect(branchClone.toMove).toBe(WHITE);
+  expect(branchClone.undo()).toBe(false);
+  expect(branch.at(5, 5)).toBe(BLACK);
+});
+
+test.each([BLACK, WHITE] as const)('an ASCII setup followed by a win clones and undoes to its setup for player %s', (player) => {
+  const row = player === BLACK ? 'XXXX.....' : 'OOOO.....';
+  const game = GogoPosition.fromAscii([row, ...Array(8).fill('.........')], player);
+  const setup = game.clone();
+  expect(game.playXY(4, 0)).toBe(true);
+  const won = game.clone();
+  expect(won.winner).toBe(player);
+  expect(won.encodeGame()).toBe('B9 e1');
+  expect(won.hash).toBe(game.hash);
+  expect(won.playXY(8, 8)).toBe(false);
+  expect(won.undo()).toBe(true);
+  expect(won.winner).toBe(EMPTY);
+  expect(won.toMove).toBe(player);
+  expect(won.toAscii()).toEqual(setup.toAscii());
+  expect(won.hash).toBe(setup.hash);
+  expect(won.encodeGame()).toBe('B9');
+  expect(won.undo()).toBe(false);
+  expect(game.winner).toBe(player);
+});
+
+test.each([
+  [9, 11], [9, 13], [11, 9], [11, 13], [13, 9], [13, 11],
+] as const)('decodeGame rejects a size %s record with a size %s ASCII setup before replay', (recordSize, setupSize) => {
+  const setup = { rows: Array(setupSize).fill('.'.repeat(setupSize)), toMove: BLACK };
+  const error = `Setup board size ${setupSize} does not match record size ${recordSize}`;
+  expect(() => decodeGame(`B${recordSize}`, setup)).toThrow(error);
+  expect(() => decodeGame(`B${recordSize} i9`, setup)).toThrow(error);
+  expect(setup.rows).toEqual(Array(setupSize).fill('.'.repeat(setupSize)));
 });
