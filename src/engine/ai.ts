@@ -628,7 +628,16 @@ export class GogoAI {
           // Reuse the attacker prover for the concrete reply search. Its hash
           // hint and the last successful reply are independently checked before
           // generating alternatives; neither discovery scores nor hints prove a win.
-          if (this.proofAttack(position, depth, 1, winningReply)) {
+          // Find a short winning witness before exploring longer forcing lines.
+          // Failed shallow probes remain valid bounds in the dedicated proof TT.
+          let provenReply = false;
+          for (let replyDepth = 1; replyDepth <= depth; replyDepth += 2) {
+            if (this.proofAttack(position, replyDepth, 1, winningReply)) {
+              provenReply = true;
+              break;
+            }
+          }
+          if (provenReply) {
             winningReply = this.proofTTBestMove[Number(BigInt.asUintN(TT_SIZE_BITS, position.hash))];
             continue;
           }
@@ -673,16 +682,15 @@ export class GogoAI {
     let bestScore = -WIN_SCORE;
     let legalCount = 0;
 
+    // Double discovery's root beam each iteration instead of permanently
+    // excluding quiet setups. Exact proofs and full-board fallbacks stay complete.
+    const rootLimit = MAX_CANDIDATES * 2 ** (depth - 2);
     // Search nearby candidates first, broadening only when none is legal.
     for (let stage = 0; stage < 2; stage += 1) {
       let count = stage === 0
-        ? !this.proofMode && depth > 1
-          ? this.generateBestNearbyMoves(position, moves, scores, hintMove)
-          : this.generateNearbyMoves(position, moves, scores, hintMove)
+        ? this.generateNearbyMoves(position, moves, scores, hintMove)
         : this.generateAllBoardMoves(position, moves, scores, hintMove);
-      // The first iteration considers every candidate. Deeper discovery caps
-      // nearby moves; proof searches and full-board fallbacks remain complete.
-      if (stage === 0 && !this.proofMode && depth > 1 && count > MAX_CANDIDATES) count = MAX_CANDIDATES;
+      if (stage === 0 && !this.proofMode && depth > 1) count = Math.min(count, rootLimit);
       for (let i = 0; i < count; i += 1) {
         const move = moves[i];
         if (!position.play(move)) {

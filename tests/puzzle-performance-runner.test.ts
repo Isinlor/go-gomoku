@@ -90,7 +90,7 @@ test('rejects empty or duplicate puzzle lists', () => {
 
 // A tiny TypeScript engine exercises Node's real loader and CLI without Vitest
 // subprocesses, compilation, timing-dependent expectations, or dependencies.
-function createFixture(wrongMove = false, withGamePositions = false) {
+function createFixture(wrongMove = false, withGamePositions = false, forcedWin = true) {
   const root = mkdtempSync(join(tmpdir(), 'direct-puzzle-performance-'));
   const engine = join(root, 'src/engine');
   mkdirSync(engine, { recursive: true });
@@ -102,7 +102,7 @@ function createFixture(wrongMove = false, withGamePositions = false) {
   writeFileSync(join(engine, 'ai.ts'), `
     import { SOLUTION } from './gogomoku.ts';
     export class GogoAI {
-      findBestMove(position: unknown, timeMs: number) { return { move: ${wrongMove ? 1 : 'SOLUTION'}, forcedWin: true, timedOut: false }; }
+      findBestMove(position: unknown, timeMs: number) { return { move: ${wrongMove ? 1 : 'SOLUTION'}, forcedWin: ${forcedWin}, timedOut: false }; }
     }
   `);
   writeFileSync(join(engine, 'puzzles.ts'), `
@@ -222,8 +222,8 @@ test('benchmarks candidate game positions alongside puzzles with identical input
   expect(() => benchmarkPuzzles(master, { PUZZLES: [puzzle], GAME_POSITIONS: [puzzle] })).toThrow('Duplicate');
 });
 
-test('loads and runs candidate game positions against a master without the collection', { tags: ['slow'] }, () => {
-  const master = createFixture();
+test('times new regression cases even when master cannot satisfy their proof assertions', { tags: ['slow'] }, () => {
+  const master = createFixture(false, false, false);
   const candidate = createFixture(false, true);
   const messages: string[] = [];
   try {
@@ -236,4 +236,27 @@ test('loads and runs candidate game positions against a master without the colle
     rmSync(master, { recursive: true, force: true });
     rmSync(candidate, { recursive: true, force: true });
   }
+});
+
+test('new regression cases still require the candidate to satisfy proof assertions', { tags: ['slow'] }, () => {
+  const master = createFixture();
+  const candidate = createFixture(false, true, false);
+  const messages: string[] = [];
+  try {
+    expect(runPuzzlePerformance(master, candidate, (line: string) => messages.push(line))).toBe(2);
+    expect(messages.some(line => line.includes('SearchResult.forcedWin'))).toBe(true);
+  } finally {
+    rmSync(master, { recursive: true, force: true });
+    rmSync(candidate, { recursive: true, force: true });
+  }
+});
+
+test('a correct candidate passes even when an incorrect baseline is faster', () => {
+  const master = {};
+  const candidate = { PUZZLES: [{ id: 'fixed-regression' }] };
+  const messages: string[] = [];
+  expect(benchmarkPuzzles(master, candidate, (line: string) => messages.push(line), (engine: unknown) =>
+    engine === master ? { elapsedMs: 1, solved: false } : 10)).toBe(0);
+  expect(messages[0]).toContain('PASS fixed-regression');
+  expect(messages[0]).toContain('master did not solve');
 });

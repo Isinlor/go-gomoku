@@ -33,7 +33,7 @@ export function loadEngine(root) {
 }
 
 /** Setup and result checks are outside the measured solver call for both case types. */
-export function measurePuzzle(engine, puzzle, now = () => performance.now()) {
+export function measurePuzzle(engine, puzzle, now = () => performance.now(), validateResult = true) {
   const position = engine.decodeGame(puzzle.encoded);
   assert.equal(position.toMove, puzzle.toMove, `${puzzle.id}: wrong player to move`);
   if ('expectedResult' in puzzle) {
@@ -43,10 +43,15 @@ export function measurePuzzle(engine, puzzle, now = () => performance.now()) {
     const elapsed = now() - start;
     assert(position.isLegal(result.move), `${puzzle.id}: illegal move`);
     assert.equal(position.encodeGame(), puzzle.encoded, `${puzzle.id}: search changed position`);
-    for (const [field, expected] of Object.entries(puzzle.expectedResult)) {
-      assert.equal(result[field], expected, `${puzzle.id}: incorrect SearchResult.${field}`);
+    if (validateResult) {
+      for (const [field, expected] of Object.entries(puzzle.expectedResult)) {
+        assert.equal(result[field], expected, `${puzzle.id}: incorrect SearchResult.${field}`);
+      }
     }
-    return elapsed;
+    return validateResult ? elapsed : {
+      elapsedMs: elapsed,
+      solved: Object.entries(puzzle.expectedResult).every(([field, expected]) => result[field] === expected),
+    };
   }
   const expected = engine.decodeMove(puzzle.solution, position.size);
   assert.notEqual(expected, -1, `${puzzle.id}: invalid solution`);
@@ -58,8 +63,8 @@ export function measurePuzzle(engine, puzzle, now = () => performance.now()) {
   const start = now();
   const result = ai.findBestMove(position, budget);
   const elapsed = now() - start;
-  assert.equal(result.move, expected, `${puzzle.id}: AI failed to solve puzzle`);
-  return elapsed;
+  if (validateResult) assert.equal(result.move, expected, `${puzzle.id}: AI failed to solve puzzle`);
+  return validateResult ? elapsed : { elapsedMs: elapsed, solved: result.move === expected };
 }
 
 export function comparePuzzleRuns(masterRuns, newRuns) {
@@ -83,13 +88,18 @@ export function benchmarkPuzzles(master, candidate, log = console.log, measure =
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       const masterRuns = [];
       const newRuns = [];
+      let masterFailed = false;
       for (let run = 0; run < RUNS; run++) {
-        masterRuns.push(measure(master, puzzle));
+        // Master may miss an expected move or proof; the candidate must pass.
+        const baseline = measure(master, puzzle, undefined, false);
+        masterRuns.push(typeof baseline === 'number' ? baseline : baseline.elapsedMs);
+        if (typeof baseline !== 'number' && !baseline.solved) masterFailed = true;
         newRuns.push(measure(candidate, puzzle));
       }
       const result = comparePuzzleRuns(masterRuns, newRuns);
-      log(`${result.passed ? 'PASS' : 'FAIL'} ${puzzle.id} (attempt ${attempt}/${MAX_ATTEMPTS}): fastest new ${result.newMs.toFixed(3)} ms, slowest master ${result.masterMs.toFixed(3)} ms`);
-      if (result.passed) {
+      const passed = masterFailed || result.passed;
+      log(`${passed ? 'PASS' : 'FAIL'} ${puzzle.id} (attempt ${attempt}/${MAX_ATTEMPTS}): fastest new ${result.newMs.toFixed(3)} ms, slowest master ${result.masterMs.toFixed(3)} ms${masterFailed ? '; master did not solve' : ''}`);
+      if (passed) {
         // Sum medians rather than the optimistic extremes used for the noise-
         // tolerant individual regression check.
         masterTotalMs += masterRuns.sort((a, b) => a - b)[1];
