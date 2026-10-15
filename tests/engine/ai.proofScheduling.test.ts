@@ -14,6 +14,6 @@ test('a sustained disadvantage can trigger a deeper independent loss proof', { t
   const result = new GogoAI({ maxDepth: 30, now: () => 0 }).findBestMove(position, 59000);
   expect(result.forcedLoss).toBe(true);
   expect(result.timedOut).toBe(false);
-  expect(result.nodes).toBeLessThan(300000);
+  expect(result.nodes).toBeLessThan(200000);
   expect(position.encodeGame()).toBe('B9 e9 e8 f9');
 });

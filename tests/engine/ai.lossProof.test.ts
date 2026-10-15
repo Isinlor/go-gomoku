@@ -179,7 +179,7 @@ test('loss verification proves legal discovery hints before repeating child disc
   expect(position.ply).toBe(0);
 });
 
-test('a failed heuristic reply is not retried among tactical alternatives', () => {
+test('a failed heuristic reply is tried once per increasing proof depth', () => {
   const position = GogoPosition.fromAscii(['..BB.....', ...blank], WHITE);
   const ai = proofAI(position);
   position.play(80);
@@ -189,13 +189,13 @@ test('a failed heuristic reply is not retried among tactical alternatives', () =
   ai.ttBestMove[index] = 4;
   position.undo();
   const prove = ai.proveAttackMove.bind(ai);
-  let attempts = 0;
+  const attempts: number[] = [];
   ai.proveAttackMove = (searched: GogoPosition, move: number, depth: number) => {
-    if (searched.hash === childHash && move === 4) attempts++;
+    if (searched.hash === childHash && move === 4) attempts.push(depth);
     return prove(searched, move, depth);
   };
   expect(ai.proofSearchRoot(position, 4, 80)).toBe(0);
-  expect(attempts).toBe(1);
+  expect(attempts).toEqual([0, 2]);
   expect(position.ply).toBe(0);
 });
 

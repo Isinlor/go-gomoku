@@ -94,3 +94,13 @@ test('rejects incorrect game-position SearchResult assertions', () => {
   expect(() => measurePuzzle(engine, { ...gamePosition, expectedResult: { forcedLoss: true } })).toThrow('forcedLoss');
   expect(() => measurePuzzle(engine, { ...gamePosition, expectedResult: { move: -1 } })).toThrow('move');
 });
+
+test('baseline timings allow incorrect moves and proof results while candidate checks remain strict', () => {
+  const wrongSolution = { ...puzzle, solution: 'e9' };
+  expect(measurePuzzle(engine, wrongSolution, undefined, false)).toMatchObject({ elapsedMs: expect.any(Number), solved: false });
+  const wrongProof = { ...gamePosition, expectedResult: { forcedLoss: true } };
+  expect(measurePuzzle(engine, wrongProof, undefined, false)).toMatchObject({ elapsedMs: expect.any(Number), solved: false });
+  expect(measurePuzzle(engine, gamePosition, undefined, false)).toMatchObject({ solved: true });
+  expect(() => measurePuzzle(engine, wrongSolution)).toThrow('solve');
+  expect(() => measurePuzzle(engine, wrongProof)).toThrow('forcedLoss');
+});

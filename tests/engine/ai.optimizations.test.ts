@@ -184,9 +184,9 @@ test('root scout searches preserve an exhaustive score and re-search improvement
   // Preserve both search policies while refactoring the surrounding engine.
   // Node counts also catch changes in caps, ordering, and PVS re-searches.
   const cases = [
-    ['B9 e5 d4 f5 d5', [[48, 368.1, 73], [48, 18.9, 61], [48, 381.2, 404], [48, -104, 662], [48, 368.1, 73], [48, 18.9, 189], [48, 381.2, 3768], [48, -104, 8511]]],
-    ['B9 a1 a3 b1 b3 c1 c3', [[4, 499783.1, 39], [21, -267.6, 85], [4, 499935.6, 422], [4, -236.7, 940], [4, 499783.1, 39], [21, -267.6, 160], [4, 499935.6, 1318], [4, -236.7, 3843]]],
-    ['B9 e9 e8 f9', [[75, 296.9, 41], [75, 15.1, 67], [75, 315.6, 442], [78, 70.8, 1059], [75, 296.9, 41], [75, 15.1, 111], [75, 315.6, 1573], [78, -130.5, 5582]]],
+    ['B9 e5 d4 f5 d5', [[48, 368.1, 73], [48, 18.9, 61], [48, 381.2, 768], [48, -104, 1542], [48, 368.1, 73], [48, 18.9, 189], [48, 381.2, 3768], [48, -104, 8511]]],
+    ['B9 a1 a3 b1 b3 c1 c3', [[4, 499783.1, 39], [21, -267.6, 85], [4, 499935.6, 604], [4, -236.7, 1067], [4, 499783.1, 39], [21, -267.6, 160], [4, 499935.6, 1318], [4, -236.7, 3843]]],
+    ['B9 e9 e8 f9', [[75, 296.9, 41], [75, 15.1, 67], [75, 315.6, 737], [78, 70.8, 1365], [75, 296.9, 41], [75, 15.1, 111], [75, 315.6, 1573], [78, -130.5, 5582]]],
   ] as const;
   for (const [encoded, expected] of cases) {
     for (let index = 0; index < expected.length; index++) {
@@ -434,23 +434,31 @@ test('loss proofs check forcing replies before heuristic discovery', () => {
   expect(position.ply).toBe(0);
 });
 
-test('deeper discovery focuses on the best twelve root candidates while exact search remains exhaustive', () => {
-  const position = new GogoPosition(9);
-  position.playXY(4, 4);
+test.each([
+  ['B9 e5', [24, 12, 24, 24]],
+  ['B9 c1 f6', [38, 12, 24, 38]],
+] as const)('root discovery widens with depth while exact search stays complete (%s)', (encoded, expected) => {
+  const position = decodeGame(encoded);
+  const rootPly = position.ply;
   const ai = new GogoAI({ quiescenceDepth: 0, maxPly: 2, now: () => 0 }) as any;
   ai.ensureBuffers(position.area);
   ai.deadline = Infinity;
   const play = position.play.bind(position);
   let roots = 0;
-  position.play = (move: number) => { if (position.ply === 1) roots++; return play(move); };
-  ai.searchRoot(position, 2, -1);
-  expect(roots).toBe(12);
+  position.play = (move: number) => { if (position.ply === rootPly) roots++; return play(move); };
+  for (let depth = 1; depth <= 4; depth++) {
+    roots = 0;
+    ai.resetSearchHeuristics(true);
+    ai.searchRoot(position, depth, -1);
+    expect(roots).toBe(expected[depth - 1]);
+  }
   roots = 0;
   ai.proofMode = true;
   ai.resetSearchHeuristics(true);
   ai.searchRoot(position, 2, -1);
-  expect(roots).toBeGreaterThan(12);
-  expect(position.ply).toBe(1);
+  expect(roots).toBe(expected[0]);
+  expect(position.ply).toBe(rootPly);
+  expect(position.encodeGame()).toBe(encoded);
 });
 
 test('quiescence recognizes an immediate win even in a narrow fail-high window', () => {
