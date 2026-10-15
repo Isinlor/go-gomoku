@@ -23,4 +23,3 @@ test('an immediate attacking win precedes a quiet transposition hint', () => {
   expect(ai.proofTTBestMove[index]).toBe(4);
   expect(position.ply).toBe(0);
 });
-
