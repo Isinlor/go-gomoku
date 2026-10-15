@@ -179,7 +179,7 @@ test('loss verification proves legal discovery hints before repeating child disc
   expect(position.ply).toBe(0);
 });
 
-test('a failed heuristic reply is tried once per increasing proof depth', () => {
+test('a failed heuristic reply is tried only when the proof horizon permits it', () => {
   const position = GogoPosition.fromAscii(['..BB.....', ...blank], WHITE);
   const ai = proofAI(position);
   position.play(80);
@@ -195,7 +195,7 @@ test('a failed heuristic reply is tried once per increasing proof depth', () => 
     return prove(searched, move, depth);
   };
   expect(ai.proofSearchRoot(position, 4, 80)).toBe(0);
-  expect(attempts).toEqual([0, 2]);
+  expect(attempts).toEqual([2]);
   expect(position.ply).toBe(0);
 });
 

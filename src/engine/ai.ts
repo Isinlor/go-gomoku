@@ -429,6 +429,7 @@ export class GogoAI {
         if (result.move === -1) {
           continue;
         }
+        const stableRootMove = result.move === state.bestMove;
         state.bestMove = result.move;
         state.bestScore = result.score;
         state.completedDepth = depth;
@@ -466,14 +467,20 @@ export class GogoAI {
           && result.score < EVAL_WEIGHTS[4] / 2
           && this.deadline - this.now() >= ROOT_PROOF_MIN_REMAINING_MS) {
           rootProofTried = true;
-          for (let i = 0; i < this.rootProofCount; i += 1) {
-            if (this.deadline - this.now() < ROOT_PROOF_MIN_REMAINING_MS) break;
-            const move = this.rootProofMoves[i];
-            const probe = { ...state, bestMove: move, hintMove: move };
-            if (this.tryEarlyWinProof(position, probe, ROOT_PROOF_NODE_LIMIT)) {
-              Object.assign(state, probe);
-              break;
+          // Preserve a stable discovery leader's budget. Give other candidates
+          // a bounded first pass before expensive retries of quiet setups.
+          for (const nodeLimit of [ROOT_PROOF_NODE_LIMIT / 2, ROOT_PROOF_NODE_LIMIT]) {
+            for (let i = 0; i < this.rootProofCount; i += 1) {
+              if (stableRootMove && i === 0 && nodeLimit === ROOT_PROOF_NODE_LIMIT) continue;
+              if (this.deadline - this.now() < ROOT_PROOF_MIN_REMAINING_MS) break;
+              const move = this.rootProofMoves[i];
+              const probe = { ...state, bestMove: move, hintMove: move };
+              if (this.tryEarlyWinProof(position, probe, stableRootMove && i === 0 ? ROOT_PROOF_NODE_LIMIT : nodeLimit)) {
+                Object.assign(state, probe);
+                break;
+              }
             }
+            if (state.provenWin) break;
           }
           if (state.provenWin) break;
         }
@@ -1685,6 +1692,9 @@ export class GogoAI {
       return true;
     }
 
+    // With one attacking turn left, only completing an existing four can win.
+    if (depthLeft <= 2) return false;
+
     // Heuristic TT moves are ordering hints only: independently prove the
     // continuation before accepting them, just like dedicated proof TT hints.
     if (ttBest === -1 && this.ttHash[ttIdx] === hash) {
@@ -1702,9 +1712,6 @@ export class GogoAI {
       this.storeProofTT(ttIdx, hash, depthLeft, 1, hintMove);
       return true;
     }
-
-    // With one attacking turn left, only completing an existing four can win.
-    if (depthLeft <= 2) return false;
 
     const moves = this.moveBuffers[ply];
     const scores = this.scoreBuffers[ply];
