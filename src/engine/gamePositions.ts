@@ -126,6 +126,22 @@ export const PLY2_FORCED_WINS: readonly GamePosition[] = [
 export const GAME_POSITIONS: readonly GamePosition[] = [
   ...PLY2_FORCED_WINS,
   {
+    id: 'ply2-i1-g6',
+    encoded: 'B9 i1 g6',
+    toMove: BLACK,
+    searchOptions: { maxDepth: 30, quiescenceDepth: 4, maxPly: 64 },
+    timeMs: 60_000,
+    expectedResult: { forcedWin: true, timedOut: false },
+  },
+  {
+    id: 'ply2-f9-h9',
+    encoded: 'B9 f9 h9',
+    toMove: BLACK,
+    searchOptions: { maxDepth: 30, quiescenceDepth: 4, maxPly: 64 },
+    timeMs: 60_000,
+    expectedResult: { forcedWin: true, timedOut: false },
+  },
+  {
     id: 'edge-attack-forced-win',
     encoded: 'B9 e9 e8 f9 g9',
     toMove: BLACK,
