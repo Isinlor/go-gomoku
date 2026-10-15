@@ -8,6 +8,9 @@ test.each([9, 11, 13] as const)('AI window counts follow moves, captures, undo, 
   const check = (position: GogoPosition) => {
     ai.ensureBuffers(position.area);
     ai.beginWindowPass(position);
+    expect(Array.from({ length: position.area }, (_, point) =>
+      !!(ai.occupiedPoints[point >>> 5] & (1 << (point & 31)))))
+      .toEqual(Array.from(position.board, cell => cell !== 0));
     let expectedEvaluation = 0;
     const expectedBlack: number[] = [];
     const expectedWhite: number[] = [];
@@ -21,8 +24,8 @@ test.each([9, 11, 13] as const)('AI window counts follow moves, captures, undo, 
       if (white === 0) expectedEvaluation += evaluation[black];
       if (black === 0) expectedEvaluation -= evaluation[white];
     }
-    expect(Array.from(ai.windowBlack.slice(0, position.meta.windowCount))).toEqual(expectedBlack);
-    expect(Array.from(ai.windowWhite.slice(0, position.meta.windowCount))).toEqual(expectedWhite);
+    expect(Array.from(ai.windowCounts.slice(0, position.meta.windowCount), (code: any) => Math.floor(code / 6))).toEqual(expectedBlack);
+    expect(Array.from(ai.windowCounts.slice(0, position.meta.windowCount), (code: any) => code % 6)).toEqual(expectedWhite);
     const active = Array.from({ length: position.meta.windowCount }, (_, wi) =>
       (ai.activeWindows[wi >>> 5] & (1 << (wi & 31))) !== 0);
     expect(active).toEqual(expectedBlack.map((black, wi) =>

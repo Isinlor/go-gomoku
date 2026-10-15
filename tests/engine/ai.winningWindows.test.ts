@@ -7,8 +7,8 @@ test('immediate-win and response scans skip windows with only two or three stone
   ai.ensureBuffers(position.area);
   ai.beginWindowPass(position);
   let reads = 0;
-  const counts = ai.windowBlack;
-  ai.windowBlack = new Proxy(counts, { get(target, key) {
+  const counts = ai.windowCounts;
+  ai.windowCounts = new Proxy(counts, { get(target, key) {
     if (typeof key === 'string' && /^\d+$/.test(key)) reads++;
     return Reflect.get(target, key, target);
   } });
@@ -84,7 +84,7 @@ test('incremental caches recover when more changes occur than the journal retain
   const fresh = new GogoAI() as any;
   fresh.ensureBuffers(position.area);
   expect(ai.evaluate(position)).toBe(fresh.evaluate(position));
-  expect(ai.windowBlack).toEqual(fresh.windowBlack);
+  expect(ai.windowCounts).toEqual(fresh.windowCounts);
   position.undo();
   expect(ai.evaluate(position)).toBe(0);
 });
