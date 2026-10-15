@@ -19,13 +19,17 @@ export function insertMoveDescending(
   scores[index] = score;
 }
 
-/** Sort only the populated prefix, preserving the order of equal scores. */
+/** Stably order the best `limit` moves; the unused tail is unspecified. */
 export function sortMovesDescending(
   moves: Int16Array,
   scores: Float64Array | Int32Array,
   count: number,
+  limit = count,
 ): void {
+  if (limit === 0) return;
   for (let i = 1; i < count; i += 1) {
-    insertMoveDescending(moves, scores, i, moves[i], scores[i]);
+    if (i < limit || scores[i] > scores[limit - 1]) {
+      insertMoveDescending(moves, scores, Math.min(i, limit - 1), moves[i], scores[i]);
+    }
   }
 }
