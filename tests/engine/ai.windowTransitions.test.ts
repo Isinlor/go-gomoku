@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest';
 import { BLACK, GogoAI, GogoPosition } from '../../src/engine';
 
-test('window classifications survive every valid count pair when an AI is reused', () => {
+test('window classifications survive every valid count pair when an AI is reused', { tags: ['slow'] }, () => {
   const ai = new GogoAI() as any;
   ai.ensureBuffers(81);
   for (let black = 0; black <= 5; black++) {
