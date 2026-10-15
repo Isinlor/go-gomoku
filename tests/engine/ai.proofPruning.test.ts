@@ -23,3 +23,13 @@ test('an immediate attacking win precedes a quiet transposition hint', () => {
   expect(ai.proofTTBestMove[index]).toBe(4);
   expect(position.ply).toBe(0);
 });
+
+test.each([1, 2])('a depth-%s attacker cannot win with a quiet hash hint', depth => {
+  const { ai, position, attempts } = setup(['X........', ...Array(8).fill('.........')], BLACK);
+  const index = Number(position.hash & 262143n);
+  ai.ttHash[index] = position.hash;
+  ai.ttBestMove[index] = 1;
+  expect(ai.proofAttack(position, depth, 0, 2)).toBe(false);
+  expect(attempts).toEqual([]);
+  expect(position.ply).toBe(0);
+});
