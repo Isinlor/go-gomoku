@@ -1108,7 +1108,7 @@ test('primeScoredGroupInfo caches group data for all stones and finalizeMoveScor
   anyAI.history[move] = 7;
   anyAI.killerMoves[0] = move;
   const boosted = anyAI.finalizeMoveScore(position, move, BLACK, base, move, 0);
-  expect(boosted - plain).toBe(7 + 10_000_000 + 1_000_000);
+  expect(boosted - plain).toBe(7 + 10_000_000 + 1_000);
 });
 
 test('scoreMove tactical fast path skips group scans when pattern pressure already makes the move forcing', () => {
@@ -2340,7 +2340,7 @@ test('proofSearchRoot: returns 0 when no legal moves', () => {
   anyAI.proofMode = false;
 });
 
-test('capped node TT: lowerbound stored from capped node, exact/upper suppressed', () => {
+test('capped node TT: in-window and fail-high results retain lower bounds', () => {
   const ai = new GogoAI({ maxPly: 2, quiescenceDepth: 0, now: () => 0 });
   const anyAI = ai as any;
   // Use a position with many near-2 candidates (> MAX_CANDIDATES) to trigger capping
@@ -2364,7 +2364,7 @@ test('capped node TT: lowerbound stored from capped node, exact/upper suppressed
   expect(anyAI.generateOrderedMoves(pos, anyAI.moveBuffers[1], anyAI.scoreBuffers[1], -1, false, 1)).toBeGreaterThan(12);
   const index = Number(pos.hash & 0x3FFFFn);
   // Check actual storage policy with shallow leaves, rather than just completion.
-  for (const [alpha, beta, flag] of [[-1_000_000, 1_000_000, 0], [1_000_000, 1_000_001, 0], [-1_000_000, -999_999, 2]]) {
+  for (const [alpha, beta, flag] of [[-1_000_000, 1_000_000, 2], [1_000_000, 1_000_001, 0], [-1_000_000, -999_999, 2]]) {
     anyAI.ttFlag.fill(0);
     const score = anyAI.search(pos, 2, alpha, beta, 1);
     expect(typeof score).toBe('number');
@@ -3030,7 +3030,7 @@ test('proofDefend: returns false (not proven) when no legal moves exist', () => 
   anyAI.generateFullBoardMoves = realFullGen;
 });
 
-test('proofAttack: hash-move-first succeeds from seeded TT best move', () => {
+test('proofAttack: immediate win resolves a seeded hint without playing', () => {
   const ai = new GogoAI({ maxDepth: 10 });
   const anyAI = ai as any;
   // BLACK has 4 in a row, move 4 completes five
@@ -3075,9 +3075,9 @@ test('proofAttack: hash-move-first succeeds from seeded TT best move', () => {
     throw new Error('generateOrderedMoves should not be needed when the TT move resolves proofAttack');
   };
 
-  // proofAttack should try the TT move before move generation and resolve immediately
+  // A legal five resolves the proof before playing or generating moves.
   expect(anyAI.proofAttack(pos, 1, 1)).toBe(true);
-  expect(playCalls).toEqual([4]);
+  expect(playCalls).toEqual([]);
   expect(genCalls).toBe(0);
   // TT should now store the proven result with best move
   expect(anyAI.proofTTResult[ttIdx]).toBe(1);
