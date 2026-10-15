@@ -73,6 +73,8 @@ const MAX_CANDIDATES = 12;
 const SHALLOW_PROOF_NODES_PER_DEPTH = 4096;
 const FORCING_PROOF_MAX_DEPTH = 9;
 const LOSS_PROOF_NODES_PER_DEPTH = 16384;
+const ROOT_PROOF_NODE_LIMIT = 8_000_000;
+const ROOT_PROOF_MIN_REMAINING_MS = 10_000;
 const WINDOW_PATTERN_BLACK = new Int32Array(36);
 const WINDOW_PATTERN_WHITE = new Int32Array(36);
 for (let count = 0; count < 5; count += 1) {
@@ -164,6 +166,9 @@ export class GogoAI {
   private bufferArea = 0;
   private deadline = 0;
   private nodesVisited = 0;
+  private rootProofMoves = new Int16Array(MAX_CANDIDATES);
+  private rootProofScores = new Float64Array(MAX_CANDIDATES);
+  private rootProofCount = 0;
   private timedOut = false;
   private fallbackWins = false;
   private killerMoves = new Int16Array(0);
@@ -416,6 +421,7 @@ export class GogoAI {
     let earlyProofTried = false;
     let shallowProofTried = false;
     let earlyLossTried = false;
+    let rootProofTried = false;
     for (let depth = startDepth; depth <= endDepth; depth += 1) {
       this.partialRoot.move = -1;
       try {
@@ -452,6 +458,24 @@ export class GogoAI {
         if (!earlyProofTried && depth >= 3 && depth < endDepth && result.score >= EVAL_WEIGHTS[4] / 2) {
           earlyProofTried = true;
           if (this.tryEarlyWinProof(position, state)) break;
+        }
+        // Discovery may keep preferring a strong setup without reaching a
+        // mate score. Independently verify its best tactical root candidates
+        // once deep search is underway, with a fixed node and time budget.
+        if (!rootProofTried && depth >= 5 && endDepth >= FORCING_PROOF_MAX_DEPTH + 4
+          && result.score < EVAL_WEIGHTS[4] / 2
+          && this.deadline - this.now() >= ROOT_PROOF_MIN_REMAINING_MS) {
+          rootProofTried = true;
+          for (let i = 0; i < this.rootProofCount; i += 1) {
+            if (this.deadline - this.now() < ROOT_PROOF_MIN_REMAINING_MS) break;
+            const move = this.rootProofMoves[i];
+            const probe = { ...state, bestMove: move, hintMove: move };
+            if (this.tryEarlyWinProof(position, probe, ROOT_PROOF_NODE_LIMIT)) {
+              Object.assign(state, probe);
+              break;
+            }
+          }
+          if (state.provenWin) break;
         }
       } catch (error) {
         if (error !== this.timeoutSignal) {
@@ -681,6 +705,7 @@ export class GogoAI {
     let bestMove = -1;
     let bestScore = -WIN_SCORE;
     let legalCount = 0;
+    this.rootProofCount = 0;
 
     // Double discovery's root beam each iteration instead of permanently
     // excluding quiet setups. Exact proofs and full-board fallbacks stay complete.
@@ -709,6 +734,14 @@ export class GogoAI {
           this.partialRoot.move = move;
           this.partialRoot.score = score;
           this.partialRoot.depth = depth;
+        }
+        if (score >= ATTACK_WEIGHTS[2]) {
+          if (this.rootProofCount < MAX_CANDIDATES) {
+            insertMoveDescending(this.rootProofMoves, this.rootProofScores, this.rootProofCount, move, score);
+            this.rootProofCount += 1;
+          } else if (score > this.rootProofScores[MAX_CANDIDATES - 1]) {
+            insertMoveDescending(this.rootProofMoves, this.rootProofScores, MAX_CANDIDATES - 1, move, score);
+          }
         }
         if (score > alpha) {
           alpha = score;
@@ -858,10 +891,10 @@ export class GogoAI {
     this.ttHash[ttIndex] = hash;
     this.ttBestMove[ttIndex] = bestMove;
     this.ttFlag[ttIndex] = TT_NONE;
-    if (!wasCapped || bestScore > origAlpha) {
+    if (!wasCapped || storeFlag === TT_LOWERBOUND) {
       this.ttScore[ttIndex] = this.adjustMateScore(bestScore, ply);
       this.ttDepth[ttIndex] = depth;
-      this.ttFlag[ttIndex] = wasCapped ? TT_LOWERBOUND : storeFlag;
+      this.ttFlag[ttIndex] = storeFlag;
     }
 
     return bestScore;

@@ -2364,7 +2364,7 @@ test('capped node TT: in-window and fail-high results retain lower bounds', () =
   expect(anyAI.generateOrderedMoves(pos, anyAI.moveBuffers[1], anyAI.scoreBuffers[1], -1, false, 1)).toBeGreaterThan(12);
   const index = Number(pos.hash & 0x3FFFFn);
   // Check actual storage policy with shallow leaves, rather than just completion.
-  for (const [alpha, beta, flag] of [[-1_000_000, 1_000_000, 2], [1_000_000, 1_000_001, 0], [-1_000_000, -999_999, 2]]) {
+  for (const [alpha, beta, flag] of [[-1_000_000, 1_000_000, 0], [1_000_000, 1_000_001, 0], [-1_000_000, -999_999, 2]]) {
     anyAI.ttFlag.fill(0);
     const score = anyAI.search(pos, 2, alpha, beta, 1);
     expect(typeof score).toBe('number');

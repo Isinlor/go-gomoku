@@ -26,7 +26,7 @@ test.each([0, 1, 2, 3])('constructor clamps only values below each lower bound (
   expect(ai.quiescenceDepth).toBe(Math.max(0, value - 1));
 });
 
-test.each([11, 12, 13])('heuristic candidate cap suppresses exact TT entries only above twelve moves (%s)', count => {
+test.each([11, 12, 13])('capped candidate searches do not store reusable exact bounds (%s)', count => {
   const pos = GogoPosition.fromAscii([
     '.........', '.........', '.X..O....', '.........', '....X....',
     '.........', '.O..X....', '.........', '.........',
@@ -41,7 +41,7 @@ test.each([11, 12, 13])('heuristic candidate cap suppresses exact TT entries onl
   const before = pos.toAscii();
   const index = Number(hash & 0x3ffffn);
   expect(Number.isFinite(ai.search(pos, 2, -Infinity, Infinity, 1))).toBe(true);
-  expect(ai.ttFlag[index]).toBe(count > 12 ? 2 : 1);
+  expect(ai.ttFlag[index]).toBe(count > 12 ? 0 : 1);
   expect(pos.hash).toBe(hash);
   expect(pos.toAscii()).toEqual(before);
 });
