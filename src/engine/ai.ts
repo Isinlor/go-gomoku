@@ -83,6 +83,12 @@ for (let count = 0; count < 5; count += 1) {
   WINDOW_PATTERN_WHITE[count] += ATTACK_WEIGHTS[count + 1];
   WINDOW_PATTERN_WHITE[count * 6] += DEFENSE_WEIGHTS[count + 1];
 }
+const WINDOW_BLACK_COUNTS = new Uint8Array(36);
+const WINDOW_WHITE_COUNTS = new Uint8Array(36);
+for (let code = 0; code < 36; code += 1) {
+  WINDOW_BLACK_COUNTS[code] = Math.floor(code / 6);
+  WINDOW_WHITE_COUNTS[code] = code % 6;
+}
 const WINDOW_EVALUATION = new Int32Array(36);
 for (let count = 1; count <= 5; count += 1) {
   WINDOW_EVALUATION[count * 6] = EVAL_WEIGHTS[count];
@@ -121,6 +127,7 @@ export class GogoAI {
   private candidateEpoch = 1;
   // Ascending bit scans retain the stable board order used by tactical scoring.
   private tacticalCandidates = new Uint32Array(0);
+  // A descendant must not overwrite its parent's defense deduplication marks.
   private triedMoveMarks = new Uint32Array(0);
   private proofAttackMarks = new Uint8Array(0);
   private triedMoveEpoch = 1;
@@ -133,9 +140,10 @@ export class GogoAI {
   private scoredGroupPassEpoch = 1;
   private scoredGroupHash = -1n;
   private windowBoard = new Uint8Array(0);
-  private windowBlack = new Uint8Array(0);
-  private windowWhite = new Uint8Array(0);
+  // One code (black * 6 + white) feeds classifications, patterns and evaluation.
+  private windowCounts = new Uint8Array(0);
   private activeWindows = new Uint32Array(0);
+  private occupiedPoints = new Uint32Array(0);
   private winningWindows = new Uint32Array(0);
   private windowHash = -1n;
   private windowPosition: GogoPosition | null = null;
@@ -332,8 +340,8 @@ export class GogoAI {
     this.windowPosition = null;
     this.evaluationPosition = null;
     this.windowBoard = new Uint8Array(area);
-    this.windowBlack = new Uint8Array(4 * area);
-    this.windowWhite = new Uint8Array(4 * area);
+    this.occupiedPoints = new Uint32Array(Math.ceil(area / 32));
+    this.windowCounts = new Uint8Array(4 * area);
     const size = Math.sqrt(area);
     this.activeWindows = new Uint32Array(Math.ceil((size - 4) * (4 * size - 8) / 32));
     this.winningWindows = new Uint32Array(this.activeWindows.length);
@@ -359,7 +367,7 @@ export class GogoAI {
     this.candidateMarks = new Uint32Array(area);
     this.tacticalCandidates = new Uint32Array(Math.ceil(area / 32));
     this.candidateEpoch = 1;
-    this.triedMoveMarks = new Uint32Array(area);
+    this.triedMoveMarks = new Uint32Array(area * (this.maxPly + 1));
     this.proofAttackMarks = new Uint8Array(area * (this.maxPly + 1));
     this.triedMoveEpoch = 1;
     this.scorerGroupMarks = new Uint32Array(area);
@@ -555,14 +563,14 @@ export class GogoAI {
   private findImmediateWin(position: GogoPosition): number {
     this.ensureBuffers(position.area);
     this.beginWindowPass(position);
-    const mine = position.toMove === BLACK ? this.windowBlack : this.windowWhite;
+    const winningCode = position.toMove === BLACK ? 24 : 4;
     for (let word = 0; word < this.winningWindows.length; word += 1) {
       let bits = this.winningWindows[word];
       while (bits !== 0) {
         const bit = bits & -bits;
         bits ^= bit;
         const wi = word * 32 + 31 - Math.clz32(bit);
-        if (mine[wi] !== 4) continue;
+        if (this.windowCounts[wi] !== winningCode) continue;
         for (let offset = 0; offset < 5; offset += 1) {
           const point = position.meta.windows[wi * 5 + offset];
           // Completing five is legal even in suicide; only occupancy and ko matter.
@@ -963,6 +971,14 @@ export class GogoAI {
     if (this.windowHash === position.hash) return;
     const board = position.board;
     const meta = position.meta;
+    const counts = this.windowCounts;
+    const dirty = this.patternDirty;
+    const dirtyWindows = this.dirtyWindows;
+    const winning = this.winningWindows;
+    const active = this.activeWindows;
+    const offsets = meta.windowsByPointOffsets;
+    const windows = meta.windowsByPoint;
+    let dirtyCount = this.dirtyWindowCount;
     const changes = position.boardVersion - this.windowVersion;
     const incremental = this.windowPosition === position && changes > 0 && changes <= position.boardChanges.length;
     const count = incremental ? changes : position.area;
@@ -973,24 +989,26 @@ export class GogoAI {
       const oldCell = this.windowBoard[point];
       const cell = board[point];
       if (cell === oldCell) continue;
-      const blackDelta = (cell & 1) - (oldCell & 1);
-      const whiteDelta = (cell >> 1) - (oldCell >> 1);
-      for (let cursor = meta.windowsByPointOffsets[point]; cursor < meta.windowsByPointOffsets[point + 1]; cursor += 1) {
-        const wi = meta.windowsByPoint[cursor];
-        if (this.patternDirty[wi] === 0) {
-          this.patternDirty[wi] = 1;
-          this.dirtyWindows[this.dirtyWindowCount++] = wi;
+      const pointBit = 1 << (point & 31);
+      const pointWord = point >>> 5;
+      this.occupiedPoints[pointWord] = (this.occupiedPoints[pointWord] & ~pointBit) | (-Number(cell !== EMPTY) & pointBit);
+      const countDelta = ((cell & 1) - (oldCell & 1)) * 6 + (cell >> 1) - (oldCell >> 1);
+      for (let cursor = offsets[point]; cursor < offsets[point + 1]; cursor += 1) {
+        const wi = windows[cursor];
+        if (dirty[wi] === 0) {
+          dirty[wi] = 1;
+          dirtyWindows[dirtyCount++] = wi;
         }
-        this.windowBlack[wi] += blackDelta;
-        this.windowWhite[wi] += whiteDelta;
-        const code = this.windowBlack[wi] * 6 + this.windowWhite[wi];
+        const code = counts[wi] + countDelta;
+        counts[wi] = code;
         const bit = 1 << (wi & 31);
         const word = wi >>> 5;
-        this.winningWindows[word] = (this.winningWindows[word] & ~bit) | (WINDOW_WINNING_MASK[code] & bit);
-        this.activeWindows[word] = (this.activeWindows[word] & ~bit) | (WINDOW_ACTIVE_MASK[code] & bit);
+        winning[word] = (winning[word] & ~bit) | (WINDOW_WINNING_MASK[code] & bit);
+        active[word] = (active[word] & ~bit) | (WINDOW_ACTIVE_MASK[code] & bit);
       }
       this.windowBoard[point] = cell;
     }
+    this.dirtyWindowCount = dirtyCount;
     this.windowHash = position.hash;
     this.windowPosition = position;
     this.windowVersion = position.boardVersion;
@@ -1010,7 +1028,7 @@ export class GogoAI {
     }
     for (let index = 0; index < this.dirtyWindowCount; index += 1) {
       const wi = this.dirtyWindows[index];
-      const code = this.windowBlack[wi] * 6 + this.windowWhite[wi];
+      const code = this.windowCounts[wi];
       const oldCode = this.patternCodes[wi];
       this.patternCodes[wi] = code;
       this.patternDirty[wi] = 0;
@@ -1118,23 +1136,26 @@ export class GogoAI {
     this.candidateEpoch += 1;
     let count = 0;
 
-    for (let point = 0; point < position.area; point += 1) {
-      if (board[point] === EMPTY) {
-        continue;
-      }
-      for (let cursor = near2Offsets[point]; cursor < near2Offsets[point + 1]; cursor += 1) {
-        const move = near2[cursor];
-        if (board[move] !== EMPTY || move === position.koPoint || this.candidateMarks[move] === this.candidateEpoch) {
-          continue;
+    for (let word = 0; word < this.occupiedPoints.length; word += 1) {
+      let bits = this.occupiedPoints[word];
+      while (bits !== 0) {
+        const bit = bits & -bits;
+        bits ^= bit;
+        const point = word * 32 + 31 - Math.clz32(bit);
+        for (let cursor = near2Offsets[point]; cursor < near2Offsets[point + 1]; cursor += 1) {
+          const move = near2[cursor];
+          if (board[move] !== EMPTY || move === position.koPoint || this.candidateMarks[move] === this.candidateEpoch) {
+            continue;
+          }
+          this.candidateMarks[move] = this.candidateEpoch;
+          const score = this.scorePreparedMove(position, move, hintMove, ply);
+          if (score === NO_SCORE) {
+            continue;
+          }
+          moves[count] = move;
+          scores[count] = score;
+          count += 1;
         }
-        this.candidateMarks[move] = this.candidateEpoch;
-        const score = this.scorePreparedMove(position, move, hintMove, ply);
-        if (score === NO_SCORE) {
-          continue;
-        }
-        moves[count] = move;
-        scores[count] = score;
-        count += 1;
       }
     }
 
@@ -1166,8 +1187,8 @@ export class GogoAI {
     const windows = meta.windows;
 
     this.beginWindowPass(position);
-    const mineCounts = player === BLACK ? this.windowBlack : this.windowWhite;
-    const theirCounts = player === BLACK ? this.windowWhite : this.windowBlack;
+    const mineCounts = player === BLACK ? WINDOW_BLACK_COUNTS : WINDOW_WHITE_COUNTS;
+    const theirCounts = player === BLACK ? WINDOW_WHITE_COUNTS : WINDOW_BLACK_COUNTS;
 
     this.candidateEpoch += 1;
     this.tacticalCandidates.fill(0);
@@ -1179,9 +1200,11 @@ export class GogoAI {
         bits ^= bit;
         const windowIndex = word * 32 + 31 - Math.clz32(bit);
         const base = windowIndex * 5;
-        const mine = mineCounts[windowIndex];
-        const theirs = theirCounts[windowIndex];
-        if (!((theirs === 0 && mine >= minimumStones) || (!attackingOnly && mine === 0 && theirs >= 3))) continue;
+        const code = this.windowCounts[windowIndex];
+        const mine = mineCounts[code];
+        const theirs = theirCounts[code];
+        // Active windows are already known to contain only one color.
+        if (!(mine >= minimumStones || (!attackingOnly && theirs >= 3))) continue;
         // Every empty point of a qualifying window is a candidate. Mark it
         // directly; the epoch already deduplicates overlapping windows.
         for (let offset = 0; offset < 5; offset += 1) {
@@ -1223,44 +1246,62 @@ export class GogoAI {
     responsePly = -1,
     count = 0,
   ): number {
+    this.beginWindowPass(position);
     const board = position.board;
     const neighbors = position.meta.neighbors4;
     const maximumLiberties = responsePly < 0 ? 2 : 1;
 
+    if (this.scoredGroupHash !== position.hash) {
+      this.scoredGroupPassEpoch += 1;
+      this.scoredGroupHash = position.hash;
+    }
     this.scorerGroupEpoch += 1;
     const groupEpoch = this.scorerGroupEpoch;
-    for (let point = 0; point < position.area; point += 1) {
-      if (board[point] !== groupColor || this.scorerGroupMarks[point] === groupEpoch) {
-        continue;
-      }
-      if (this.hasExcessDirectLiberties(position, point, maximumLiberties)) continue;
-      const liberties = position.scanGroup(point, groupColor);
-      const size = position.scanGroupSize;
-      for (let index = 0; index < size; index += 1) {
-        this.scorerGroupMarks[position.groupBuffer[index]] = groupEpoch;
-      }
-      // Tactical discovery includes escapes and pressure at two liberties.
-      // Immediate-threat responses require an actual one-liberty capture.
-      if (liberties < 1 || liberties > maximumLiberties) continue;
-      for (let index = 0; index < size; index += 1) {
-        const stone = position.groupBuffer[index];
-        const neighborBase = stone * 4;
-        for (let offset = 0; offset < 4; offset += 1) {
-          const neighbor = neighbors[neighborBase + offset];
-          // Off-board -1 reads as undefined, which is not EMPTY.
-          if (board[neighbor] !== EMPTY || neighbor === position.koPoint) {
-            continue;
-          }
-          if (responsePly < 0) {
-            // Marking is idempotent for liberties shared by several stones.
-            this.candidateMarks[neighbor] = this.candidateEpoch;
-            this.tacticalCandidates[neighbor >>> 5] |= 1 << (neighbor & 31);
-          } else {
-            // Preserve higher-priority counter-wins and blocks already present.
-            count = this.insertOrPromoteMove(
-              this.moveBuffers[responsePly], this.scoreBuffers[responsePly],
-              count, neighbor, 1_500_000,
-            );
+    for (let word = 0; word < this.occupiedPoints.length; word += 1) {
+      let bits = this.occupiedPoints[word];
+      while (bits !== 0) {
+        const bit = bits & -bits;
+        bits ^= bit;
+        const point = word * 32 + 31 - Math.clz32(bit);
+        if (board[point] !== groupColor || this.scorerGroupMarks[point] === groupEpoch) {
+          continue;
+        }
+        if (this.hasExcessDirectLiberties(position, point, maximumLiberties)) continue;
+        const liberties = position.scanGroup(point, groupColor);
+        const size = position.scanGroupSize;
+        const root = position.groupBuffer[0];
+        // Scoring the candidates can reuse this traversal's exact group facts.
+        for (let index = 0; index < size; index += 1) {
+          const stone = position.groupBuffer[index];
+          this.scorerGroupMarks[stone] = groupEpoch;
+          this.scoredGroupEpoch[stone] = this.scoredGroupPassEpoch;
+          this.scoredGroupLiberties[stone] = liberties;
+          this.scoredGroupSizes[stone] = size;
+          this.scoredGroupRoots[stone] = root;
+        }
+        // Tactical discovery includes escapes and pressure at two liberties.
+        // Immediate-threat responses require an actual one-liberty capture.
+        if (liberties < 1 || liberties > maximumLiberties) continue;
+        for (let index = 0; index < size; index += 1) {
+          const stone = position.groupBuffer[index];
+          const neighborBase = stone * 4;
+          for (let offset = 0; offset < 4; offset += 1) {
+            const neighbor = neighbors[neighborBase + offset];
+            // Off-board -1 reads as undefined, which is not EMPTY.
+            if (board[neighbor] !== EMPTY || neighbor === position.koPoint) {
+              continue;
+            }
+            if (responsePly < 0) {
+              // Marking is idempotent for liberties shared by several stones.
+              this.candidateMarks[neighbor] = this.candidateEpoch;
+              this.tacticalCandidates[neighbor >>> 5] |= 1 << (neighbor & 31);
+            } else {
+              // Preserve higher-priority counter-wins and blocks already present.
+              count = this.insertOrPromoteMove(
+                this.moveBuffers[responsePly], this.scoreBuffers[responsePly],
+                count, neighbor, 1_500_000,
+              );
+            }
           }
         }
       }
@@ -1413,7 +1454,7 @@ export class GogoAI {
       const weights = player === BLACK ? WINDOW_PATTERN_BLACK : WINDOW_PATTERN_WHITE;
       for (let index = meta.windowsByPointOffsets[move]; index < meta.windowsByPointOffsets[move + 1]; index += 1) {
         const window = meta.windowsByPoint[index];
-        pattern += weights[this.windowBlack[window] * 6 + this.windowWhite[window]];
+        pattern += weights[this.windowCounts[window]];
       }
     } else {
       pattern = player === BLACK ? this.pointPatternBlack[move] : this.pointPatternWhite[move];
@@ -1691,6 +1732,7 @@ export class GogoAI {
 
     let anyLegalCount = 0;
     const triedEpoch = this.triedMoveEpoch++;
+    const triedBase = ply * this.bufferArea;
     const moves = this.moveBuffers[ply];
     const scores = this.scoreBuffers[ply];
     const HINTS = 0;
@@ -1727,8 +1769,8 @@ export class GogoAI {
       for (let i = 0; i < count; i += 1) {
         const move = moves[i];
         if (stage === HINTS && (move === -1 || position.board[move] !== EMPTY || move === position.koPoint)) continue;
-        if (this.triedMoveMarks[move] === triedEpoch) continue;
-        this.triedMoveMarks[move] = triedEpoch;
+        if (this.triedMoveMarks[triedBase + move] === triedEpoch) continue;
+        this.triedMoveMarks[triedBase + move] = triedEpoch;
         if (!position.play(move)) continue;
         anyLegalCount += 1;
         stageLegalCount += 1;
@@ -1789,8 +1831,8 @@ export class GogoAI {
     const board = position.board;
 
     this.beginWindowPass(position);
-    const attackerCounts = attacker === BLACK ? this.windowBlack : this.windowWhite;
-    const defenderCounts = defender === BLACK ? this.windowBlack : this.windowWhite;
+    const attackingCode = attacker === BLACK ? 24 : 4;
+    const defendingCode = defender === BLACK ? 24 : 4;
 
     this.candidateEpoch += 1;
     const moves = this.moveBuffers[ply];
@@ -1806,10 +1848,9 @@ export class GogoAI {
         bits ^= bit;
         const wi = word * 32 + 31 - Math.clz32(bit);
         const base = wi * 5;
-        const atkCount = attackerCounts[wi];
-        const defCount = defenderCounts[wi];
-        const threat = atkCount === 4 && defCount === 0;
-        const counterWin = defCount === 4 && atkCount === 0;
+        const code = this.windowCounts[wi];
+        const threat = code === attackingCode;
+        const counterWin = code === defendingCode;
 
         // A qualifying five-cell window has exactly one empty point.
         let emptyCell = windows[base];
