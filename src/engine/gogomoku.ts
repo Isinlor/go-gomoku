@@ -30,6 +30,8 @@ export interface BoardMeta {
   readonly windowsByPoint: Int16Array;
   readonly centerBias: Int16Array;
   readonly zobristStones64: BigUint64Array;
+  /** Stone placement combined with the side-to-move toggle for make-move. */
+  readonly zobristMoves64: BigUint64Array;
   readonly zobristBlackToMove64: bigint;
   /** Zobrist keys for ko point: index 0..area-1 for each square, index area for "no ko". */
   readonly zobristKo64: BigUint64Array;
@@ -156,6 +158,10 @@ function createBoardMeta(size: SupportedSize): BoardMeta {
   }
   rngState64 = xorshift64(rngState64);
   const zobristBlackToMove64 = rngState64;
+  const zobristMoves64 = new BigUint64Array(area * 2);
+  for (let i = 0; i < zobristMoves64.length; i += 1) {
+    zobristMoves64[i] = zobristStones64[i] ^ zobristBlackToMove64;
+  }
   const zobristKo64 = new BigUint64Array(area + 1);
   for (let i = 0; i < area + 1; i += 1) {
     rngState64 = xorshift64(rngState64);
@@ -176,6 +182,7 @@ function createBoardMeta(size: SupportedSize): BoardMeta {
     windowsByPoint,
     centerBias,
     zobristStones64,
+    zobristMoves64,
     zobristBlackToMove64,
     zobristKo64,
   };
@@ -390,13 +397,55 @@ export class GogoPosition {
     const player = this.toMove;
     const opponent = otherPlayer(player);
     const captureStart = this.captureTop;
-    let capturedCount = 0;
-
     this.board[index] = player;
     this.recordBoardChange(index);
     this.stoneCount += 1;
-    this.hash ^= this.meta.zobristStones64[index * 2 + (player - 1)];
+    this.hash ^= this.meta.zobristMoves64[index * 2 + (player - 1)];
 
+    const capturedCount = this.captureAdjacentGroups(index, opponent);
+
+    const madeFive = this.checkFiveFrom(index, player);
+    // Exact size and liberty counts are only needed for single-stone ko.
+    // Otherwise one direct liberty is enough to establish legality.
+    const needsGroup = !this.hasDirectLiberty(index) || capturedCount === 1;
+    const ownLiberties = needsGroup ? this.scanGroup(index, player) : 1;
+    const ownGroupSize = needsGroup ? this.scanGroupSize : 0;
+    if (ownLiberties === 0 && !madeFive) {
+      this.hash = this.historyHash[this.ply];
+      this.restoreStones(index, opponent, captureStart, capturedCount);
+      return false;
+    }
+
+    let nextKo = -1;
+    if (!madeFive && capturedCount === 1 && ownGroupSize === 1 && ownLiberties === 1) {
+      nextKo = this.capturePositions[captureStart];
+    }
+
+    this.historyMoves[this.ply] = index;
+    this.historyPlayers[this.ply] = player;
+    this.historyKo[this.ply] = this.koPoint;
+    this.historyWinner[this.ply] = this.winner;
+    this.historyCaptureStart[this.ply] = captureStart;
+    this.historyCaptureCount[this.ply] = capturedCount;
+    this.ply += 1;
+
+    // Update ko in hash: XOR out old ko, XOR in new ko
+    if (nextKo !== this.koPoint) {
+      const oldKoIdx = this.koPoint === -1 ? this.area : this.koPoint;
+      const newKoIdx = nextKo === -1 ? this.area : nextKo;
+      this.hash ^= this.meta.zobristKo64[oldKoIdx] ^ this.meta.zobristKo64[newKoIdx];
+    }
+    this.koPoint = nextKo;
+    this.toMove = opponent;
+    this.winner = madeFive ? player : EMPTY;
+    this.lastMove = index;
+    this.lastCapturedCount = capturedCount;
+    return true;
+  }
+
+  /** Keep capture traversal separate from move bookkeeping in CPU profiles. */
+  private captureAdjacentGroups(index: number, opponent: Player): number {
+    let capturedCount = 0;
     const neighbors = this.meta.neighbors4;
     const neighborBase = index * 4;
     this.adjacentGroupEpoch += 1;
@@ -429,44 +478,7 @@ export class GogoPosition {
       this.stoneCount -= this.scanGroupSize;
     }
 
-    const madeFive = this.checkFiveFrom(index, player);
-    // Exact size and liberty counts are only needed for single-stone ko.
-    // Otherwise one direct liberty is enough to establish legality.
-    const needsGroup = !this.hasDirectLiberty(index) || capturedCount === 1;
-    const ownLiberties = needsGroup ? this.scanGroup(index, player) : 1;
-    const ownGroupSize = needsGroup ? this.scanGroupSize : 0;
-    if (ownLiberties === 0 && !madeFive) {
-      this.hash = this.historyHash[this.ply];
-      this.restoreStones(index, opponent, captureStart, capturedCount);
-      return false;
-    }
-
-    let nextKo = -1;
-    if (!madeFive && capturedCount === 1 && ownGroupSize === 1 && ownLiberties === 1) {
-      nextKo = this.capturePositions[captureStart];
-    }
-
-    this.historyMoves[this.ply] = index;
-    this.historyPlayers[this.ply] = player;
-    this.historyKo[this.ply] = this.koPoint;
-    this.historyWinner[this.ply] = this.winner;
-    this.historyCaptureStart[this.ply] = captureStart;
-    this.historyCaptureCount[this.ply] = capturedCount;
-    this.ply += 1;
-
-    this.hash ^= this.meta.zobristBlackToMove64;
-    // Update ko in hash: XOR out old ko, XOR in new ko
-    if (nextKo !== this.koPoint) {
-      const oldKoIdx = this.koPoint === -1 ? this.area : this.koPoint;
-      const newKoIdx = nextKo === -1 ? this.area : nextKo;
-      this.hash ^= this.meta.zobristKo64[oldKoIdx] ^ this.meta.zobristKo64[newKoIdx];
-    }
-    this.koPoint = nextKo;
-    this.toMove = opponent;
-    this.winner = madeFive ? player : EMPTY;
-    this.lastMove = index;
-    this.lastCapturedCount = capturedCount;
-    return true;
+    return capturedCount;
   }
 
   undo(): boolean {
