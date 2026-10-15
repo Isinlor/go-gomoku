@@ -1,0 +1,23 @@
+{
+  "engineCommit": "4c9b1078a3b46e9e10dd0b338aee484a02372581",
+  "positions": 846,
+  "budgetMs": 60000,
+  "searchOptions": {
+    "maxDepth": 30,
+    "quiescenceDepth": 4,
+    "maxPly": 64
+  },
+  "counts": {
+    "forcedWin": 208,
+    "forcedLoss": 0,
+    "heuristicWin": 65,
+    "heuristicLoss": 0,
+    "timedOut": 638,
+    "forcedDefensiveMove": 0
+  },
+  "unresolved": 638,
+  "totalSearchMs": 38528356.51731195,
+  "firstResultAt": "2026-10-14T07:15:37.645Z",
+  "lastResultAt": "2026-10-14T17:56:48.085Z",
+  "resultsSha256": "35348a088c5719136d8886e2f4f39c8c5517f299ae803f7140a44ff4d5c0f016"
+}
