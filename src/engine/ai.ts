@@ -58,6 +58,7 @@ const WIN_SCORE = 1_000_000_000;
 const ATTACK_WEIGHTS = [0, 12, 72, 540, 100_000, 500_000] as const;
 const DEFENSE_WEIGHTS = [0, 16, 96, 720, 100_000, 500_000] as const;
 const EVAL_WEIGHTS = [0, 6, 32, 240, 500_000, WIN_SCORE >> 2] as const;
+const GROUP_LIBERTY_WEIGHTS = [-10_000, -500, 0, 30, 60] as const;
 const LOCAL_LIBERTY_WEIGHTS = [-200, -80, 20, 60, 80] as const;
 const TACTICAL_PATTERN_THRESHOLD = ATTACK_WEIGHTS[4];
 const CENTER_MULTIPLIER = 0.9; // edge moves are better (see puzzles)
@@ -149,6 +150,7 @@ export class GogoAI {
   private killerMoves = new Int16Array(0);
   private readonly timeoutSignal = new Error('SEARCH_TIMEOUT');
   private proofMode = false;
+  private strategicEvaluation = false;
   private lossProofMode = false;
   private forcingProofMode = false;
   private verifiedWinDepth = 0;
@@ -178,7 +180,11 @@ export class GogoAI {
     this.windowHash = -1n;
     this.windowPosition = null;
     this.evaluationPosition = null;
-    this.resetSearchHeuristics();
+    // Short discovery benefits from whole-group safety; longer tactical
+    // searches retain their established evaluation and independent proofs.
+    const strategicEvaluation = timeLimitMs < 100;
+    this.resetSearchHeuristics(strategicEvaluation !== this.strategicEvaluation);
+    this.strategicEvaluation = strategicEvaluation;
     this.deadline = this.now() + Math.max(0, timeLimitMs);
     this.nodesVisited = 0;
     this.timedOut = false;
@@ -341,7 +347,7 @@ export class GogoAI {
     this.history = new Int32Array(area * 2);
     this.candidateMarks = new Uint32Array(area);
     this.candidateEpoch = 1;
-    this.triedMoveMarks = new Uint32Array(area);
+    this.triedMoveMarks = new Uint32Array(area * (this.maxPly + 1));
     this.proofAttackMarks = new Uint8Array(area * (this.maxPly + 1));
     this.triedMoveEpoch = 1;
     this.scorerGroupMarks = new Uint32Array(area);
@@ -825,7 +831,7 @@ export class GogoAI {
       return score;
     };
 
-    const standPat = this.evaluate(position);
+    const standPat = this.evaluate(position) + (this.strategicEvaluation ? this.evaluateGroups(position) : 0);
     if (remainingDepth === 0 || ply >= this.maxPly) {
       return store(standPat);
     }
@@ -980,6 +986,26 @@ export class GogoAI {
     this.evaluationVersion = position.boardVersion;
     const score = this.windowEvaluation + this.localEvaluation / 10;
     return position.toMove === BLACK ? score : -score;
+  }
+
+  /** Account for connected-group safety without double-counting stones. */
+  private evaluateGroups(position: GogoPosition): number {
+    this.beginScoredGroupPass(position);
+    this.scorerGroupEpoch += 1;
+    const epoch = this.scorerGroupEpoch;
+    let score = 0;
+    for (let point = 0; point < position.area; point += 1) {
+      const color = position.board[point];
+      if (color === EMPTY) continue;
+      if (this.scoredGroupEpoch[point] !== this.scoredGroupPassEpoch) this.primeScoredGroupInfo(position, point, color as Player);
+      const root = this.scoredGroupRoots[point];
+      if (this.scorerGroupMarks[root] === epoch) continue;
+      this.scorerGroupMarks[root] = epoch;
+      const liberties = Math.min(4, this.scoredGroupLiberties[point]);
+      const value = GROUP_LIBERTY_WEIGHTS[liberties] * this.scoredGroupSizes[point];
+      score += color === position.toMove ? value : -value;
+    }
+    return score;
   }
 
   private updateLocalScore(position: GogoPosition, point: number): void {
@@ -1188,6 +1214,13 @@ export class GogoAI {
     }
     sortMovesDescending(moves, scores, count);
     return count;
+  }
+
+  private beginScoredGroupPass(position: GogoPosition): void {
+    if (this.scoredGroupHash !== position.hash) {
+      this.scoredGroupPassEpoch += 1;
+      this.scoredGroupHash = position.hash;
+    }
   }
 
   private primeScoredGroupInfo(position: GogoPosition, point: number, color: Player): void {
@@ -1493,6 +1526,7 @@ export class GogoAI {
 
     let anyLegalCount = 0;
     const triedEpoch = this.triedMoveEpoch++;
+    const triedBase = ply * this.bufferArea;
     const moves = this.moveBuffers[ply];
     const scores = this.scoreBuffers[ply];
     const HINTS = 0;
@@ -1529,8 +1563,8 @@ export class GogoAI {
       for (let i = 0; i < count; i += 1) {
         const move = moves[i];
         if (stage === HINTS && (move === -1 || position.board[move] !== EMPTY || move === position.koPoint)) continue;
-        if (this.triedMoveMarks[move] === triedEpoch) continue;
-        this.triedMoveMarks[move] = triedEpoch;
+        if (this.triedMoveMarks[triedBase + move] === triedEpoch) continue;
+        this.triedMoveMarks[triedBase + move] = triedEpoch;
         if (!position.play(move)) continue;
         anyLegalCount += 1;
         stageLegalCount += 1;
