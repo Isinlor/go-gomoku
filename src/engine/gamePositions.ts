@@ -7,7 +7,7 @@ export interface GamePosition {
   readonly encoded: string;
   readonly toMove: Player;
   readonly searchOptions: Readonly<Omit<GogoAIOptions, 'now'>>;
-  readonly timeMs: number;
+  readonly timeLimitMs: number;
   /** Only deterministic SearchResult fields should be asserted. */
   readonly expectedResult: Readonly<Partial<SearchResult>>;
 }
@@ -119,7 +119,7 @@ export const PLY2_FORCED_WINS: readonly GamePosition[] = [
   encoded,
   toMove: BLACK,
   searchOptions: { maxDepth: 30, quiescenceDepth: 4, maxPly: 64 },
-  timeMs: 1_000,
+  timeLimitMs: 1250,
   expectedResult: { forcedWin: true },
 }));
 
@@ -130,7 +130,7 @@ export const GAME_POSITIONS: readonly GamePosition[] = [
     encoded: 'B9 i1 g6',
     toMove: BLACK,
     searchOptions: { maxDepth: 30, quiescenceDepth: 4, maxPly: 64 },
-    timeMs: 60_000,
+    timeLimitMs: 12250,
     expectedResult: { forcedWin: true, timedOut: false },
   },
   {
@@ -138,7 +138,7 @@ export const GAME_POSITIONS: readonly GamePosition[] = [
     encoded: 'B9 f9 h9',
     toMove: BLACK,
     searchOptions: { maxDepth: 30, quiescenceDepth: 4, maxPly: 64 },
-    timeMs: 60_000,
+    timeLimitMs: 45500,
     expectedResult: { forcedWin: true, timedOut: false },
   },
   {
@@ -146,7 +146,7 @@ export const GAME_POSITIONS: readonly GamePosition[] = [
     encoded: 'B9 e9 e8 f9 g9',
     toMove: BLACK,
     searchOptions: { maxDepth: 30, quiescenceDepth: 4 },
-    timeMs: 60_000,
+    timeLimitMs: 250,
     expectedResult: { forcedWin: true, timedOut: false },
   },
   {
@@ -154,7 +154,7 @@ export const GAME_POSITIONS: readonly GamePosition[] = [
     encoded: 'B9 e9 e8 f9',
     toMove: WHITE,
     searchOptions: { maxDepth: 30, quiescenceDepth: 4 },
-    timeMs: 59_000,
+    timeLimitMs: 1000,
     expectedResult: { forcedLoss: true, heuristicLoss: true, timedOut: false },
   },
 ];

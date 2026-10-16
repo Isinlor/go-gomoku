@@ -14,14 +14,14 @@ import {
  * Verify the AI finds the unique winning move for a puzzle.
  * Classic (alpha-beta) is tested.
  */
-function assertAISolves(puzzle: Puzzle, ai: GogoAI, timeMs: number): void {
+function assertAISolves(puzzle: Puzzle, ai: GogoAI, timeLimitMs: number): void {
   const position = decodeGame(puzzle.encoded);
   expect(position.toMove).toBe(puzzle.toMove);
 
   const expectedIndex = decodeMove(puzzle.solution, position.size);
   expect(expectedIndex).not.toBe(-1);
 
-  const result = ai.findBestMove(position, timeMs);
+  const result = ai.findBestMove(position, timeLimitMs);
   // check that position did not change
   expect(position.encodeGame()).toBe(puzzle.encoded);
   // we want only strict deterministic checks
@@ -29,9 +29,6 @@ function assertAISolves(puzzle: Puzzle, ai: GogoAI, timeMs: number): void {
   expect(result.forcedWin).toBe(true);
   expect(result.timedOut).toBe(false);
 }
-
-// Classic AI tests — scale time by puzzle difficulty
-const classicTimeMs: Record<number, number> = { 3: 500, 5: 2_000, 7: 8_000 };
 
 // Only test original (hand-crafted) puzzles with the AI solvers to keep the
 // test suite fast.  Generated puzzles are validated by the generator itself
@@ -43,19 +40,17 @@ test.each(
   originalPuzzles.map((p) => [p.id, p] as const),
 )('Classic AI solves puzzle %s', { timeout: 30_000 }, (_id, puzzle) => {
   const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4 });
-  assertAISolves(puzzle, ai, classicTimeMs[puzzle.depth] ?? 5_000);
+  assertAISolves(puzzle, ai, puzzle.timeLimitMs ?? 500);
 });
 
 // Smoke test: Classic AI solves ALL generated puzzles.
 // This confirms the puzzle generator's correctness independently.
 const generatedPuzzles = PUZZLES.filter((p) => p.id.startsWith('gen-'));
-const genClassicTimeMs: Record<number, number> = { 3: 15_000, 5: 15_000, 7: 20_000, 9: 20_000 };
-
 test.each(
   generatedPuzzles.map((p) => [p.id, p] as const),
 )('Classic AI solves generated puzzle %s', { timeout: 30_000 }, (_id, puzzle) => {
   const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4 });
-  assertAISolves(puzzle, ai, genClassicTimeMs[puzzle.depth] ?? 5_000);
+  assertAISolves(puzzle, ai, puzzle.timeLimitMs ?? 500);
 });
 
 test('getPuzzleById returns the correct puzzle or undefined', () => {

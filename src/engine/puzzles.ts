@@ -20,6 +20,8 @@ export interface Puzzle {
   readonly solution: string;
   /** Forced-win depth `n`. */
   readonly depth: number;
+  /** Maximum time, in milliseconds, for the Classic AI to find this puzzle's winning move. */
+  readonly timeLimitMs?: number;
   /** Opponent-win threshold `m`. */
   readonly threshold: number;
   /** Encoded board state after the complete winning sequence is played out. */
@@ -325,6 +327,7 @@ export const PUZZLES: readonly Puzzle[] = [
     toMove: BLACK,
     solution: 'e6',
     depth: 9,
+    timeLimitMs: 2000,
     threshold: 4,
     wonEncoded: 'B9 e5 c6 c3 g4 g3 a5 f4 d6 d4 f6 h2 i1 b2 a1 e6 b1 c1 d1 h1 e1 a2 a1 b1 f1 a1',
     winningMoves: ['e6', 'b1', 'c1', 'd1', 'h1', 'e1', 'a2', 'a1', 'b1', 'f1', 'a1'],
@@ -358,6 +361,7 @@ export const PUZZLES: readonly Puzzle[] = [
     toMove: WHITE,
     solution: 'b6',
     depth: 9,
+    timeLimitMs: 1000,
     threshold: 4,
     wonEncoded: 'B9 e5 c5 i8 e9 d7 h7 d8 e6 h6 h9 f4 h3 d9 d6 i4 g7 g8 h2 h4 b6 a1 b1 c1 e3 d1 f2 e1 d4',
     winningMoves: ['b6', 'a1', 'b1', 'c1', 'e3', 'd1', 'f2', 'e1', 'd4'],
