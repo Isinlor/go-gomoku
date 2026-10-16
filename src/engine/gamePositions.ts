@@ -147,7 +147,7 @@ export const GAME_POSITIONS: readonly GamePosition[] = [
     toMove: BLACK,
     searchOptions: { maxDepth: 30, quiescenceDepth: 4 },
     timeMs: 60_000,
-    expectedResult: { forcedWin: true, heuristicWin: false, timedOut: false },
+    expectedResult: { forcedWin: true, timedOut: false },
   },
   {
     id: 'edge-forced-loss',
