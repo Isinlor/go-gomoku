@@ -5,5 +5,6 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['tests/engine/puzzles.test.ts', 'tests/engine/gamePositions.test.ts'],
+    fileParallelism: false,
   },
 });
