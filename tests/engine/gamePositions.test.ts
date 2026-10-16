@@ -9,7 +9,7 @@ test.each(GAME_POSITIONS.map(position => [position.id, position] as const))(
     const position = decodeGame(gamePosition.encoded);
     expect(position.toMove).toBe(gamePosition.toMove);
     const ai = new GogoAI(gamePosition.searchOptions);
-    const result = ai.findBestMove(position, gamePosition.timeMs);
+    const result = ai.findBestMove(position, gamePosition.timeLimitMs);
     expect(result).toMatchObject(gamePosition.expectedResult);
     expect(position.isLegal(result.move)).toBe(true);
     expect(position.encodeGame()).toBe(gamePosition.encoded);
@@ -20,7 +20,7 @@ test.each(GAME_POSITIONS.map(position => [position.id, position] as const))(
 test('edge attack keeps its forcing proof below the expanded setup search cost', { timeout: 60_000 }, () => {
   const fixture = GAME_POSITIONS.find(position => position.id === 'edge-attack-forced-win')!;
   const position = decodeGame(fixture.encoded);
-  const result = new GogoAI({ ...fixture.searchOptions, now: () => 0 }).findBestMove(position, fixture.timeMs);
+  const result = new GogoAI({ ...fixture.searchOptions, now: () => 0 }).findBestMove(position, fixture.timeLimitMs);
   expect(result).toMatchObject(fixture.expectedResult);
   expect(result.nodes).toBeLessThan(800_000);
   expect(position.encodeGame()).toBe(fixture.encoded);

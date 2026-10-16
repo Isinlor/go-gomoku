@@ -7,6 +7,6 @@ test('game positions have unique IDs and consistent search inputs', () => {
     const position = decodeGame(entry.encoded);
     expect(position.toMove).toBe(entry.toMove);
     expect(position.winner).toBe(0);
-    expect(entry.timeMs).toBeGreaterThan(0);
+    expect(entry.timeLimitMs).toBeGreaterThan(0);
   }
 });
