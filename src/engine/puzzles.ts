@@ -289,7 +289,7 @@ export const PUZZLES: readonly Puzzle[] = [
     toMove: WHITE,
     solution: 'f2',
     depth: 9,
-    timeLimitMs: 100,
+    timeLimitMs: 500,
     threshold: 4,
     wonEncoded: 'B11 e5 h4 i3 a8 b6 h8 b8 e1 c6 c5 e8 h1 g3 g1 i1 h2 f1 f6 f5 f2 a1 b1 c1 a2 b2 d1 j1 f1',
     winningMoves: ['f2', 'a1', 'b1', 'c1', 'a2', 'b2', 'd1', 'j1', 'f1'],
