@@ -32,7 +32,6 @@ const modes: [string, string, unknown[], unknown[]][] = [
   ['generateTacticalResponses', 'generateTacticalMoves', [position, moves, scores, 7, 2], [position, moves, scores, 7, 2, false]],
   ['scoreUnpreparedMove', 'scoreMove', [position, 5, 7, 2], [position, 5, 7, false, 2, false]],
   ['scoreUnpreparedTacticalMove', 'scoreMove', [position, 5, 7, 2], [position, 5, 7, true, 2, false]],
-  ['tryEarlyWinProof', 'tryEarlyProof', [position, state, 100], [position, state, 100, 0]],
   ['tryEarlyLossProof', 'tryEarlyProof', [position, state, 100, 6], [position, state, 100, 6]],
   ['markGroupTacticalMoves', 'appendGroupTacticalMoves', [position, 1], [position, 1, -1]],
   ['appendGroupCaptureResponses', 'appendGroupTacticalMoves', [position, 1, 2, 3], [position, 1, 2, 3]],

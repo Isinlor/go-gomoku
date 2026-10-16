@@ -82,3 +82,26 @@ test('an unstable discovery leader shares the bounded first pass with alternativ
   expect(attempted).toEqual([[10, 4_000_000], [11, 4_000_000], [10, 8_000_000]]);
   expect(state.provenWin).toBe(true);
 });
+
+test('the shared proof-cache scope is restored when a candidate raises an unexpected error', () => {
+  const { ai, position } = makePortfolioSearch();
+  ai.tryEarlyWinProof = () => {
+    expect(ai.reuseProofCache).toBe(true);
+    throw new Error('candidate error');
+  };
+  const state = { bestMove: -1, bestScore: 0, completedDepth: 0, hintMove: -1 };
+  expect(() => ai.searchDepths(position, 1, state, 13, true)).toThrow('candidate error');
+  expect(ai.reuseProofCache).toBe(false);
+});
+
+test('starting a shared proof batch preserves discovery history and killer ordering', () => {
+  const { ai, position } = makePortfolioSearch();
+  ai.history.fill(7);
+  ai.killerMoves.fill(40);
+  ai.tryEarlyWinProof = () => false;
+  const state = { bestMove: -1, bestScore: 0, completedDepth: 0, hintMove: -1 };
+  ai.searchDepths(position, 1, state, 13, true);
+  expect(Array.from(ai.history)).toEqual(Array(position.area * 2).fill(7));
+  expect(Array.from(ai.killerMoves)).toEqual(Array((ai.maxPly + 1) * 2).fill(40));
+  expect(ai.reuseProofCache).toBe(false);
+});
