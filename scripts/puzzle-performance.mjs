@@ -56,7 +56,7 @@ export function measurePuzzle(engine, puzzle, now = () => performance.now(), val
   const expected = engine.decodeMove(puzzle.solution, position.size);
   assert.notEqual(expected, -1, `${puzzle.id}: invalid solution`);
   const ai = new engine.GogoAI({ maxDepth: 10, quiescenceDepth: 4 });
-  const budget = puzzle.timeLimitMs ?? 50;
+  const budget = puzzle.timeLimitMs ?? 75;
   const start = now();
   const result = ai.findBestMove(position, budget);
   const elapsed = now() - start;

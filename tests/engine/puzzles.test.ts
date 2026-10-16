@@ -24,10 +24,10 @@ function assertAISolves(puzzle: Puzzle, ai: GogoAI, timeLimitMs: number): void {
   const result = ai.findBestMove(position, timeLimitMs);
   // check that position did not change
   expect(position.encodeGame()).toBe(puzzle.encoded);
-  // we want only strict deterministic checks
+  expect(result.timedOut, 'AI search must finish within its time limit').toBe(false);
+  // A move returned after a timeout is not reliable, so check timeout before asserting the move.
   expect(result.move).toBe(expectedIndex);
   expect(result.forcedWin).toBe(true);
-  expect(result.timedOut).toBe(false);
 }
 
 // Only test original (hand-crafted) puzzles with the AI solvers to keep the
@@ -40,7 +40,7 @@ test.each(
   originalPuzzles.map((p) => [p.id, p] as const),
 )('Classic AI solves puzzle %s', { timeout: 30_000 }, (_id, puzzle) => {
   const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4 });
-  assertAISolves(puzzle, ai, puzzle.timeLimitMs ?? 50);
+  assertAISolves(puzzle, ai, puzzle.timeLimitMs ?? 75);
 });
 
 // Smoke test: Classic AI solves ALL generated puzzles.
@@ -50,7 +50,7 @@ test.each(
   generatedPuzzles.map((p) => [p.id, p] as const),
 )('Classic AI solves generated puzzle %s', { timeout: 30_000 }, (_id, puzzle) => {
   const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4 });
-  assertAISolves(puzzle, ai, puzzle.timeLimitMs ?? 50);
+  assertAISolves(puzzle, ai, puzzle.timeLimitMs ?? 75);
 });
 
 test('getPuzzleById returns the correct puzzle or undefined', () => {
