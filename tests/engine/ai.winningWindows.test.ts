@@ -108,12 +108,15 @@ test('deferred pattern updates skip windows restored before scoring', () => {
 
 test('short move budgets reserve discovery time instead of launching speculative proofs', () => {
   const position = GogoPosition.fromAscii(['...XX....', '.........', '..OO.....', ...Array(6).fill('.........')], BLACK);
-  const ai = new GogoAI({ maxDepth: 6, quiescenceDepth: 0, now: () => 0 }) as any;
+  let now = 0;
+  const ai = new GogoAI({ maxDepth: 6, quiescenceDepth: 0, now: () => (now += 1) }) as any;
   const prove = ai.tryEarlyProof.bind(ai);
   let proofs = 0;
   ai.tryEarlyProof = (...args: any[]) => { proofs++; return prove(...args); };
   const result = ai.findBestMove(position, 25);
-  expect(result.depth).toBeGreaterThan(1);
+  expect(result.depth).toBeGreaterThan(0);
+  expect(result.timedOut).toBe(true);
+  expect(now).toBeGreaterThanOrEqual(25);
   expect(proofs).toBe(0);
   expect(position.ply).toBe(0);
 });
