@@ -46,7 +46,7 @@ test('rejects an invalid position, solution, or incorrect solver result', () => 
   expect(() => measurePuzzle(engine, { ...puzzle, solution: 'e9' })).toThrow('solve');
 });
 
-test('uses identical search options and existing puzzle time budgets', () => {
+test('uses identical search options, the default puzzle time limit, and puzzle overrides', () => {
   const budgets: number[] = [];
   const options: unknown[] = [];
   class RecordingAI extends engine.GogoAI {
@@ -60,8 +60,9 @@ test('uses identical search options and existing puzzle time budgets', () => {
   for (const [id, depth] of [['original', 3], ['original', 5], ['original', 7], ['original', 99], ['gen-example', 3], ['gen-example', 5], ['gen-example', 7], ['gen-example', 99]] as const) {
     measurePuzzle(recordingEngine, { ...puzzle, id, depth });
   }
-  expect(budgets).toEqual([500, 2000, 8000, 5000, 15000, 15000, 20000, 5000]);
-  expect(options).toEqual(Array(8).fill({ maxDepth: 10, quiescenceDepth: 4 }));
+  measurePuzzle(recordingEngine, { ...puzzle, id: 'custom', timeLimitMs: 321 });
+  expect(budgets).toEqual([50, 50, 50, 50, 50, 50, 50, 50, 321]);
+  expect(options).toEqual(Array(9).fill({ maxDepth: 10, quiescenceDepth: 4 }));
 });
 
 // A shallow real search keeps framework checks fast in the coverage suite.
