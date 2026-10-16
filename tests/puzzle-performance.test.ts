@@ -61,7 +61,7 @@ test('uses identical search options, the default puzzle time limit, and puzzle o
     measurePuzzle(recordingEngine, { ...puzzle, id, depth });
   }
   measurePuzzle(recordingEngine, { ...puzzle, id: 'custom', timeLimitMs: 321 });
-  expect(budgets).toEqual([50, 50, 50, 50, 50, 50, 50, 50, 321]);
+  expect(budgets).toEqual([75, 75, 75, 75, 75, 75, 75, 75, 321]);
   expect(options).toEqual(Array(9).fill({ maxDepth: 10, quiescenceDepth: 4 }));
 });
 
