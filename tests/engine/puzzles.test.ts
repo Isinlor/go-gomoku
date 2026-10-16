@@ -40,7 +40,7 @@ test.each(
   originalPuzzles.map((p) => [p.id, p] as const),
 )('Classic AI solves puzzle %s', { timeout: 30_000 }, (_id, puzzle) => {
   const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4 });
-  assertAISolves(puzzle, ai, puzzle.timeLimitMs ?? 500);
+  assertAISolves(puzzle, ai, puzzle.timeLimitMs ?? 50);
 });
 
 // Smoke test: Classic AI solves ALL generated puzzles.
@@ -50,7 +50,7 @@ test.each(
   generatedPuzzles.map((p) => [p.id, p] as const),
 )('Classic AI solves generated puzzle %s', { timeout: 30_000 }, (_id, puzzle) => {
   const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4 });
-  assertAISolves(puzzle, ai, puzzle.timeLimitMs ?? 500);
+  assertAISolves(puzzle, ai, puzzle.timeLimitMs ?? 50);
 });
 
 test('getPuzzleById returns the correct puzzle or undefined', () => {

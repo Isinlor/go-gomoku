@@ -20,7 +20,7 @@ export interface Puzzle {
   readonly solution: string;
   /** Forced-win depth `n`. */
   readonly depth: number;
-  /** Maximum time, in milliseconds, for the Classic AI to find this puzzle's winning move. */
+  /** Optional Classic AI search time limit for this puzzle, in milliseconds. */
   readonly timeLimitMs?: number;
   /** Opponent-win threshold `m`. */
   readonly threshold: number;
@@ -68,6 +68,7 @@ export const PUZZLES: readonly Puzzle[] = [
     toMove: BLACK,
     solution: 'e5',
     depth: 7,
+    timeLimitMs: 100,
     threshold: 5,
     wonEncoded: 'B9 e2 a5 e3 e6 b5 f5 c5 g5 d5 h5 b2 g3 c3 h2 e5 a1 b1 c1 b3 d1 e1 f1 b4',
     winningMoves: ['e5', 'a1', 'b1', 'c1', 'b3', 'd1', 'e1', 'f1', 'b4'],
@@ -99,6 +100,7 @@ export const PUZZLES: readonly Puzzle[] = [
     toMove: WHITE,
     solution: 'e5',
     depth: 7,
+    timeLimitMs: 500,
     threshold: 5,
     wonEncoded: 'B9 i9 e2 a5 e3 e6 b5 f5 c5 g5 d5 h5 b2 g3 c3 h2 e5 a1 b1 c1 b3 d1 e1 f1 b4',
     winningMoves: ['e5', 'a1', 'b1', 'c1', 'b3', 'd1', 'e1', 'f1', 'b4'],
@@ -275,6 +277,7 @@ export const PUZZLES: readonly Puzzle[] = [
     toMove: WHITE,
     solution: 'f2',
     depth: 7,
+    timeLimitMs: 500,
     threshold: 4,
     wonEncoded: 'B9 e5 h4 i3 a8 b6 h8 b8 e1 c6 c5 e8 h1 g3 g1 i1 h2 f1 f6 f5 f2 a1 b1 c1 d1 a2 f1',
     winningMoves: ['f2', 'a1', 'b1', 'c1', 'd1', 'a2', 'f1'],
@@ -286,6 +289,7 @@ export const PUZZLES: readonly Puzzle[] = [
     toMove: WHITE,
     solution: 'f2',
     depth: 9,
+    timeLimitMs: 100,
     threshold: 4,
     wonEncoded: 'B11 e5 h4 i3 a8 b6 h8 b8 e1 c6 c5 e8 h1 g3 g1 i1 h2 f1 f6 f5 f2 a1 b1 c1 a2 b2 d1 j1 f1',
     winningMoves: ['f2', 'a1', 'b1', 'c1', 'a2', 'b2', 'd1', 'j1', 'f1'],
@@ -297,6 +301,7 @@ export const PUZZLES: readonly Puzzle[] = [
     toMove: BLACK,
     solution: 'h5',
     depth: 9,
+    timeLimitMs: 500,
     threshold: 4,
     wonEncoded: 'B9 e5 b2 e3 h6 f9 e6 c9 d3 h1 f6 d6 c5 f3 d9 i1 b6 d1 f7 a4 d4 c2 b3 g5 a5 a6 a7 b4 g3 b5 i4 i5 e7 h5 a1 b1 c1 e1 b1 f1 g1 e2 a2 e4',
     winningMoves: ['h5', 'a1', 'b1', 'c1', 'e1', 'b1', 'f1', 'g1', 'e2', 'a2', 'e4'],
@@ -307,6 +312,7 @@ export const PUZZLES: readonly Puzzle[] = [
     toMove: BLACK,
     solution: 'c5',
     depth: 9,
+    timeLimitMs: 500,
     threshold: 4,
     wonEncoded: 'B9 e5 f6 i1 g5 e9 h2 f9 a8 e6 e7 d8 e3 h4 f1 c4 c1 f4 a5 d4 b4 g4 e4 g8 a7 a6 d5 c6 d6 f8 e8 c5 a1 b1 d1 e1 g1 c3 h1 a2 b2 c2',
     winningMoves: ['c5', 'a1', 'b1', 'd1', 'e1', 'g1', 'c3', 'h1', 'a2', 'b2', 'c2'],
@@ -317,6 +323,7 @@ export const PUZZLES: readonly Puzzle[] = [
     toMove: WHITE,
     solution: 'e9',
     depth: 9,
+    timeLimitMs: 500,
     threshold: 4,
     wonEncoded: 'B9 e5 a1 e2 e3 c8 f6 g5 g8 h4 h5 i8 i5 f3 f1 b3 g7 f7 d1 i7 d3 c6 b1 e1 c7 g4 d7 h2 b7 d8 g3 g6 a7 e7 a9 a2 d9 i4 b6 h3 c5 d4 g2 i1 e6 d6 b5 b4 i2 d5 f4 e4 b9 b8 e9 c1 g1 h1 f2 b2 a1 b1 c3 a1 f3',
     winningMoves: ['e9', 'c1', 'g1', 'h1', 'f2', 'b2', 'a1', 'b1', 'c3', 'a1', 'f3'],
@@ -327,7 +334,7 @@ export const PUZZLES: readonly Puzzle[] = [
     toMove: BLACK,
     solution: 'e6',
     depth: 9,
-    timeLimitMs: 2000,
+    timeLimitMs: 500,
     threshold: 4,
     wonEncoded: 'B9 e5 c6 c3 g4 g3 a5 f4 d6 d4 f6 h2 i1 b2 a1 e6 b1 c1 d1 h1 e1 a2 a1 b1 f1 a1',
     winningMoves: ['e6', 'b1', 'c1', 'd1', 'h1', 'e1', 'a2', 'a1', 'b1', 'f1', 'a1'],
@@ -339,6 +346,7 @@ export const PUZZLES: readonly Puzzle[] = [
     toMove: WHITE,
     solution: 'e6',
     depth: 7,
+    timeLimitMs: 200,
     threshold: 4,
     wonEncoded: 'B13 a1 b1 m1 l1 a13 b13 m13 m12 m3 m2 m7 l3 i1 h1 h2 i2 g7 d8 d7 h10 e8 i11 i4 f6 f7 e7 g9 h9 g5 g6 j7 e9 h7 i7 i3 e6 c1 d1 e1 j1 f1 k1 g1 i1',
     winningMoves: ['e6', 'c1', 'd1', 'e1', 'j1', 'f1', 'k1', 'g1', 'i1'],
@@ -350,6 +358,7 @@ export const PUZZLES: readonly Puzzle[] = [
     toMove: WHITE,
     solution: 'g4',
     depth: 9,
+    timeLimitMs: 250,
     threshold: 4,
     wonEncoded: 'B9 e5 g7 c2 c9 i3 f5 d9 b3 h7 h3 c4 g4 a1 b1 c1 e6 d1 e1 f1 g1 h1 i2',
     winningMoves: ['g4', 'a1', 'b1', 'c1', 'e6', 'd1', 'e1', 'f1', 'g1', 'h1', 'i2'],
@@ -361,7 +370,7 @@ export const PUZZLES: readonly Puzzle[] = [
     toMove: WHITE,
     solution: 'b6',
     depth: 9,
-    timeLimitMs: 1000,
+    timeLimitMs: 250,
     threshold: 4,
     wonEncoded: 'B9 e5 c5 i8 e9 d7 h7 d8 e6 h6 h9 f4 h3 d9 d6 i4 g7 g8 h2 h4 b6 a1 b1 c1 e3 d1 f2 e1 d4',
     winningMoves: ['b6', 'a1', 'b1', 'c1', 'e3', 'd1', 'f2', 'e1', 'd4'],
