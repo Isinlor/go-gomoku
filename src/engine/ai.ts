@@ -165,6 +165,7 @@ export class GogoAI {
   private dirtyWindowCount = 0;
   private bufferArea = 0;
   private deadline = 0;
+  private forcingQuiescence = true;
   private nodesVisited = 0;
   private rootProofMoves = new Int16Array(MAX_CANDIDATES);
   private rootProofScores = new Float64Array(MAX_CANDIDATES);
@@ -204,6 +205,13 @@ export class GogoAI {
     this.windowHash = -1n;
     this.windowPosition = null;
     this.evaluationPosition = null;
+    const forcingQuiescence = timeLimitMs < 100;
+    if (forcingQuiescence !== this.forcingQuiescence) {
+      // Discovery and quiescence scores depend on which continuations we allow.
+      this.ttFlag.fill(0);
+      this.qFlag.fill(0);
+      this.forcingQuiescence = forcingQuiescence;
+    }
     this.resetMoveOrdering();
     this.deadline = this.now() + Math.max(0, timeLimitMs);
     this.nodesVisited = 0;
@@ -984,7 +992,12 @@ export class GogoAI {
 
     const moves = this.moveBuffers[ply];
     const scores = this.scoreBuffers[ply];
-    const count = responses >= 0 ? responses : this.generateNearbyTacticalMoves(position, moves, scores, -1);
+    // Short budgets extend attacks and captures rather than defensive setups.
+    // Immediate opponent wins always require the complete response list above;
+    // longer searches retain broad tactical discovery for speculative proofs.
+    const count = responses >= 0 ? responses : this.forcingQuiescence
+      ? this.generateAttackingMoves(position, moves, scores, -1, ply)
+      : this.generateNearbyTacticalMoves(position, moves, scores, -1);
     if (count === 0) {
       return store(standPat);
     }
@@ -1047,7 +1060,9 @@ export class GogoAI {
           dirty[wi] = 1;
           dirtyWindows[dirtyCount++] = wi;
         }
-        const code = counts[wi] + countDelta;
+        const oldCode = counts[wi];
+        const code = oldCode + countDelta;
+        this.windowEvaluation += WINDOW_EVALUATION[code] - WINDOW_EVALUATION[oldCode];
         counts[wi] = code;
         const bit = 1 << (wi & 31);
         const word = wi >>> 5;
@@ -1081,7 +1096,6 @@ export class GogoAI {
       this.patternCodes[wi] = code;
       this.patternDirty[wi] = 0;
       if (code === oldCode) continue;
-      this.windowEvaluation += WINDOW_EVALUATION[code] - WINDOW_EVALUATION[oldCode];
       const blackDelta = WINDOW_PATTERN_BLACK[code] - WINDOW_PATTERN_BLACK[oldCode];
       const whiteDelta = WINDOW_PATTERN_WHITE[code] - WINDOW_PATTERN_WHITE[oldCode];
       if (blackDelta !== 0 || whiteDelta !== 0) {
@@ -1096,7 +1110,7 @@ export class GogoAI {
   }
 
   private evaluate(position: GogoPosition): number {
-    this.beginPatternPass(position);
+    this.beginWindowPass(position);
     const board = position.board;
     const neighbors = position.meta.neighbors4;
     const changes = position.boardVersion - this.evaluationVersion;
