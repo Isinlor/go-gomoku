@@ -67,7 +67,7 @@ test('uses identical search options and existing puzzle time budgets', () => {
 // A shallow real search keeps framework checks fast in the coverage suite.
 const gamePosition = {
   id: 'search-contract', encoded: puzzle.encoded, toMove: puzzle.toMove,
-  searchOptions: { maxDepth: 10, quiescenceDepth: 4 }, timeMs: 500,
+  searchOptions: { maxDepth: 10, quiescenceDepth: 4 }, timeLimitMs: 500,
   expectedResult: { forcedWin: true, timedOut: false },
 };
 

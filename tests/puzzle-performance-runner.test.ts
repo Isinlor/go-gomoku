@@ -113,7 +113,7 @@ function createFixture(wrongMove = false, withGamePositions = false, forcedWin =
     writeFileSync(join(engine, 'gamePositions.ts'), `
       export const GAME_POSITIONS = [{
         id: 'edge', encoded: 'B9', toMove: 1,
-        searchOptions: { maxDepth: 30, quiescenceDepth: 4 }, timeMs: 59000,
+        searchOptions: { maxDepth: 30, quiescenceDepth: 4 }, timeLimitMs: 59000,
         expectedResult: { forcedWin: true, timedOut: false },
       }];
     `);

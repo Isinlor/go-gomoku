@@ -39,7 +39,7 @@ export function measurePuzzle(engine, puzzle, now = () => performance.now(), val
   if ('expectedResult' in puzzle) {
     const ai = new engine.GogoAI(puzzle.searchOptions);
     const start = now();
-    const result = ai.findBestMove(position, puzzle.timeMs);
+    const result = ai.findBestMove(position, puzzle.timeLimitMs);
     const elapsed = now() - start;
     assert(position.isLegal(result.move), `${puzzle.id}: illegal move`);
     assert.equal(position.encodeGame(), puzzle.encoded, `${puzzle.id}: search changed position`);
@@ -59,7 +59,7 @@ export function measurePuzzle(engine, puzzle, now = () => performance.now(), val
   const budgets = puzzle.id.startsWith('gen-')
     ? { 3: 15_000, 5: 15_000, 7: 20_000 }
     : { 3: 500, 5: 2_000, 7: 8_000 };
-  const budget = budgets[puzzle.depth] ?? 5_000;
+  const budget = puzzle.timeLimitMs ?? budgets[puzzle.depth] ?? 5_000;
   const start = now();
   const result = ai.findBestMove(position, budget);
   const elapsed = now() - start;
