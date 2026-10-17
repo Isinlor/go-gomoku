@@ -1573,6 +1573,8 @@ test('proof mode: resume heuristic after proof collapse can timeout', () => {
   const ai = new GogoAI({ maxDepth: 6, quiescenceDepth: 2, now: () => 0 });
   const anyAI = ai as any;
   anyAI.ensureBuffers(pos.area);
+  // Isolate final mate verification/resume from speculative early probes.
+  anyAI.tryEarlyWinProof = () => false;
 
   let searchRootCallCount = 0;
   const realSearchRoot = anyAI.searchRoot.bind(anyAI);
@@ -1618,6 +1620,8 @@ test('proof mode: resume heuristic finds forced outcome after proof collapse', (
   const ai = new GogoAI({ maxDepth: 6, quiescenceDepth: 2, now: () => 0 });
   const anyAI = ai as any;
   anyAI.ensureBuffers(pos.area);
+  // Isolate final mate verification/resume from speculative early probes.
+  anyAI.tryEarlyWinProof = () => false;
 
   let searchRootCallCount = 0;
   const realSearchRoot = anyAI.searchRoot.bind(anyAI);
@@ -1667,6 +1671,8 @@ test('proof mode: proof collapse with no remaining time skips resume', () => {
   const ai = new GogoAI({ maxDepth: 6, quiescenceDepth: 2, now: () => tick });
   const anyAI = ai as any;
   anyAI.ensureBuffers(pos.area);
+  // Isolate final mate verification/resume from speculative early probes.
+  anyAI.tryEarlyWinProof = () => false;
 
   let searchRootCallCount = 0;
   const realSearchRoot = anyAI.searchRoot.bind(anyAI);

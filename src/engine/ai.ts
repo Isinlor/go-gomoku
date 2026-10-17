@@ -175,6 +175,7 @@ export class GogoAI {
   private killerMoves = new Int16Array(0);
   private readonly timeoutSignal = new Error('SEARCH_TIMEOUT');
   private proofMode = false;
+  private reuseProofCache = false;
   private lossProofMode = false;
   private forcingProofMode = false;
   private verifiedWinDepth = 0;
@@ -205,13 +206,8 @@ export class GogoAI {
     this.windowHash = -1n;
     this.windowPosition = null;
     this.evaluationPosition = null;
-    const forcingQuiescence = timeLimitMs < 100;
-    if (forcingQuiescence !== this.forcingQuiescence) {
-      // Discovery and quiescence scores depend on which continuations we allow.
-      this.ttFlag.fill(0);
-      this.qFlag.fill(0);
-      this.forcingQuiescence = forcingQuiescence;
-    }
+    if (!this.forcingQuiescence) this.ttFlag.fill(0);
+    this.forcingQuiescence = true;
     this.resetMoveOrdering();
     this.deadline = this.now() + Math.max(0, timeLimitMs);
     this.nodesVisited = 0;
@@ -456,10 +452,12 @@ export class GogoAI {
         }
         // Expensive first iterations and sparse openings need another look
         // before speculative proof. Cheap tactical setups can be proved now.
-        const shallowProofReady = depth >= 2 || (position.stoneCount >= 5 && result.nodes <= 1024);
+        const shallowProofReady = this.canProbeShallowProof(position, depth, result.nodes);
         if (!shallowProofTried && shallowProofReady && depth <= 3 && endDepth >= 5 && result.score >= ATTACK_WEIGHTS[2]) {
           shallowProofTried = true;
+          const forcing = this.forcingQuiescence;
           if (this.tryEarlyWinProof(position, state, SHALLOW_PROOF_NODES_PER_DEPTH * this.maxDepth)) break;
+          if (forcing && !this.forcingQuiescence && depth === 1) shallowProofTried = false;
         }
         // A strong tactical candidate often appears before discovery finds its
         // mate score. Try a bounded independent proof at the first promising
@@ -475,22 +473,7 @@ export class GogoAI {
           && result.score < EVAL_WEIGHTS[4] / 2
           && this.deadline - this.now() >= ROOT_PROOF_MIN_REMAINING_MS) {
           rootProofTried = true;
-          // Preserve a stable discovery leader's budget. Give other candidates
-          // a bounded first pass before expensive retries of quiet setups.
-          for (const nodeLimit of [ROOT_PROOF_NODE_LIMIT / 2, ROOT_PROOF_NODE_LIMIT]) {
-            for (let i = 0; i < this.rootProofCount; i += 1) {
-              if (stableRootMove && i === 0 && nodeLimit === ROOT_PROOF_NODE_LIMIT) continue;
-              if (this.deadline - this.now() < ROOT_PROOF_MIN_REMAINING_MS) break;
-              const move = this.rootProofMoves[i];
-              const probe = { ...state, bestMove: move, hintMove: move };
-              if (this.tryEarlyWinProof(position, probe, stableRootMove && i === 0 ? ROOT_PROOF_NODE_LIMIT : nodeLimit)) {
-                Object.assign(state, probe);
-                break;
-              }
-            }
-            if (state.provenWin) break;
-          }
-          if (state.provenWin) break;
+          if (this.tryRootProofPortfolio(position, state, stableRootMove)) break;
         }
       } catch (error) {
         if (error !== this.timeoutSignal) {
@@ -508,16 +491,74 @@ export class GogoAI {
     }
   }
 
+  private tryRootProofPortfolio(position: GogoPosition, state: SearchState, stableRootMove: boolean): boolean {
+    // All candidates share the same attacker and full proof rules. Completed
+    // bounds and proven subpositions remain valid across this entire batch.
+    this.clearProofTable();
+    this.reuseProofCache = true;
+    // Keep a stable discovery leader first; use the preceding horizon's node
+    // count to estimate proof cost for the other candidates.
+    const costs = new Float64Array(MAX_CANDIDATES);
+    try {
+      for (let depthLimit = 1; ; depthLimit = Math.min(depthLimit + 2, this.maxDepth)) {
+        for (let i = 0; i < this.rootProofCount; i += 1) {
+          if (this.now() >= this.deadline) return false;
+          const move = this.rootProofMoves[i];
+          const probe = { ...state, bestMove: move, hintMove: move };
+          const nodes = this.nodesVisited;
+          const horizon = stableRootMove && i === 0 ? this.maxDepth : depthLimit;
+          if (this.tryEarlyWinProof(position, probe, ROOT_PROOF_NODE_LIMIT, horizon)) {
+            Object.assign(state, probe);
+            return true;
+          }
+          costs[i] = stableRootMove && i === 0 ? Infinity : -(this.nodesVisited - nodes);
+        }
+        sortMovesDescending(this.rootProofMoves, costs, this.rootProofCount);
+        if (depthLimit >= this.maxDepth) break;
+      }
+      return false;
+    } finally {
+      this.reuseProofCache = false;
+    }
+  }
+
+  private canProbeShallowProof(position: GogoPosition, depth: number, nodes: number): boolean {
+    return depth >= 2 || (position.stoneCount >= 5 && nodes <= 1024);
+  }
+
   /** Speculative win/loss probes share budget and heuristic restoration. */
-  private tryEarlyWinProof(position: GogoPosition, state: SearchState, nodeLimit?: number): boolean {
-    return this.tryEarlyProof(position, state, nodeLimit, 0);
+  private tryEarlyWinProof(position: GogoPosition, state: SearchState, nodeLimit?: number, depthLimit = this.maxDepth): boolean {
+    // Give one candidate the average discovery work per root candidate.
+    // A revised candidate retains the caller's full proof allowance.
+    const probeLimit = this.forcingQuiescence
+      ? Math.min(nodeLimit ?? Infinity, Math.ceil(this.nodesVisited / Math.max(1, this.rootProofCount)))
+      : nodeLimit;
+    const proven = this.tryEarlyProof(position, state, probeLimit, 0, depthLimit);
+    if (!proven && this.forcingQuiescence && !this.timedOut) {
+      // If a forcing candidate cannot be established, rediscover at the same
+      // depth with quiet defensive setups before probing the revised candidate.
+      const depth = state.completedDepth;
+      this.forcingQuiescence = false;
+      this.clearSearchHeuristicsAndTables();
+      this.ttBestMove.fill(-1); // Rebuild ordering as well as score bounds.
+      const fallback = this.pickFallbackMove(position);
+      state.bestMove = fallback;
+      state.bestScore = 0;
+      state.completedDepth = 0;
+      state.hintMove = fallback;
+      const nodes = this.nodesVisited;
+      this.searchDepths(position, 1, state, depth);
+      if (!this.timedOut && this.canProbeShallowProof(position, state.completedDepth, this.nodesVisited - nodes)
+        && state.bestScore >= ATTACK_WEIGHTS[2]) return this.tryEarlyProof(position, state, nodeLimit, 0, depthLimit);
+    }
+    return proven;
   }
 
   private tryEarlyLossProof(position: GogoPosition, state: SearchState, nodeLimit: number, lossDepth: number): boolean {
     return this.tryEarlyProof(position, state, nodeLimit, lossDepth);
   }
 
-  private tryEarlyProof(position: GogoPosition, state: SearchState, nodeLimit = Infinity, lossDepth = 0): boolean {
+  private tryEarlyProof(position: GogoPosition, state: SearchState, nodeLimit = Infinity, lossDepth = 0, depthLimit = this.maxDepth): boolean {
     const deadline = this.deadline;
     // Winning-move verification starts its own node counter; loss verification
     // adds to discovery's counter. Restore accounting according to that API.
@@ -528,7 +569,7 @@ export class GogoAI {
     const killers = this.killerMoves.slice();
     try {
       if (lossDepth !== 0) {
-        this.deadline = this.now() + (deadline - this.now()) / 4;
+        this.deadline = Number.isFinite(nodeLimit) ? deadline : this.now() + (deadline - this.now()) / 4;
         this.proofNodeLimit = this.nodesVisited + nodeLimit;
         const score = this.proofSearchRoot(position, lossDepth, state.bestMove);
         if (!this.isForcedLossScore(score, lossDepth)) return false;
@@ -537,14 +578,17 @@ export class GogoAI {
         state.provenLoss = true;
         return true;
       }
-      if (!this.verifyWinningMove(position, state.bestMove, (deadline - this.now()) / 4, this.maxDepth)) {
+      // Finite work quotas already bound speculation. Let those proofs use
+      // the overall deadline instead of abandoning them at a time fraction.
+      const proofBudget = (deadline - this.now()) / (Number.isFinite(nodeLimit) ? 1 : 4);
+      if (!this.verifyWinningMove(position, state.bestMove, proofBudget, depthLimit)) {
         if (this.timedOut) return false;
         // The heuristic's first choice can hide a winning quiet setup. Probe
         // alternatives with an independent bounded root proof before spending
         // the remaining budget on deeper heuristic iterations.
         this.proofNodeLimit = this.nodesVisited + nodeLimit;
         this.resetProofSearch();
-        const depth = Math.min(this.maxDepth, FORCING_PROOF_MAX_DEPTH);
+        const depth = Math.min(depthLimit, FORCING_PROOF_MAX_DEPTH);
         if (!this.proofAttack(position, depth, 0)) return false;
         state.bestMove = this.proofTTBestMove[Number(BigInt.asUintN(TT_SIZE_BITS, position.hash))];
         state.hintMove = state.bestMove;
@@ -957,15 +1001,18 @@ export class GogoAI {
     const hash = position.hash;
     const index = Number(BigInt.asUintN(12, hash));
     const searchDepth = Math.min(remainingDepth, this.maxPly - ply);
+    // Forcing discovery and broadened discovery can have different values.
+    // Tag their entries instead of discarding quiescence caches.
+    const cacheDepth = this.forcingQuiescence ? -searchDepth - 1 : searchDepth;
     const originalAlpha = alpha;
-    if (this.qHash[index] === hash && this.qDepth[index] === searchDepth) {
+    if (this.qHash[index] === hash && this.qDepth[index] === cacheDepth) {
       const cached = this.adjustMateScore(this.qScore[index], -ply);
       const flag = this.qFlag[index];
       if (flag === TT_EXACT || (flag === TT_LOWERBOUND && cached >= beta) || (flag === TT_UPPERBOUND && cached <= alpha)) return cached;
     }
     const store = (score: number): number => {
       this.qHash[index] = hash;
-      this.qDepth[index] = searchDepth;
+      this.qDepth[index] = cacheDepth;
       this.qScore[index] = this.adjustMateScore(score, ply);
       this.qFlag[index] = score >= beta ? TT_LOWERBOUND : score <= originalAlpha ? TT_UPPERBOUND : TT_EXACT;
       return score;
@@ -992,9 +1039,8 @@ export class GogoAI {
 
     const moves = this.moveBuffers[ply];
     const scores = this.scoreBuffers[ply];
-    // Short budgets extend attacks and captures rather than defensive setups.
-    // Immediate opponent wins always require the complete response list above;
-    // longer searches retain broad tactical discovery for speculative proofs.
+    // Start with attacks and captures. An unsuccessful proof probe broadens
+    // discovery to defensive setups; immediate wins always require all replies.
     const count = responses >= 0 ? responses : this.forcingQuiescence
       ? this.generateAttackingMoves(position, moves, scores, -1, ply)
       : this.generateNearbyTacticalMoves(position, moves, scores, -1);
@@ -1040,6 +1086,7 @@ export class GogoAI {
     const offsets = meta.windowsByPointOffsets;
     const windows = meta.windowsByPoint;
     let dirtyCount = this.dirtyWindowCount;
+    let evaluation = this.windowEvaluation;
     const changes = position.boardVersion - this.windowVersion;
     const incremental = this.windowPosition === position && changes > 0 && changes <= position.boardChanges.length;
     const count = incremental ? changes : position.area;
@@ -1062,7 +1109,7 @@ export class GogoAI {
         }
         const oldCode = counts[wi];
         const code = oldCode + countDelta;
-        this.windowEvaluation += WINDOW_EVALUATION[code] - WINDOW_EVALUATION[oldCode];
+        evaluation += WINDOW_EVALUATION[code] - WINDOW_EVALUATION[oldCode];
         counts[wi] = code;
         const bit = 1 << (wi & 31);
         const word = wi >>> 5;
@@ -1071,6 +1118,7 @@ export class GogoAI {
       }
       this.windowBoard[point] = cell;
     }
+    this.windowEvaluation = evaluation;
     this.dirtyWindowCount = dirtyCount;
     this.windowHash = position.hash;
     this.windowPosition = position;
@@ -1610,9 +1658,13 @@ export class GogoAI {
   private proofTTBestMove = new Int16Array(TT_SIZE);
 
   private resetProofSearch(): void {
-    // Clear dedicated proof results and history/killers. Heuristic TT scores
-    // never serve as proofs; legal move hints are independently verified.
+    // Reset history/killers, preserving only full-search proof facts inside a
+    // candidate batch. Heuristic TT scores never serve as proofs.
     this.resetMoveOrdering();
+    if (!this.reuseProofCache) this.clearProofTable();
+  }
+
+  private clearProofTable(): void {
     this.proofTTHash.fill(0n);
     this.proofTTResult.fill(0);
     this.proofTTDepth.fill(0);
@@ -1644,13 +1696,15 @@ export class GogoAI {
     try {
       // Forcing sequences are much cheaper to prove than quiet setups. Give
       // them a bounded first pass, reserving most of the budget for broader wins.
-      for (const forcingOnly of [true, false]) {
+      // A shared batch stays in full mode so restricted failures cannot be
+      // mixed with reusable full-search bounds.
+      for (const forcingOnly of this.reuseProofCache ? [false] : [true, false]) {
         this.forcingProofMode = forcingOnly;
         this.deadline = forcingOnly ? deadline - Math.max(0, timeLimitMs) * 3 / 4 : deadline;
         // Restricted failures cannot refute quiet setups. Invalidate their
         // depths before broadening; proven wins and independently checked
         // move hints remain useful. Both proof probes require positive depth.
-        if (!forcingOnly) this.proofTTDepth.fill(0);
+        if (!forcingOnly && !this.reuseProofCache) this.proofTTDepth.fill(0);
         const limit = Math.min(depthLimit, this.maxPly, forcingOnly ? FORCING_PROOF_MAX_DEPTH : Infinity);
         for (let maxDepth = 1; maxDepth <= limit; maxDepth += 2) {
           try {

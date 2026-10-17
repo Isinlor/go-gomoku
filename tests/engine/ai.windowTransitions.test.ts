@@ -35,3 +35,23 @@ test('window classifications survive every valid count pair when an AI is reused
     }
   }
 });
+
+test('an incremental pass accumulates window evaluation before committing it once', () => {
+  const position = new GogoPosition(9);
+  const ai = new GogoAI() as any;
+  ai.ensureBuffers(position.area);
+  ai.beginWindowPass(position);
+  let writes = 0;
+  let evaluation = ai.windowEvaluation;
+  Object.defineProperty(ai, 'windowEvaluation', {
+    get: () => evaluation,
+    set: value => { writes++; evaluation = value; },
+  });
+  expect(position.play(40)).toBe(true);
+  ai.beginWindowPass(position);
+  expect(writes).toBe(1);
+  const fresh = new GogoAI() as any;
+  fresh.ensureBuffers(position.area);
+  fresh.beginWindowPass(position);
+  expect(evaluation).toBe(fresh.windowEvaluation);
+});
