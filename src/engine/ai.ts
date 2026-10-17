@@ -87,9 +87,11 @@ for (let count = 0; count < 5; count += 1) {
 }
 const WINDOW_BLACK_COUNTS = new Uint8Array(36);
 const WINDOW_WHITE_COUNTS = new Uint8Array(36);
+const WINDOW_BLOCKED = new Uint8Array(36);
 for (let code = 0; code < 36; code += 1) {
   WINDOW_BLACK_COUNTS[code] = Math.floor(code / 6);
   WINDOW_WHITE_COUNTS[code] = code % 6;
+  WINDOW_BLOCKED[code] = Number(Math.floor(code / 6) > 0 && code % 6 > 0);
 }
 const WINDOW_EVALUATION = new Int32Array(36);
 for (let count = 1; count <= 5; count += 1) {
@@ -496,18 +498,25 @@ export class GogoAI {
     // bounds and proven subpositions remain valid across this entire batch.
     this.clearProofTable();
     this.reuseProofCache = true;
+    // Keep a stable discovery leader first; use the preceding horizon's node
+    // count to estimate proof cost for the other candidates.
+    const costs = new Float64Array(MAX_CANDIDATES);
     try {
-      for (const nodeLimit of [ROOT_PROOF_NODE_LIMIT / 2, ROOT_PROOF_NODE_LIMIT]) {
+      for (let depthLimit = 1; ; depthLimit = Math.min(depthLimit + 2, this.maxDepth)) {
         for (let i = 0; i < this.rootProofCount; i += 1) {
-          if (stableRootMove && i === 0 && nodeLimit === ROOT_PROOF_NODE_LIMIT) continue;
-          if (this.deadline - this.now() < ROOT_PROOF_MIN_REMAINING_MS) break;
+          if (this.now() >= this.deadline) return false;
           const move = this.rootProofMoves[i];
           const probe = { ...state, bestMove: move, hintMove: move };
-          if (this.tryEarlyWinProof(position, probe, stableRootMove && i === 0 ? ROOT_PROOF_NODE_LIMIT : nodeLimit)) {
+          const nodes = this.nodesVisited;
+          const horizon = stableRootMove && i === 0 ? this.maxDepth : depthLimit;
+          if (this.tryEarlyWinProof(position, probe, ROOT_PROOF_NODE_LIMIT, horizon)) {
             Object.assign(state, probe);
             return true;
           }
+          costs[i] = stableRootMove && i === 0 ? Infinity : -(this.nodesVisited - nodes);
         }
+        sortMovesDescending(this.rootProofMoves, costs, this.rootProofCount);
+        if (depthLimit >= this.maxDepth) break;
       }
       return false;
     } finally {
@@ -520,11 +529,13 @@ export class GogoAI {
   }
 
   /** Speculative win/loss probes share budget and heuristic restoration. */
-  private tryEarlyWinProof(position: GogoPosition, state: SearchState, nodeLimit?: number): boolean {
-    // Match speculative proof work to discovery before paying for a broader
-    // search. A revised candidate retains the caller's full proof allowance.
-    const probeLimit = this.forcingQuiescence ? Math.min(nodeLimit ?? Infinity, this.nodesVisited) : nodeLimit;
-    const proven = this.tryEarlyProof(position, state, probeLimit, 0);
+  private tryEarlyWinProof(position: GogoPosition, state: SearchState, nodeLimit?: number, depthLimit = this.maxDepth): boolean {
+    // Give one candidate the average discovery work per root candidate.
+    // A revised candidate retains the caller's full proof allowance.
+    const probeLimit = this.forcingQuiescence
+      ? Math.min(nodeLimit ?? Infinity, Math.ceil(this.nodesVisited / Math.max(1, this.rootProofCount)))
+      : nodeLimit;
+    const proven = this.tryEarlyProof(position, state, probeLimit, 0, depthLimit);
     if (!proven && this.forcingQuiescence && !this.timedOut) {
       // If a forcing candidate cannot be established, rediscover at the same
       // depth with quiet defensive setups before probing the revised candidate.
@@ -540,7 +551,7 @@ export class GogoAI {
       const nodes = this.nodesVisited;
       this.searchDepths(position, 1, state, depth);
       if (!this.timedOut && this.canProbeShallowProof(position, state.completedDepth, this.nodesVisited - nodes)
-        && state.bestScore >= ATTACK_WEIGHTS[2]) return this.tryEarlyProof(position, state, nodeLimit, 0);
+        && state.bestScore >= ATTACK_WEIGHTS[2]) return this.tryEarlyProof(position, state, nodeLimit, 0, depthLimit);
     }
     return proven;
   }
@@ -549,7 +560,7 @@ export class GogoAI {
     return this.tryEarlyProof(position, state, nodeLimit, lossDepth);
   }
 
-  private tryEarlyProof(position: GogoPosition, state: SearchState, nodeLimit = Infinity, lossDepth = 0): boolean {
+  private tryEarlyProof(position: GogoPosition, state: SearchState, nodeLimit = Infinity, lossDepth = 0, depthLimit = this.maxDepth): boolean {
     const deadline = this.deadline;
     // Winning-move verification starts its own node counter; loss verification
     // adds to discovery's counter. Restore accounting according to that API.
@@ -572,14 +583,14 @@ export class GogoAI {
       // Finite work quotas already bound speculation. Let those proofs use
       // the overall deadline instead of abandoning them at a time fraction.
       const proofBudget = (deadline - this.now()) / (Number.isFinite(nodeLimit) ? 1 : 4);
-      if (!this.verifyWinningMove(position, state.bestMove, proofBudget, this.maxDepth)) {
+      if (!this.verifyWinningMove(position, state.bestMove, proofBudget, depthLimit)) {
         if (this.timedOut) return false;
         // The heuristic's first choice can hide a winning quiet setup. Probe
         // alternatives with an independent bounded root proof before spending
         // the remaining budget on deeper heuristic iterations.
         this.proofNodeLimit = this.nodesVisited + nodeLimit;
         this.resetProofSearch();
-        const depth = Math.min(this.maxDepth, FORCING_PROOF_MAX_DEPTH);
+        const depth = Math.min(depthLimit, FORCING_PROOF_MAX_DEPTH);
         if (!this.proofAttack(position, depth, 0)) return false;
         state.bestMove = this.proofTTBestMove[Number(BigInt.asUintN(TT_SIZE_BITS, position.hash))];
         state.hintMove = state.bestMove;
@@ -1093,14 +1104,16 @@ export class GogoAI {
       const countDelta = ((cell & 1) - (oldCell & 1)) * 6 + (cell >> 1) - (oldCell >> 1);
       for (let cursor = offsets[point]; cursor < offsets[point + 1]; cursor += 1) {
         const wi = windows[cursor];
+        const oldCode = counts[wi];
+        const code = oldCode + countDelta;
+        counts[wi] = code;
+        // Mixed windows stay inactive, with zero evaluation and pattern weight.
+        if ((WINDOW_BLOCKED[oldCode] & WINDOW_BLOCKED[code]) !== 0) continue;
         if (dirty[wi] === 0) {
           dirty[wi] = 1;
           dirtyWindows[dirtyCount++] = wi;
         }
-        const oldCode = counts[wi];
-        const code = oldCode + countDelta;
         this.windowEvaluation += WINDOW_EVALUATION[code] - WINDOW_EVALUATION[oldCode];
-        counts[wi] = code;
         const bit = 1 << (wi & 31);
         const word = wi >>> 5;
         winning[word] = (winning[word] & ~bit) | (WINDOW_WINNING_MASK[code] & bit);

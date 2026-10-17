@@ -35,3 +35,26 @@ test('window classifications survive every valid count pair when an AI is reused
     }
   }
 });
+
+test('mixed windows keep counts without scheduling unchanged pattern work', () => {
+  const position = GogoPosition.fromAscii(['XO.......', ...Array(8).fill('.........')], BLACK);
+  const ai = new GogoAI() as any;
+  ai.ensureBuffers(position.area);
+  ai.beginPatternPass(position);
+  const wi = Array.from({length: position.meta.windowCount}, (_, i) => i)
+    .find(i => Array.from(position.meta.windows.slice(i * 5, i * 5 + 5)).join(',') === '0,1,2,3,4')!;
+  expect(position.play(2)).toBe(true);
+  ai.beginWindowPass(position);
+  expect(ai.windowCounts[wi]).toBe(13);
+  expect(ai.patternDirty[wi]).toBe(0);
+  ai.beginPatternPass(position);
+  const fresh = new GogoAI() as any;
+  fresh.ensureBuffers(position.area);
+  fresh.beginPatternPass(position);
+  expect(ai.pointPatternBlack).toEqual(fresh.pointPatternBlack);
+  expect(ai.pointPatternWhite).toEqual(fresh.pointPatternWhite);
+  position.undo();
+  ai.beginWindowPass(position);
+  expect(ai.windowCounts[wi]).toBe(7);
+  expect(ai.patternDirty[wi]).toBe(0);
+});

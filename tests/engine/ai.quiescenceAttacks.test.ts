@@ -36,12 +36,14 @@ test('speculative work is bounded by discovery and an unpromising revised candid
   const { ai, position } = setup();
   const result = ai.searchRoot(position, 1, -1);
   const discoveryNodes = ai.nodesVisited;
+  // Exercise allocation across several promising root candidates.
+  ai.rootProofCount = 4;
   const probe = ai.tryEarlyProof.bind(ai);
   const limits: number[] = [];
   ai.tryEarlyProof = (...args: any[]) => { limits.push(args[2]); return probe(...args); };
   const state = { bestMove: result.move, bestScore: result.score, completedDepth: 1, hintMove: result.move };
   ai.tryEarlyWinProof(position, state, 100_000);
-  expect(limits[0]).toBeLessThanOrEqual(discoveryNodes);
+  expect(limits[0]).toBe(Math.ceil(discoveryNodes / 4));
   expect(state.bestScore).toBeLessThan(0);
   expect(limits).toHaveLength(1);
   expect(position.ply).toBe(0);
