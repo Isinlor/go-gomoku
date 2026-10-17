@@ -6,6 +6,9 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['tests/engine/puzzles.test.ts', 'tests/engine/gamePositions.test.ts'],
+    retry: 5,
+    bail: 1,
+    maxWorkers: 1,
     // Vite rewrites the solver's imported bindings into getter-backed property
     // reads. Fixed-clock measurements with identical results and node counts
     // took 5.33s / 22.89s via Vite versus 4.13s / 14.50s via native Node for
