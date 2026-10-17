@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { expect, test } from 'vitest';
-import { GAME_POSITIONS, GogoAI, decodeGame } from '../../src/engine';
+import { GAME_POSITIONS, GogoAI, decodeGame, encodeMove } from '../../src/engine';
 
 test.each(GAME_POSITIONS.map(position => [position.id, position] as const))(
   'AI satisfies SearchResult assertions for game position %s',
@@ -10,7 +10,11 @@ test.each(GAME_POSITIONS.map(position => [position.id, position] as const))(
     expect(position.toMove).toBe(gamePosition.toMove);
     const ai = new GogoAI(gamePosition.searchOptions);
     const result = ai.findBestMove(position, gamePosition.timeLimitMs);
-    expect(result).toMatchObject(gamePosition.expectedResult);
+    const { allowedMoves, ...expectedFields } = gamePosition.expectedResult;
+    if (allowedMoves) {
+      expect(allowedMoves, `move ${encodeMove(result.move, position.meta)} was selected but allowed are ${allowedMoves.map(move => encodeMove(move, position.meta)).join(', ')}`).toContain(result.move);
+    }
+    expect(result).toMatchObject(expectedFields);
     expect(position.isLegal(result.move)).toBe(true);
     expect(position.encodeGame()).toBe(gamePosition.encoded);
   },
