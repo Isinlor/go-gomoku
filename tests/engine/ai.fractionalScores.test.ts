@@ -4,7 +4,7 @@ import { insertMoveDescending, sortMovesDescending } from '../../src/engine/move
 
 function setup(player: typeof BLACK | typeof WHITE) {
   const position = GogoPosition.fromAscii([
-    'O........', '.........', '.........', '.........', '...XX....',
+    'O........', '.........', '.........', '.........', '..XXX....',
     '.........', '.........', '.........', '.........',
   ], player);
   const ai = new GogoAI({ quiescenceDepth: 0, now: () => 0 }) as any;

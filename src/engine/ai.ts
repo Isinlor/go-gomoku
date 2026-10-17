@@ -61,6 +61,25 @@ const ATTACK_WEIGHTS = [0, 12, 72, 540, 100_000, 500_000] as const;
 const DEFENSE_WEIGHTS = [0, 16, 96, 720, 100_000, 500_000] as const;
 const EVAL_WEIGHTS = [0, 6, 32, 240, 500_000, WIN_SCORE >> 2] as const;
 const LOCAL_LIBERTY_WEIGHTS = [-200, -80, 20, 60, 80] as const;
+const CAPTURE_GAP_WEIGHT = 480;
+// Two bits per neighbor: border=0, empty=1, black=2, white=3.
+// Precompute local geometry so leaf evaluation only needs four reads and a lookup.
+const CAPTURE_GAP_SCORES = new Int16Array(256);
+for (let code = 0; code < 256; code += 1) {
+  const cells = [code & 3, (code >> 2) & 3, (code >> 4) & 3, code >> 6];
+  for (let axis = 0; axis < 4; axis += 2) {
+    const color = cells[axis];
+    if (color < 2 || cells[axis + 1] !== color) continue;
+    const perpendicular = axis ^ 2;
+    const first = cells[perpendicular];
+    const second = cells[perpendicular + 1];
+    const opponent = 5 - color;
+    if (first === opponent || second === opponent) continue;
+    const supports = Number(first === 0 || first === color) + Number(second === 0 || second === color);
+    // One gap is one threat, even when both axes qualify.
+    CAPTURE_GAP_SCORES[code] = (color === 2 ? 1 : -1) * Number(supports > 0) * CAPTURE_GAP_WEIGHT;
+  }
+}
 const TACTICAL_PATTERN_THRESHOLD = ATTACK_WEIGHTS[4];
 const CENTER_MULTIPLIER = 0.9; // edge moves are better (see puzzles)
 const HINT_BONUS = 10_000_000;
@@ -206,7 +225,10 @@ export class GogoAI {
     this.windowHash = -1n;
     this.windowPosition = null;
     this.evaluationPosition = null;
-    if (!this.forcingQuiescence) this.ttFlag.fill(0);
+    if (!this.forcingQuiescence) {
+      this.ttFlag.fill(0);
+      this.resetLocalEvaluation();
+    }
     this.forcingQuiescence = true;
     this.resetMoveOrdering();
     this.deadline = this.now() + Math.max(0, timeLimitMs);
@@ -457,7 +479,8 @@ export class GogoAI {
           shallowProofTried = true;
           const forcing = this.forcingQuiescence;
           if (this.tryEarlyWinProof(position, state, SHALLOW_PROOF_NODES_PER_DEPTH * this.maxDepth)) break;
-          if (forcing && !this.forcingQuiescence && depth === 1) shallowProofTried = false;
+          // A changed evaluation gets its own shallow-proof opportunity.
+          if (forcing && !this.forcingQuiescence) shallowProofTried = false;
         }
         // A strong tactical candidate often appears before discovery finds its
         // mate score. Try a bounded independent proof at the first promising
@@ -539,6 +562,8 @@ export class GogoAI {
       // depth with quiet defensive setups before probing the revised candidate.
       const depth = state.completedDepth;
       this.forcingQuiescence = false;
+      // Diversify setup candidates with the baseline local evaluation too.
+      this.resetLocalEvaluation();
       this.clearSearchHeuristicsAndTables();
       this.ttBestMove.fill(-1); // Rebuild ordering as well as score bounds.
       const fallback = this.pickFallbackMove(position);
@@ -1195,9 +1220,36 @@ export class GogoAI {
       // rounding error as moves and captures are repeatedly played and undone.
       score = position.meta.centerBias[point] * 9 + LOCAL_LIBERTY_WEIGHTS[liberties] * 10;
       if (cell === WHITE) score = -score;
+    } else if (this.forcingQuiescence) {
+      score = this.captureGapScore(position, point, cell) * 10;
     }
     this.localEvaluation += score - this.localScores[point];
     this.localScores[point] = score;
+  }
+
+  /** Rebuild local scores after switching discovery's positional heuristics. */
+  private resetLocalEvaluation(): void {
+    this.evaluationPosition = null;
+    this.evaluationBoard.fill(EMPTY);
+    this.localScores.fill(0);
+    this.localEvaluation = 0;
+  }
+
+  /** A supported gap makes a line block capturable; the edge supplies support too.
+   * This is a positional hint, never a proof: captures and counterattacks matter.
+   * Only orthogonal neighbors contribute, keeping make/undo updates local.
+   */
+  private captureGapScore(position: GogoPosition, point: number, cell = position.board[point]): number {
+    const board = position.board;
+    if (cell !== EMPTY) return 0;
+    const neighbors = position.meta.neighbors4;
+    const base = point * 4;
+    // Off-board reads yield undefined; NaN from +1 becomes zero under shifts.
+    const code = ((board[neighbors[base]] + 1) & 3)
+      | ((board[neighbors[base + 1]] + 1) << 2)
+      | ((board[neighbors[base + 2]] + 1) << 4)
+      | ((board[neighbors[base + 3]] + 1) << 6);
+    return CAPTURE_GAP_SCORES[code];
   }
 
   private generateNearbyMoves(position: GogoPosition, moves: Int16Array, scores: Float64Array, hintMove: number, ply = 0): number {
