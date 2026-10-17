@@ -87,11 +87,9 @@ for (let count = 0; count < 5; count += 1) {
 }
 const WINDOW_BLACK_COUNTS = new Uint8Array(36);
 const WINDOW_WHITE_COUNTS = new Uint8Array(36);
-const WINDOW_BLOCKED = new Uint8Array(36);
 for (let code = 0; code < 36; code += 1) {
   WINDOW_BLACK_COUNTS[code] = Math.floor(code / 6);
   WINDOW_WHITE_COUNTS[code] = code % 6;
-  WINDOW_BLOCKED[code] = Number(Math.floor(code / 6) > 0 && code % 6 > 0);
 }
 const WINDOW_EVALUATION = new Int32Array(36);
 for (let count = 1; count <= 5; count += 1) {
@@ -1088,6 +1086,7 @@ export class GogoAI {
     const offsets = meta.windowsByPointOffsets;
     const windows = meta.windowsByPoint;
     let dirtyCount = this.dirtyWindowCount;
+    let evaluation = this.windowEvaluation;
     const changes = position.boardVersion - this.windowVersion;
     const incremental = this.windowPosition === position && changes > 0 && changes <= position.boardChanges.length;
     const count = incremental ? changes : position.area;
@@ -1104,16 +1103,14 @@ export class GogoAI {
       const countDelta = ((cell & 1) - (oldCell & 1)) * 6 + (cell >> 1) - (oldCell >> 1);
       for (let cursor = offsets[point]; cursor < offsets[point + 1]; cursor += 1) {
         const wi = windows[cursor];
-        const oldCode = counts[wi];
-        const code = oldCode + countDelta;
-        counts[wi] = code;
-        // Mixed windows stay inactive, with zero evaluation and pattern weight.
-        if ((WINDOW_BLOCKED[oldCode] & WINDOW_BLOCKED[code]) !== 0) continue;
         if (dirty[wi] === 0) {
           dirty[wi] = 1;
           dirtyWindows[dirtyCount++] = wi;
         }
-        this.windowEvaluation += WINDOW_EVALUATION[code] - WINDOW_EVALUATION[oldCode];
+        const oldCode = counts[wi];
+        const code = oldCode + countDelta;
+        evaluation += WINDOW_EVALUATION[code] - WINDOW_EVALUATION[oldCode];
+        counts[wi] = code;
         const bit = 1 << (wi & 31);
         const word = wi >>> 5;
         winning[word] = (winning[word] & ~bit) | (WINDOW_WINNING_MASK[code] & bit);
@@ -1121,6 +1118,7 @@ export class GogoAI {
       }
       this.windowBoard[point] = cell;
     }
+    this.windowEvaluation = evaluation;
     this.dirtyWindowCount = dirtyCount;
     this.windowHash = position.hash;
     this.windowPosition = position;
