@@ -3,8 +3,12 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { expect, test, vi } from 'vitest';
+import { stripTypeScriptTypes } from 'node:module';
+import { beforeAll, expect, test, vi } from 'vitest';
 import { benchmarkPuzzles, loadEngine, runPuzzlePerformance } from '../scripts/puzzle-performance.mjs';
+
+// Native compiler initialization is shared setup, rather than first-test work.
+beforeAll(() => { stripTypeScriptTypes('const warmup: number = 0;'); });
 
 // Deterministic measurements test retry decisions without relying on CPU noise.
 function check(scenario: string) {
@@ -32,6 +36,18 @@ test('runs each puzzle three times per version and alternates versions', () => {
   expect(result.history).toHaveLength(18);
   expect(result.history.map(run => run.master)).toEqual(Array(9).fill([true, false]).flat());
   expect(result.output).not.toContain('repeating');
+});
+
+test.each([[101.001, 0, 6], [102, 0, 6], [102.001, 1, 30]])('one percent plus one millisecond tolerance controls benchmark retries at %s ms', (duration, status, measurements) => {
+  const master = {};
+  const candidate = { PUZZLES: [{ id: 'boundary' }] };
+  let calls = 0;
+  const result = benchmarkPuzzles(master, candidate, () => {}, engine => {
+    calls += 1;
+    return engine === master ? 100 : duration;
+  });
+  expect(result).toBe(status);
+  expect(calls).toBe(measurements);
 });
 
 test('retries only the failing puzzle using fresh samples', () => {
@@ -74,29 +90,38 @@ test('rejects empty or duplicate puzzle lists', () => {
 
 // A tiny TypeScript engine exercises Node's real loader and CLI without Vitest
 // subprocesses, compilation, timing-dependent expectations, or dependencies.
-function createFixture(wrongMove = false) {
+function createFixture(wrongMove = false, withGamePositions = false, forcedWin = true) {
   const root = mkdtempSync(join(tmpdir(), 'direct-puzzle-performance-'));
   const engine = join(root, 'src/engine');
   mkdirSync(engine, { recursive: true });
   writeFileSync(join(engine, 'gogomoku.ts'), `
     export const SOLUTION: number = 0;
-    export function decodeGame(encoded: string) { return { toMove: 1, size: 9 }; }
+    export function decodeGame(encoded: string) { return { toMove: 1, size: 9, isLegal: (move: number) => move === 0, encodeGame: () => encoded }; }
     export function decodeMove(move: string, size: number) { return SOLUTION; }
   `);
   writeFileSync(join(engine, 'ai.ts'), `
     import { SOLUTION } from './gogomoku.ts';
     export class GogoAI {
-      findBestMove(position: unknown, timeMs: number) { return { move: ${wrongMove ? 1 : 'SOLUTION'} }; }
+      findBestMove(position: unknown, timeMs: number) { return { move: ${wrongMove ? 1 : 'SOLUTION'}, forcedWin: ${forcedWin}, timedOut: false }; }
     }
   `);
   writeFileSync(join(engine, 'puzzles.ts'), `
     import { SOLUTION } from './gogomoku';
     export const PUZZLES = [{ id: 'example', encoded: 'B9', toMove: 1, solution: 'a1', depth: 3 }];
   `);
+  if (withGamePositions) {
+    writeFileSync(join(engine, 'gamePositions.ts'), `
+      export const GAME_POSITIONS = [{
+        id: 'edge', encoded: 'B9', toMove: 1,
+        searchOptions: { maxDepth: 30, quiescenceDepth: 4 }, timeLimitMs: 59000,
+        expectedResult: { forcedWin: true, timedOut: false },
+      }];
+    `);
+  }
   return root;
 }
 
-test('loads TypeScript directly, including extensionless and explicit imports', () => {
+test('loads TypeScript directly, including extensionless and explicit imports', { tags: ['slow'] }, () => {
   const root = createFixture();
   try {
     const engine = loadEngine(root);
@@ -121,7 +146,8 @@ test('configuration errors and incorrect solutions fail immediately', () => {
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test('CLI runs directly from source without installed dependencies or test files', () => {
+// Real Node startup and scheduling on CI are outside the test's control.
+test('CLI runs directly from source without installed dependencies or test files', { tags: ['slow'] }, () => {
   const root = createFixture(true);
   try {
     const result = spawnSync(process.execPath, [resolve('scripts/puzzle-performance.mjs'), root], { cwd: root, encoding: 'utf8' });
@@ -152,4 +178,85 @@ test('entry point uses the working directory and command-line master checkout', 
     log.mockRestore();
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('reports total median runtimes when every puzzle improves', () => {
+  const master = {};
+  const candidate = { PUZZLES: [{ id: 'one' }, { id: 'two' }] };
+  const output: string[] = [];
+  const status = benchmarkPuzzles(master, candidate, (line: string) => output.push(line), (engine: unknown) => engine === master ? 10 : 6);
+  expect(status).toBe(0);
+  expect(output.filter(line => line.startsWith('PASS '))).toHaveLength(2);
+  expect(output.at(-1)).toBe('Total puzzle runtime: new 12.000 ms, master 20.000 ms.');
+});
+
+test('reports a median total regression without failing when the individual puzzle passes', () => {
+  const master = {};
+  const candidate = { PUZZLES: [{ id: 'one' }] };
+  const output: string[] = [];
+  let call = 0;
+  const times = [10, 1, 10, 11, 10, 11];
+  expect(benchmarkPuzzles(master, candidate, (line: string) => output.push(line), () => times[call++])).toBe(0);
+  expect(call).toBe(6);
+  expect(output[0]).toMatch(/^PASS one /);
+  expect(output.at(-1)).toBe('Total puzzle runtime: new 11.000 ms, master 10.000 ms.');
+});
+
+test('reports zero total runtimes', () => {
+  const output: string[] = [];
+  expect(benchmarkPuzzles({}, { PUZZLES: [{ id: 'one' }] }, (line: string) => output.push(line), () => 0)).toBe(0);
+  expect(output.at(-1)).toBe('Total puzzle runtime: new 0.000 ms, master 0.000 ms.');
+});
+
+test('benchmarks candidate game positions alongside puzzles with identical inputs for master', () => {
+  const puzzle = { id: 'puzzle' };
+  const position = { id: 'edge', expectedResult: { forcedLoss: true } };
+  const master = {};
+  const candidate = { PUZZLES: [puzzle], GAME_POSITIONS: [position] };
+  const history: unknown[] = [];
+  expect(benchmarkPuzzles(master, candidate, () => {}, (_engine: unknown, input: unknown) => {
+    history.push(input);
+    return 1;
+  })).toBe(0);
+  expect(history).toEqual([...Array(6).fill(puzzle), ...Array(6).fill(position)]);
+  expect(() => benchmarkPuzzles(master, { PUZZLES: [puzzle], GAME_POSITIONS: [puzzle] })).toThrow('Duplicate');
+});
+
+test('times new regression cases even when master cannot satisfy their proof assertions', { tags: ['slow'] }, () => {
+  const master = createFixture(false, false, false);
+  const candidate = createFixture(false, true);
+  const messages: string[] = [];
+  try {
+    expect(loadEngine(master).GAME_POSITIONS).toEqual([]);
+    expect(loadEngine(candidate).GAME_POSITIONS[0].id).toBe('edge');
+    expect(runPuzzlePerformance(master, candidate, (line: string) => messages.push(line))).toBe(0);
+    expect(messages.filter(line => line.startsWith('PASS '))).toHaveLength(2);
+    expect(messages.some(line => line.startsWith('PASS edge '))).toBe(true);
+  } finally {
+    rmSync(master, { recursive: true, force: true });
+    rmSync(candidate, { recursive: true, force: true });
+  }
+});
+
+test('new regression cases still require the candidate to satisfy proof assertions', { tags: ['slow'] }, () => {
+  const master = createFixture();
+  const candidate = createFixture(false, true, false);
+  const messages: string[] = [];
+  try {
+    expect(runPuzzlePerformance(master, candidate, (line: string) => messages.push(line))).toBe(2);
+    expect(messages.some(line => line.includes('SearchResult.forcedWin'))).toBe(true);
+  } finally {
+    rmSync(master, { recursive: true, force: true });
+    rmSync(candidate, { recursive: true, force: true });
+  }
+});
+
+test('a correct candidate passes even when an incorrect baseline is faster', () => {
+  const master = {};
+  const candidate = { PUZZLES: [{ id: 'fixed-regression' }] };
+  const messages: string[] = [];
+  expect(benchmarkPuzzles(master, candidate, (line: string) => messages.push(line), (engine: unknown) =>
+    engine === master ? { elapsedMs: 1, solved: false } : 10)).toBe(0);
+  expect(messages[0]).toContain('PASS fixed-regression');
+  expect(messages[0]).toContain('master did not solve');
 });

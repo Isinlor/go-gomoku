@@ -1,3 +1,7 @@
+/**
+ * Stable insertion keeps parallel move/score buffers aligned without allocation.
+ * Strict comparison preserves ties, including fractional scores and infinities.
+ */
 export function insertMoveDescending(
   moves: Int16Array,
   scores: Float64Array | Int32Array,
@@ -15,21 +19,17 @@ export function insertMoveDescending(
   scores[index] = score;
 }
 
+/** Stably order the best `limit` moves; the unused tail is unspecified. */
 export function sortMovesDescending(
   moves: Int16Array,
   scores: Float64Array | Int32Array,
   count: number,
+  limit = count,
 ): void {
+  if (limit === 0) return;
   for (let i = 1; i < count; i += 1) {
-    const move = moves[i];
-    const score = scores[i];
-    let j = i;
-    while (j > 0 && scores[j - 1] < score) {
-      moves[j] = moves[j - 1];
-      scores[j] = scores[j - 1];
-      j -= 1;
+    if (i < limit || scores[i] > scores[limit - 1]) {
+      insertMoveDescending(moves, scores, Math.min(i, limit - 1), moves[i], scores[i]);
     }
-    moves[j] = move;
-    scores[j] = score;
   }
 }

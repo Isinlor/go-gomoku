@@ -1,7 +1,9 @@
-import { describe, test, expect, vi } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { afterEach, describe, test, expect, vi } from 'vitest';
+import { enableAutoUnmount, mount } from '@vue/test-utils';
 import { ref, shallowRef, computed } from 'vue';
 import { GogoPosition } from '../../src/engine';
+
+enableAutoUnmount(afterEach);
 
 const mockGameState = () => {
   const game = shallowRef(new GogoPosition(9));
@@ -51,15 +53,11 @@ vi.mock('../../src/composables/useGame', () => ({
 import App from '../../src/App.vue';
 
 describe('App', () => {
-  test('renders the app with all child components', () => {
+  test('renders the app with all child components', { tags: ['slow'] }, () => {
     const wrapper = mount(App);
     expect(wrapper.find('#status').exists()).toBe(true);
     expect(wrapper.find('#status').text()).toBe('black to move');
     expect(wrapper.find('.hint').exists()).toBe(true);
-  });
-
-  test('renders GameToolbar, BoardGrid, GameRecord, PuzzleSelect and LoadGame sections', () => {
-    const wrapper = mount(App);
     expect(wrapper.find('.toolbar').exists()).toBe(true);
     expect(wrapper.find('.board').exists()).toBe(true);
     expect(wrapper.find('.game-record-section').exists()).toBe(true);
@@ -72,6 +70,7 @@ describe('App', () => {
     const toolbar = wrapper.findComponent({ name: 'GameToolbar' });
     toolbar.vm.$emit('update:blackIsAI', true);
     await wrapper.vm.$nextTick();
+    expect(currentMockState.blackIsAI.value).toBe(true);
     expect(currentMockState.onModeChange).toHaveBeenCalled();
   });
 
@@ -80,6 +79,7 @@ describe('App', () => {
     const toolbar = wrapper.findComponent({ name: 'GameToolbar' });
     toolbar.vm.$emit('update:whiteIsAI', false);
     await wrapper.vm.$nextTick();
+    expect(currentMockState.whiteIsAI.value).toBe(false);
     expect(currentMockState.onModeChange).toHaveBeenCalled();
   });
 

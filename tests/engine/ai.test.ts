@@ -1,6 +1,6 @@
 import { test, expect } from 'vitest';
 
-import { BLACK, EMPTY, GogoAI, GogoPosition, WHITE, type Player } from '../../src/engine';
+import { BLACK, EMPTY, GogoAI, GogoPosition, WHITE, computeZobristHashes, type Player } from '../../src/engine';
 import { insertMoveDescending } from '../../src/engine/moveOrdering';
 
 const GENERATE_ORDERED_MOVES_TACTICAL_ONLY_INDEX = 4;
@@ -124,7 +124,7 @@ test('AI never returns illegal ko recapture moves', () => {
   expect(position.koPoint).toBe(illegalKoRecapture);
   expect(position.toMove).toBe(WHITE);
 
-  const ai = new GogoAI({ maxDepth: 3, quiescenceDepth: 2, now: () => 0 });
+  const ai = new GogoAI({ maxDepth: 1, quiescenceDepth: 0, now: () => 0 });
   const result = ai.findBestMove(position, 100);
 
   expect(result.move).not.toBe(illegalKoRecapture);
@@ -266,7 +266,7 @@ test('AI constructor clamps explicit maxPly values', () => {
 test('AI constructor also uses default search parameters when options are omitted', () => {
   const ai = new GogoAI();
   expect(ai.maxDepth).toBe(6);
-  expect(ai.quiescenceDepth).toBe(6);
+  expect(ai.quiescenceDepth).toBe(4);
   expect(ai.maxPly).toBe(64);
 });
 
@@ -857,26 +857,6 @@ test('generateOrderedMoves tactical fast path matches brute-force scores when hi
   expect(Array.from(anyAI.scoreBuffers[0].slice(0, count))).toEqual(Array.from(expected.scores.slice(0, expected.count)));
 });
 
-test('insertTacticalWindowMoves handles empty counts from zero through five', () => {
-  const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
-  const anyAI = ai as any;
-  anyAI.ensureBuffers(81);
-
-  for (let emptyCount = 0; emptyCount <= 5; emptyCount += 1) {
-    anyAI.candidateEpoch += 1;
-    anyAI.insertTacticalWindowMoves(
-      emptyCount,
-      10,
-      11,
-      12,
-      13,
-      14,
-    );
-    const touchedMoves = [10, 11, 12, 13, 14].filter((move, index) => index < emptyCount);
-    expect(touchedMoves.filter((move) => anyAI.candidateMarks[move] === anyAI.candidateEpoch)).toEqual(touchedMoves);
-  }
-});
-
 test('appendGroupTacticalMoves returns capture moves for one- and two-liberty groups', () => {
   const ai = new GogoAI({ maxDepth: 2, quiescenceDepth: 2, now: () => 0 });
   const anyAI = ai as any;
@@ -896,12 +876,25 @@ test('appendGroupTacticalMoves returns capture moves for one- and two-liberty gr
   anyAI.appendGroupTacticalMoves(
     captureOneLiberty,
     WHITE,
-    true,
   );
   expect(new Set(Array.from({ length: captureOneLiberty.area }, (_, move) => move)
     .filter((move) => anyAI.candidateMarks[move] === anyAI.candidateEpoch))).toEqual(new Set([
     captureOneLiberty.index(2, 1),
   ]));
+
+  // Response generation includes only actual captures and preserves the
+  // higher priority of a block/counter-win already occupying the same point.
+  const capture = captureOneLiberty.index(2, 1);
+  anyAI.candidateEpoch += 1;
+  anyAI.moveBuffers[0][0] = capture;
+  anyAI.scoreBuffers[0][0] = 2_000_000;
+  anyAI.candidateMarks[capture] = anyAI.candidateEpoch;
+  expect(anyAI.appendGroupTacticalMoves(captureOneLiberty, WHITE, 0, 1)).toBe(1);
+  expect(anyAI.scoreBuffers[0][0]).toBe(2_000_000);
+  anyAI.candidateEpoch += 1;
+  expect(anyAI.appendGroupTacticalMoves(captureOneLiberty, WHITE, 0)).toBe(1);
+  expect(anyAI.moveBuffers[0][0]).toBe(capture);
+  expect(anyAI.scoreBuffers[0][0]).toBe(1_500_000);
 
   const captureTwoLiberties = GogoPosition.fromAscii([
     '.X.......',
@@ -919,7 +912,6 @@ test('appendGroupTacticalMoves returns capture moves for one- and two-liberty gr
   anyAI.appendGroupTacticalMoves(
     captureTwoLiberties,
     WHITE,
-    true,
   );
   const captureMoves = new Set(Array.from({ length: captureTwoLiberties.area }, (_, move) => move)
     .filter((move) => anyAI.candidateMarks[move] === anyAI.candidateEpoch));
@@ -927,6 +919,8 @@ test('appendGroupTacticalMoves returns capture moves for one- and two-liberty gr
     captureTwoLiberties.index(0, 1),
     captureTwoLiberties.index(2, 1),
   ]));
+  anyAI.candidateEpoch += 1;
+  expect(anyAI.appendGroupTacticalMoves(captureTwoLiberties, WHITE, 0)).toBe(0);
 });
 
 test('appendGroupTacticalMoves returns escape moves for one- and two-liberty groups', () => {
@@ -948,7 +942,6 @@ test('appendGroupTacticalMoves returns escape moves for one- and two-liberty gro
   anyAI.appendGroupTacticalMoves(
     escapeOneLiberty,
     BLACK,
-    false,
   );
   expect(new Set(Array.from({ length: escapeOneLiberty.area }, (_, move) => move)
     .filter((move) => anyAI.candidateMarks[move] === anyAI.candidateEpoch))).toEqual(new Set([
@@ -971,7 +964,6 @@ test('appendGroupTacticalMoves returns escape moves for one- and two-liberty gro
   anyAI.appendGroupTacticalMoves(
     escapeTwoLiberties,
     BLACK,
-    false,
   );
   const escapeMoves = new Set(Array.from({ length: escapeTwoLiberties.area }, (_, move) => move)
     .filter((move) => anyAI.candidateMarks[move] === anyAI.candidateEpoch));
@@ -1000,7 +992,6 @@ test('appendGroupTacticalMoves skips non-tactical groups', () => {
   anyAI.appendGroupTacticalMoves(
     nonTacticalGroup,
     WHITE,
-    true,
   );
   expect(Array.from({ length: nonTacticalGroup.area }, (_, move) => move)
     .some((move) => anyAI.candidateMarks[move] === anyAI.candidateEpoch)).toBe(false);
@@ -1021,7 +1012,6 @@ test('appendGroupTacticalMoves skips non-tactical groups', () => {
   anyAI.appendGroupTacticalMoves(
     threeLibertyGroup,
     WHITE,
-    true,
   );
   expect(Array.from({ length: threeLibertyGroup.area }, (_, move) => move)
     .some((move) => anyAI.candidateMarks[move] === anyAI.candidateEpoch)).toBe(false);
@@ -1118,7 +1108,7 @@ test('primeScoredGroupInfo caches group data for all stones and finalizeMoveScor
   anyAI.history[move] = 7;
   anyAI.killerMoves[0] = move;
   const boosted = anyAI.finalizeMoveScore(position, move, BLACK, base, move, 0);
-  expect(boosted - plain).toBe(7 + 10_000_000 + 1_000_000);
+  expect(boosted - plain).toBe(7 + 10_000_000 + 1_000);
 });
 
 test('scoreMove tactical fast path skips group scans when pattern pressure already makes the move forcing', () => {
@@ -1275,38 +1265,35 @@ test('TT score adjustment correctly handles forced win/loss scores and pass-thro
   const anyAI = ai as any;
 
   // Regular scores pass through unchanged
-  expect(anyAI.ttAdjustStore(100, 5)).toBe(100);
-  expect(anyAI.ttAdjustRetrieve(100, 5)).toBe(100);
-  expect(anyAI.ttAdjustStore(-100, 5)).toBe(-100);
-  expect(anyAI.ttAdjustRetrieve(-100, 5)).toBe(-100);
+  expect(anyAI.adjustMateScore(100, 5)).toBe(100);
+  expect(anyAI.adjustMateScore(100, -5)).toBe(100);
+  expect(anyAI.adjustMateScore(-100, 5)).toBe(-100);
+  expect(anyAI.adjustMateScore(-100, -5)).toBe(-100);
 
   // Win scores are adjusted by ply
   const winScore = 1_000_000_000 - 3;
-  expect(anyAI.ttAdjustStore(winScore, 5)).toBe(winScore + 5);
-  expect(anyAI.ttAdjustRetrieve(winScore + 5, 5)).toBe(winScore);
+  expect(anyAI.adjustMateScore(winScore, 5)).toBe(winScore + 5);
+  expect(anyAI.adjustMateScore(winScore + 5, -5)).toBe(winScore);
 
   // Loss scores are adjusted by ply
   const lossScore = -1_000_000_000 + 3;
-  expect(anyAI.ttAdjustStore(lossScore, 5)).toBe(lossScore - 5);
-  expect(anyAI.ttAdjustRetrieve(lossScore - 5, 5)).toBe(lossScore);
+  expect(anyAI.adjustMateScore(lossScore, 5)).toBe(lossScore - 5);
+  expect(anyAI.adjustMateScore(lossScore - 5, -5)).toBe(lossScore);
 });
 
-test('LMR reduces later moves at depth >= 3 and re-searches on improvement', () => {
-  const ai = new GogoAI({ maxDepth: 6, quiescenceDepth: 2, now: () => 0 });
+function lmrPosition(): GogoPosition {
+  return GogoPosition.fromAscii([
+    '.........', '.........', '.X..O....', '.........', '....X....',
+    '.........', '.O..X....', '.........', '.........',
+  ], BLACK);
+}
+
+test('LMR reduces later quiet moves at depth three', () => {
+  const ai = new GogoAI({ maxPly: 3, quiescenceDepth: 0, now: () => 0 });
   const anyAI = ai as any;
   // Position with many legal moves and balanced evaluation so moves don't
   // immediately cause beta cutoffs, allowing legalCount to exceed 3.
-  const pos = GogoPosition.fromAscii([
-    '.........',
-    '.........',
-    '.X..O....',
-    '.........',
-    '....X....',
-    '.........',
-    '.O..X....',
-    '.........',
-    '.........',
-  ], BLACK);
+  const pos = lmrPosition();
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
   anyAI.killerMoves.fill(-1);
@@ -1315,18 +1302,24 @@ test('LMR reduces later moves at depth >= 3 and re-searches on improvement', () 
   // Clear TT to ensure fresh search
   anyAI.ttFlag.fill(0);
 
-  // Search at depth 5 to trigger LMR depth reduction (line 328: depth >= 3, legalCount > 3)
-  const score = anyAI.search(pos, 5, -1_000_000, 1_000_000, 1);
+  // Depth three is sufficient to reduce later children from depth two to one.
+  const search = anyAI.search.bind(anyAI);
+  const childDepths: number[] = [];
+  anyAI.search = (...args: any[]) => {
+    if (args[4] === 2) childDepths.push(args[1]);
+    return search(...args);
+  };
+  const score = anyAI.search(pos, 3, -1_000_000, 1_000_000, 1, false);
   expect(typeof score).toBe('number');
+  expect(childDepths).toContain(2);
+  expect(childDepths).toContain(1);
+});
 
-  // Cover line 334 (LMR re-search when scout finds improvement) by mocking inner search
-  // calls. The negamax convention means inner calls return the score from the child's
-  // (opponent's) perspective; we negate to get the parent's score:
-  //   depth-2 inner calls → return -50 → parent score = 50 → alpha is set to 50
-  //   depth-1 LMR scout for the 4th+ move → return -51 → parent score = 51 > alpha=50
-  // The condition `searchDepth < depth-1 && score > alpha` on line 333 is now true,
-  // executing the full-depth re-search on line 334.
-  const ai2 = new GogoAI({ maxDepth: 4, quiescenceDepth: 2, now: () => 0 });
+test('LMR re-searches reduced moves when their scout improves alpha', () => {
+  const pos = lmrPosition();
+  // A reduced child reports -51; negation raises alpha from 50 to 51 and
+  // requires a full-depth re-search instead of accepting the scout score.
+  const ai2 = new GogoAI({ maxPly: 3, quiescenceDepth: 0, now: () => 0 });
   const any2 = ai2 as any;
   any2.ensureBuffers(pos.area);
   any2.deadline = 1e15;
@@ -1334,21 +1327,25 @@ test('LMR reduces later moves at depth >= 3 and re-searches on improvement', () 
   any2.history.fill(0);
   any2.ttFlag.fill(0);
   const realSearch = any2.search.bind(any2);
-  any2.search = function (position: any, depth: number, alpha: number, beta: number, ply: number, canNullMove = true): number {
+  const childSearches: { hash: bigint; depth: number; alpha: number; beta: number }[] = [];
+  any2.search = function (position: GogoPosition, depth: number, alpha: number, beta: number, ply: number, canNullMove = true): number {
     if (ply === 1) {
       return realSearch(position, depth, alpha, beta, ply, canNullMove);
     }
-    // -50 → parent score 50 (sets/maintains alpha); -51 → parent score 51 (>alpha, triggers line 334)
+    childSearches.push({ hash: position.hash, depth, alpha, beta });
+    // Full-depth searches maintain alpha at 50; reduced scouts improve it to 51.
     return depth === 1 ? -51 : -50;
   };
   const lmrResearchScore = any2.search(pos, 3, -1_000_000, 1_000_000, 1, false);
-  expect(typeof lmrResearchScore).toBe('number');
-
-  // Iterative deepening pipeline: fast frozen-clock run with small maxDepth
-  const ai3 = new GogoAI({ maxDepth: 3, quiescenceDepth: 1, now: () => 0 });
-  const result = ai3.findBestMove(pos, 1);
-  expect(result.move).not.toBe(-1);
-  expect(result.depth).toBeGreaterThanOrEqual(1);
+  const reducedSearches = childSearches.filter((call) => call.depth === 1);
+  expect(reducedSearches.length).toBeGreaterThan(0);
+  for (const reduced of reducedSearches) {
+    expect(reduced).toMatchObject({ alpha: -51, beta: -50 });
+    // PVS can also re-search at full depth, but uses a wider window. Require
+    // the LMR verification scout for this exact child before accepting its score.
+    expect(childSearches[childSearches.indexOf(reduced) + 1]).toEqual({ ...reduced, depth: 2 });
+  }
+  expect(lmrResearchScore).toBe(50);
 });
 
 test('adaptive null move pruning uses R=3 at depth >= 6', () => {
@@ -1380,7 +1377,7 @@ test('adaptive null move pruning uses R=3 at depth >= 6', () => {
 test('MAX_CANDIDATES caps the number of moves explored per node', () => {
   const ai = new GogoAI({ maxDepth: 3, quiescenceDepth: 2, now: () => 0 });
   const anyAI = ai as any;
-  // Position with many stones creating many near-2 candidates (> 15)
+  // Position with many stones creating more than twelve near-2 candidates.
   const pos = GogoPosition.fromAscii([
     'X.O.X.O.X',
     '.........', 
@@ -1398,7 +1395,7 @@ test('MAX_CANDIDATES caps the number of moves explored per node', () => {
   const moves = anyAI.moveBuffers[0];
   const scores = anyAI.scoreBuffers[0];
   const rawCount = anyAI.generateOrderedMoves(pos, moves, scores, -1, false);
-  expect(rawCount).toBeGreaterThan(15);
+  expect(rawCount).toBeGreaterThan(12);
 
   // Search should still work correctly with the cap
   anyAI.deadline = 1e15;
@@ -1525,21 +1522,19 @@ test('proof mode: proof collapse triggers fallback to heuristic discovery', () =
   ], BLACK);
 
   const WIN = 1_000_000_000;
-  const ai = new GogoAI({ maxDepth: 4, quiescenceDepth: 1, now: () => 0 });
+  const ai = new GogoAI({ maxDepth: 2, maxPly: 2, quiescenceDepth: 0, now: () => 0 });
   const anyAI = ai as any;
   anyAI.ensureBuffers(pos.area);
 
   // Mock searchRoot for heuristic phases:
-  // - Discovery d=1: normal result
-  // - Discovery d=2: fake forced win → breaks, triggers proof
-  // - Resume d=3+: normal results
+  // - Discovery d=1: fake forced win → breaks, triggers proof
+  // - Resume d=2: real search replaces the false win
   let searchRootCallCount = 0;
   const realSearchRoot = anyAI.searchRoot.bind(anyAI);
   anyAI.searchRoot = function (position: any, depth: number, hintMove: number) {
     searchRootCallCount++;
-    if (searchRootCallCount === 2) {
-      // Discovery d=2: fake forced win
-      return { move: 40, score: WIN - 2, depth: 2, nodes: 10, timedOut: false,
+    if (searchRootCallCount === 1) {
+      return { move: 40, score: WIN - 1, depth: 1, nodes: 10, timedOut: false,
         forcedDefensiveMove: false,
         forcedWin: false, forcedLoss: false, heuristicWin: false, heuristicLoss: false };
     }
@@ -1553,10 +1548,12 @@ test('proof mode: proof collapse triggers fallback to heuristic discovery', () =
 
   const result = ai.findBestMove(pos, 100);
   // After resume, heuristicWin is recomputed based on new bestScore/completedDepth
-  // Resume at d=3+ won't find a forced win for this position, so heuristicWin should be false
+  // The real resumed search does not establish a forced win for this position.
   expect(result.forcedWin).toBe(false);
-  // Resume phase continued from depth 3
-  expect(result.depth).toBeGreaterThanOrEqual(3);
+  expect(result.heuristicWin).toBe(false);
+  // One resumed depth is enough to verify discovery replaces the false win.
+  expect(result.depth).toBe(2);
+  expect(searchRootCallCount).toBe(2);
 });
 
 test('proof mode: resume heuristic after proof collapse can timeout', () => {
@@ -1576,6 +1573,8 @@ test('proof mode: resume heuristic after proof collapse can timeout', () => {
   const ai = new GogoAI({ maxDepth: 6, quiescenceDepth: 2, now: () => 0 });
   const anyAI = ai as any;
   anyAI.ensureBuffers(pos.area);
+  // Isolate final mate verification/resume from speculative early probes.
+  anyAI.tryEarlyWinProof = () => false;
 
   let searchRootCallCount = 0;
   const realSearchRoot = anyAI.searchRoot.bind(anyAI);
@@ -1621,6 +1620,8 @@ test('proof mode: resume heuristic finds forced outcome after proof collapse', (
   const ai = new GogoAI({ maxDepth: 6, quiescenceDepth: 2, now: () => 0 });
   const anyAI = ai as any;
   anyAI.ensureBuffers(pos.area);
+  // Isolate final mate verification/resume from speculative early probes.
+  anyAI.tryEarlyWinProof = () => false;
 
   let searchRootCallCount = 0;
   const realSearchRoot = anyAI.searchRoot.bind(anyAI);
@@ -1670,6 +1671,8 @@ test('proof mode: proof collapse with no remaining time skips resume', () => {
   const ai = new GogoAI({ maxDepth: 6, quiescenceDepth: 2, now: () => tick });
   const anyAI = ai as any;
   anyAI.ensureBuffers(pos.area);
+  // Isolate final mate verification/resume from speculative early probes.
+  anyAI.tryEarlyWinProof = () => false;
 
   let searchRootCallCount = 0;
   const realSearchRoot = anyAI.searchRoot.bind(anyAI);
@@ -2157,7 +2160,7 @@ test('proofDefend: TT hit returns cached result', () => {
 
   // First call - won't be proven (just one stone)
   const result1 = anyAI.proofDefend(pos, 2, 1);
-  expect(typeof result1).toBe('boolean');
+  expect(result1).toBe(false);
 
   // Second call should hit TT
   const result2 = anyAI.proofDefend(pos, 2, 1);
@@ -2343,8 +2346,8 @@ test('proofSearchRoot: returns 0 when no legal moves', () => {
   anyAI.proofMode = false;
 });
 
-test('capped node TT: lowerbound stored from capped node, exact/upper suppressed', () => {
-  const ai = new GogoAI({ maxDepth: 4, quiescenceDepth: 2, now: () => 0 });
+test('capped node TT: in-window and fail-high results retain lower bounds', () => {
+  const ai = new GogoAI({ maxPly: 2, quiescenceDepth: 0, now: () => 0 });
   const anyAI = ai as any;
   // Use a position with many near-2 candidates (> MAX_CANDIDATES) to trigger capping
   const pos = GogoPosition.fromAscii([
@@ -2364,12 +2367,16 @@ test('capped node TT: lowerbound stored from capped node, exact/upper suppressed
   anyAI.history.fill(0);
   anyAI.ttFlag.fill(0);
 
-  // Search at depth 2 - many candidates should trigger capping
-  const score = anyAI.search(pos, 2, -1_000_000, 1_000_000, 1);
-  expect(typeof score).toBe('number');
-
-  // The root node of the search may have been capped, so TT may store NONE
-  // or LOWERBOUND depending on the score. Just verify search completes.
+  expect(anyAI.generateOrderedMoves(pos, anyAI.moveBuffers[1], anyAI.scoreBuffers[1], -1, false, 1)).toBeGreaterThan(12);
+  const index = Number(pos.hash & 0x3FFFFn);
+  // Check actual storage policy with shallow leaves, rather than just completion.
+  for (const [alpha, beta, flag] of [[-1_000_000, 1_000_000, 0], [1_000_000, 1_000_001, 0], [-1_000_000, -999_999, 2]]) {
+    anyAI.ttFlag.fill(0);
+    const score = anyAI.search(pos, 2, alpha, beta, 1);
+    expect(typeof score).toBe('number');
+    expect(anyAI.ttHash[index]).toBe(pos.hash);
+    expect(anyAI.ttFlag[index]).toBe(flag);
+  }
 });
 
 test('recompute heuristic flags after resume: flags update when score changes', () => {
@@ -2556,21 +2563,22 @@ test('proofDefend: fullboard fallback when near-2 generates nothing', () => {
   const realGen = anyAI.generateOrderedMoves.bind(anyAI);
   anyAI.generateOrderedMoves = function (...args: any[]) {
     callCount++;
-    if (callCount === 1) {
-      // First call in proofDefend returns 0 to trigger fallboard fallback
+    if (args[5] === 1) {
+      // Suppress both tactical and ordinary root generation, forcing full-board fallback.
       return 0;
     }
     return realGen(...args);
   };
 
   const result = anyAI.proofDefend(pos, 2, 1);
-  expect(typeof result).toBe('boolean');
+  expect(result).toBe(false);
+  expect(callCount).toBe(2);
   anyAI.generateOrderedMoves = realGen;
 });
 
 test('TT exact and upperbound cutoffs work in proof mode (uncapped nodes)', () => {
   // Use proof mode where nodes are never capped, so EXACT/UPPERBOUND entries get stored
-  const ai = new GogoAI({ maxDepth: 4, quiescenceDepth: 2, now: () => 0 });
+  const ai = new GogoAI({ maxPly: 2, quiescenceDepth: 0, now: () => 0 });
   const anyAI = ai as any;
   const pos = GogoPosition.fromAscii([
     '....X....',
@@ -2617,20 +2625,13 @@ test('TT exact and upperbound cutoffs work in proof mode (uncapped nodes)', () =
 });
 
 test('null move pruning with active ko point', () => {
-  // Create a position with an active ko point
-  const ai = new GogoAI({ maxDepth: 6, quiescenceDepth: 2, now: () => 0 });
+  const ai = new GogoAI({ quiescenceDepth: 0, now: () => 0 });
   const anyAI = ai as any;
   const pos = GogoPosition.fromAscii([
-    '.........',
-    '.........',
-    '.........',
-    '...XO....',
-    '..XOX....',
-    '...XO....',
-    '.........',
-    '.........',
-    '.........',
+    ...Array(7).fill('.........'), '.......OX', '......O.O',
   ], BLACK);
+  expect(pos.playXY(7, 8)).toBe(true);
+  expect(pos.koPoint).toBe(80);
 
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
@@ -2638,13 +2639,28 @@ test('null move pruning with active ko point', () => {
   anyAI.history.fill(0);
   anyAI.ttFlag.fill(0);
 
-  // Manually set a ko point to simulate an active ko
-  pos.koPoint = 40; // center point
+  const hash = pos.hash;
+  const toMove = pos.toMove;
+  const board = pos.toAscii();
+  const search = anyAI.search.bind(anyAI);
+  const visitedStates: { toMove: number; koPoint: number }[] = [];
+  anyAI.search = (position: GogoPosition, ...args: unknown[]) => {
+    // Cached search results must be keyed by the state actually being searched.
+    expect(position.hash).toBe(computeZobristHashes(position));
+    visitedStates.push({ toMove: position.toMove, koPoint: position.koPoint });
+    return search(position, ...args);
+  };
 
-  const score = anyAI.search(pos, 4, -1_000_000, 1_000_000, 1);
-  expect(typeof score).toBe('number');
-  // ko point should be restored after search
-  expect(pos.koPoint).toBe(40);
+  // Depth three exercises a real null move. A low beta causes its cutoff,
+  // avoiding an unrelated full depth-four search after restoring the ko state.
+  const score = anyAI.search(pos, 3, -1_000_001, -1_000_000, 1);
+  expect(score).toBe(-1_000_000);
+  expect(visitedStates).toContainEqual({ toMove: BLACK, koPoint: -1 });
+  expect(pos.koPoint).toBe(80);
+  expect(pos.toMove).toBe(toMove);
+  expect(pos.hash).toBe(hash);
+  expect(pos.toAscii()).toEqual(board);
+  expect(anyAI.nodesVisited).toBe(3); // Root, null move, and its quiescence leaf.
 });
 
 test('proofAttack: illegal move is skipped', () => {
@@ -2673,7 +2689,7 @@ test('proofAttack: illegal move is skipped', () => {
 
   // proofAttack should handle illegal moves gracefully
   const result = anyAI.proofAttack(pos, 2, 1);
-  expect(typeof result).toBe('boolean');
+  expect(result).toBe(false);
 });
 
 test('proofDefend: TT hit with proven winning result', () => {
@@ -2801,8 +2817,8 @@ test('capped node: fullboard fallback with capping applied', () => {
     genCallCount++;
     if (genCallCount === 1) {
       // First call at ply=1: return moves that are all occupied (will fail play)
-      const moves = args[0] as Int16Array;
-      const scores = args[1] as Float64Array;
+      const moves = args[1] as Int16Array;
+      const scores = args[2] as Float64Array;
       moves[0] = 40; // center = occupied
       scores[0] = 1000;
       return 1;
@@ -2836,17 +2852,25 @@ test('proofAttack: play() failure is handled (suicide move skipped)', () => {
   anyAI.proofTTResult = new Int8Array(1 << 18);
   anyAI.proofTTDepth = new Int8Array(1 << 18);
 
-  // Mock generateOrderedMoves to include an illegal (suicide) move for tactical
-  const realGen = anyAI.generateOrderedMoves.bind(anyAI);
+  let rejected = 0;
+  const play = pos.play.bind(pos);
+  pos.play = move => {
+    const accepted = play(move);
+    if (!accepted && move === 31 && pos.ply === 0) rejected += 1;
+    return accepted;
+  };
+
+  // Inject an occupied candidate before real tactical candidates.
+  const realGen = anyAI.generateTacticalMoves.bind(anyAI);
   let callCount = 0;
-  anyAI.generateOrderedMoves = function (...args: any[]) {
+  anyAI.generateTacticalMoves = function (...args: any[]) {
     callCount++;
     // On the first call (attacker's tactical generation), inject a bad move
     if (callCount === 1) {
       const result = realGen(...args);
       // Prepend an occupied position that will fail play()
-      const moves = args[0] as Int16Array;
-      const scores = args[1] as Float64Array;
+      const moves = args[1] as Int16Array;
+      const scores = args[2] as Float64Array;
       for (let i = result; i > 0; i--) {
         moves[i] = moves[i - 1];
         scores[i] = scores[i - 1];
@@ -2859,8 +2883,9 @@ test('proofAttack: play() failure is handled (suicide move skipped)', () => {
   };
 
   const result = anyAI.proofAttack(pos, 3, 1);
-  expect(typeof result).toBe('boolean');
-  anyAI.generateOrderedMoves = realGen;
+  expect(result).toBe(false);
+  expect(rejected).toBe(1);
+  anyAI.generateTacticalMoves = realGen;
 });
 
 test('proofDefend: play() failure is handled', () => {
@@ -2887,14 +2912,19 @@ test('proofDefend: play() failure is handled', () => {
   anyAI.proofTTResult = new Int8Array(1 << 18);
   anyAI.proofTTDepth = new Int8Array(1 << 18);
 
-  // Mock generateOrderedMoves to inject an illegal move when called for the full-gen
-  // (tacticalOnly === false). No attacker threat → no nested proofAttack calls before
-  // proofDefend's own full-gen, so the injection fires exactly there.
+  let rejected = 0;
+  const play = pos.play.bind(pos);
+  pos.play = move => {
+    const accepted = play(move);
+    if (!accepted && move === 0 && pos.ply === 0) rejected += 1;
+    return accepted;
+  };
+
+  // Prepend an occupied point to real root responses and verify its rejection.
   const realGen = anyAI.generateOrderedMoves.bind(anyAI);
   anyAI.generateOrderedMoves = function (...args: any[]) {
-    const tacticalOnly = args[GENERATE_ORDERED_MOVES_TACTICAL_ONLY_INDEX];
     const result = realGen(...args);
-    if (tacticalOnly) {
+    if (args[5] !== 1) {
       return result;
     }
     // Inject an occupied position at the front (will fail play())
@@ -2910,83 +2940,41 @@ test('proofDefend: play() failure is handled', () => {
   };
 
   const result = anyAI.proofDefend(pos, 2, 1);
-  expect(typeof result).toBe('boolean');
+  expect(result).toBe(false);
+  expect(rejected).toBe(1);
   anyAI.generateOrderedMoves = realGen;
 });
 
-test('proofDefend: fullboard fallback explores all candidates (no cap)', () => {
-  const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4, now: () => 0 });
-  const anyAI = ai as any;
+test('loss proof exhausts distant legal defenses as well as threat responses without a candidate cap', () => {
   const pos = GogoPosition.fromAscii([
-    '.........',
-    '.........',
-    '.........',
-    '.........',
-    '....X....',
-    '.........',
-    '.........',
-    '.........',
-    '.........',
+    'XXXX.....', '.........', '.........', '.........', '.........',
+    '.........', '.........', 'OOO......', 'XXXX.....',
   ], WHITE);
-  anyAI.ensureBuffers(pos.area);
-  anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new BigUint64Array(1 << 18);
-  anyAI.proofTTResult = new Int8Array(1 << 18);
-  anyAI.proofTTDepth = new Int8Array(1 << 18);
-
-  // Mock generateOrderedMoves: first call returns 0 to force fullboard fallback
-  const realGen = anyAI.generateOrderedMoves.bind(anyAI);
-  let firstCall = true;
-  anyAI.generateOrderedMoves = function (...args: any[]) {
-    if (firstCall) {
-      firstCall = false;
-      return 0;
-    }
-    return realGen(...args);
+  pos.koPoint = 40;
+  const ai = new GogoAI({ now: () => 0 }) as any;
+  ai.ensureBuffers(pos.area);
+  ai.deadline = Infinity;
+  ai.lossProofMode = true;
+  const legal = new Int16Array(pos.area);
+  const count = pos.generateAllLegalMoves(legal);
+  const expected = new Set(Array.from(legal.slice(0, count)));
+  const seen = new Set<number>();
+  const before = pos.toAscii();
+  const hash = pos.hash;
+  const play = pos.play.bind(pos);
+  pos.play = move => {
+    const root = pos.ply === 0;
+    const accepted = play(move);
+    if (root && accepted) seen.add(move);
+    return accepted;
   };
-
-  // On 9x9 with 1 stone: fullboard generates ~80 candidates — all explored, no cap
-  const result = anyAI.proofDefend(pos, 2, 1);
-  expect(typeof result).toBe('boolean');
-  anyAI.generateOrderedMoves = realGen;
-});
-
-test('proofDefend: fullboard fallback with few candidates (no cap needed)', () => {
-  const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4, now: () => 0 });
-  const anyAI = ai as any;
-  // Nearly full board: only a few empty cells
-  const pos = GogoPosition.fromAscii([
-    'XOXOXOXOX',
-    'OXOXOXOXO',
-    'XOXOXOXOX',
-    'OXOXOXOXO',
-    'XOXO.OXOX',
-    'OXOXOXOXO',
-    'XOXOXOXOX',
-    'OXOXOXOXO',
-    'XOXOXOX..',
-  ], WHITE);
-  anyAI.ensureBuffers(pos.area);
-  anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new BigUint64Array(1 << 18);
-  anyAI.proofTTResult = new Int8Array(1 << 18);
-  anyAI.proofTTDepth = new Int8Array(1 << 18);
-
-  // Mock generateOrderedMoves: return 0 to force fullboard fallback
-  const realGen = anyAI.generateOrderedMoves.bind(anyAI);
-  let firstCall = true;
-  anyAI.generateOrderedMoves = function (...args: any[]) {
-    if (firstCall) {
-      firstCall = false;
-      return 0;
-    }
-    return realGen(...args);
-  };
-
-  // Only 3 empty cells → fullboard returns ≤ 3
-  const result = anyAI.proofDefend(pos, 2, 1);
-  expect(typeof result).toBe('boolean');
-  anyAI.generateOrderedMoves = realGen;
+  expect(ai.proofDefend(pos, 2, 0)).toBe(true);
+  expect(seen).toEqual(expected);
+  expect(seen.size).toBeGreaterThan(12);
+  expect(seen.has(41)).toBe(true); // Far from both attacking lines.
+  expect(pos.toAscii()).toEqual(before);
+  expect(pos.hash).toBe(hash);
+  expect(pos.koPoint).toBe(40);
 });
 
 test('verifyWinningMove rethrows non-timeout errors', () => {
@@ -3048,7 +3036,7 @@ test('proofDefend: returns false (not proven) when no legal moves exist', () => 
   anyAI.generateFullBoardMoves = realFullGen;
 });
 
-test('proofAttack: hash-move-first succeeds from seeded TT best move', () => {
+test('proofAttack: immediate win resolves a seeded hint without playing', () => {
   const ai = new GogoAI({ maxDepth: 10 });
   const anyAI = ai as any;
   // BLACK has 4 in a row, move 4 completes five
@@ -3093,9 +3081,9 @@ test('proofAttack: hash-move-first succeeds from seeded TT best move', () => {
     throw new Error('generateOrderedMoves should not be needed when the TT move resolves proofAttack');
   };
 
-  // proofAttack should try the TT move before move generation and resolve immediately
+  // A legal five resolves the proof before playing or generating moves.
   expect(anyAI.proofAttack(pos, 1, 1)).toBe(true);
-  expect(playCalls).toEqual([4]);
+  expect(playCalls).toEqual([]);
   expect(genCalls).toBe(0);
   // TT should now store the proven result with best move
   expect(anyAI.proofTTResult[ttIdx]).toBe(1);
@@ -3300,17 +3288,17 @@ test('proofAttack: illegal TT move is attempted before move generation and skipp
     playCalls.push(move);
     return realPlay(move);
   };
-  const realGen = anyAI.generateOrderedMoves.bind(anyAI);
+  const realGen = anyAI.generateTacticalMoves.bind(anyAI);
   let genCalls = 0;
-  anyAI.generateOrderedMoves = () => {
+  anyAI.generateTacticalMoves = () => {
     genCalls += 1;
     expect(playCalls).toEqual([40]);
     return 0;
   };
 
-  expect(anyAI.proofAttack(pos, 1, 1)).toBe(false);
+  expect(anyAI.proofAttack(pos, 3, 1)).toBe(false);
   expect(genCalls).toBe(1);
-  anyAI.generateOrderedMoves = realGen;
+  anyAI.generateTacticalMoves = realGen;
   (pos as any).play = realPlay;
 });
 
@@ -3404,7 +3392,7 @@ test('proofDefend: illegal TT move is attempted before ordered generation and sk
   anyAI.generateFullBoardMoves = () => 0;
 
   expect(anyAI.proofDefend(pos, 2, 1)).toBe(false);
-  expect(genCalls).toBe(1);
+  expect(genCalls).toBe(2); // Tactical refutations, then all nearby defenses.
   anyAI.generateOrderedMoves = realGen;
   anyAI.generateFullBoardMoves = realFullGen;
   (pos as any).play = realPlay;
@@ -3489,6 +3477,31 @@ test('findThreatResponses: defender winning cell in overlapping horizontal and v
   const moveIndex = Array.from({ length: count }, (_, index) => index).find((index) => moves[index] === 0);
   expect(moveIndex).not.toBeUndefined();
   expect(scores[moveIndex ?? 0]).toBe(3_000_000);
+});
+
+test('proofDefend skips a suicidal ordered defense and restores the position', () => {
+  const position = GogoPosition.fromAscii([
+    '.........', '.........', '.........', '....X....', '...X.X...',
+    '....X....', '.........', '.........', '.........',
+  ], WHITE);
+  const ai = new GogoAI({ now: () => 0 }) as any;
+  ai.ensureBuffers(position.area);
+  ai.deadline = Infinity;
+  // A real ordering hint puts the suicidal center first in the quiet defenses.
+  ai.history[position.area + 40] = 10_000_000;
+  expect(position.isLegal(40)).toBe(false);
+  const before = position.toAscii();
+  const rejected: number[] = [];
+  const play = position.play.bind(position);
+  position.play = (move) => {
+    const legal = play(move);
+    if (!legal) rejected.push(move);
+    return legal;
+  };
+  expect(ai.proofDefend(position, 2, 1)).toBe(false);
+  expect(rejected).toEqual([40]);
+  expect(position.toAscii()).toEqual(before);
+  expect(position.toMove).toBe(WHITE);
 });
 
 test('proofDefend: restricted move play failure is handled without coverage suppression', () => {

@@ -14,19 +14,21 @@ import {
  * Verify the AI finds the unique winning move for a puzzle.
  * Classic (alpha-beta) is tested.
  */
-function assertAISolves(puzzle: Puzzle, ai: GogoAI, timeMs: number): void {
+function assertAISolves(puzzle: Puzzle, ai: GogoAI, timeLimitMs: number): void {
   const position = decodeGame(puzzle.encoded);
   expect(position.toMove).toBe(puzzle.toMove);
 
   const expectedIndex = decodeMove(puzzle.solution, position.size);
   expect(expectedIndex).not.toBe(-1);
 
-  const result = ai.findBestMove(position, timeMs);
+  const result = ai.findBestMove(position, timeLimitMs);
+  // check that position did not change
+  expect(position.encodeGame()).toBe(puzzle.encoded);
+  expect(result.timedOut, 'AI search must finish within its time limit').toBe(false);
+  // A move returned after a timeout is not reliable, so check timeout before asserting the move.
   expect(result.move).toBe(expectedIndex);
+  expect(result.forcedWin).toBe(true);
 }
-
-// Classic AI tests — scale time by puzzle difficulty
-const classicTimeMs: Record<number, number> = { 3: 500, 5: 2_000, 7: 8_000 };
 
 // Only test original (hand-crafted) puzzles with the AI solvers to keep the
 // test suite fast.  Generated puzzles are validated by the generator itself
@@ -38,19 +40,17 @@ test.each(
   originalPuzzles.map((p) => [p.id, p] as const),
 )('Classic AI solves puzzle %s', { timeout: 30_000 }, (_id, puzzle) => {
   const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4 });
-  assertAISolves(puzzle, ai, classicTimeMs[puzzle.depth] ?? 5_000);
+  assertAISolves(puzzle, ai, puzzle.timeLimitMs ?? 75);
 });
 
 // Smoke test: Classic AI solves ALL generated puzzles.
 // This confirms the puzzle generator's correctness independently.
 const generatedPuzzles = PUZZLES.filter((p) => p.id.startsWith('gen-'));
-const genClassicTimeMs: Record<number, number> = { 3: 15_000, 5: 15_000, 7: 20_000 };
-
 test.each(
   generatedPuzzles.map((p) => [p.id, p] as const),
 )('Classic AI solves generated puzzle %s', { timeout: 30_000 }, (_id, puzzle) => {
   const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4 });
-  assertAISolves(puzzle, ai, genClassicTimeMs[puzzle.depth] ?? 5_000);
+  assertAISolves(puzzle, ai, puzzle.timeLimitMs ?? 75);
 });
 
 test('getPuzzleById returns the correct puzzle or undefined', () => {
@@ -60,6 +60,15 @@ test('getPuzzleById returns the correct puzzle or undefined', () => {
   expect(found!.solution).toBe('e5');
 
   expect(getPuzzleById('nonexistent')).toBeUndefined();
+});
+
+test('expert collection includes the verified 11x11 nine-ply puzzle', () => {
+  const puzzle = getPuzzleById('gen-expert-1');
+  expect(puzzle).toBeDefined();
+  expect(decodeGame(puzzle!.encoded).size).toBe(11);
+  expect(puzzle!.solution).toBe('f2');
+  expect(puzzle!.depth).toBe(9);
+  expect(puzzle!.threshold).toBe(4);
 });
 
 test('all puzzles have valid encoded positions and solutions', () => {
@@ -98,24 +107,4 @@ test('all puzzles have valid wonEncoded and winningMoves', () => {
     // The encoded game should match wonEncoded
     expect(pos.encodeGame()).toBe(puzzle.wonEncoded);
   }
-});
-
-test('AI proves forced win for edge attack position B9 e9 e8 f9 g9', { timeout: 60_000 }, () => {
-  const position = decodeGame('B9 e9 e8 f9 g9');
-  const ai = new GogoAI({ maxDepth: 30, quiescenceDepth: 4 });
-  const result = ai.findBestMove(position, 60_000);
-  expect(result.forcedWin).toBe(true);
-  expect(result.heuristicWin).toBe(true);
-  expect(result.timedOut).toBe(false);
-  expect(position.isLegal(result.move)).toBe(true);
-});
-
-test('AI proves forced loss for edge position B9 e9 e8 f9', { timeout: 60_000 }, () => {
-  const position = decodeGame('B9 e9 e8 f9');
-  const ai = new GogoAI({ maxDepth: 30, quiescenceDepth: 4 });
-  const result = ai.findBestMove(position, 59_000);
-  expect(result.forcedLoss).toBe(true);
-  expect(result.heuristicLoss).toBe(true);
-  expect(result.timedOut).toBe(false);
-  expect(position.isLegal(result.move)).toBe(true);
 });

@@ -4,8 +4,40 @@ import { BLACK, WHITE, GogoPosition } from '../../src/engine/gogomoku';
 import {
   removeIsolatedStones,
   computeCanonicalKey,
+  DIHEDRAL_TRANSFORMS,
+  transformPoint,
   BoardUniquenessChecker,
 } from '../../src/engine/uniqueness';
+
+test.each([0, 1, 2, 3, 20])('canonical packing matches a direct symmetry oracle for %s stones', (count) => {
+  const stones = Array.from({ length: count }, (_, i) => [i % 5 + 1, Math.floor(i / 5) + 2, i % 2 === 0 ? BLACK : WHITE] as const);
+  for (const boardSize of [undefined, 9]) {
+    for (const includeTranslationSymmetry of [false, true]) {
+      for (const includeColorSymmetry of [false, true]) {
+        const keys: string[] = [];
+        const edge = boardSize === undefined ? 0 : boardSize - 1;
+        const offsets = [[0, 0], [edge, 0], [edge, edge], [0, edge], [edge, 0], [0, edge], [0, 0], [edge, edge]];
+        for (const [index, transform] of DIHEDRAL_TRANSFORMS.entries()) {
+          const [tx, ty] = transform(1, 2);
+          expect(transformPoint(index, 1, 2, boardSize)).toEqual([tx + offsets[index][0], ty + offsets[index][1]]);
+          const points = stones.map(([x, y, color]) => {
+            const [tx, ty] = transform(x, y);
+            return [tx + offsets[index][0], ty + offsets[index][1], color];
+          });
+          const minX = includeTranslationSymmetry && count > 0 ? Math.min(...points.map(p => p[0])) : 0;
+          const minY = includeTranslationSymmetry && count > 0 ? Math.min(...points.map(p => p[1])) : 0;
+          for (const swap of includeColorSymmetry ? [false, true] : [false]) {
+            const packed = points.map(([x, y, color]) => ((((x - minX) << 4) | (y - minY)) << 2) | (swap ? (color === BLACK ? WHITE : BLACK) : color));
+            // Match Uint16 packing, including negative untranslated coordinates.
+            const values = Array.from(new Uint16Array(packed)).sort((a, b) => a - b);
+            keys.push(String.fromCharCode(...values));
+          }
+        }
+        expect(computeCanonicalKey(stones, { boardSize, includeTranslationSymmetry, includeColorSymmetry })).toBe(keys.sort()[0]);
+      }
+    }
+  }
+});
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -67,31 +99,12 @@ test('removeIsolatedStones filters out only the isolated stones', () => {
 });
 
 test('removeIsolatedStones handles vertical, horizontal, and diagonal adjacency correctly', () => {
-  // Only diagonal neighbors → stones are NOT isolated (diagonal counts)
-  const diagStones = [
-    [0, 0, BLACK],
-    [1, 1, WHITE],
-  ] as const;
-  const diagResult = removeIsolatedStones(diagStones);
-  expect(diagResult).toHaveLength(2);
-
-  // All four diagonal directions
-  expect(removeIsolatedStones([[0, 0, BLACK], [1, 1, WHITE]])).toHaveLength(2);   // SE
-  expect(removeIsolatedStones([[1, 0, BLACK], [0, 1, WHITE]])).toHaveLength(2);   // SW
-  expect(removeIsolatedStones([[0, 1, BLACK], [1, 0, WHITE]])).toHaveLength(2);   // NE
-  expect(removeIsolatedStones([[1, 1, BLACK], [0, 0, WHITE]])).toHaveLength(2);   // NW
-
-  // Truly isolated: no orthogonal or diagonal neighbor
-  const isolated = [[0, 0, BLACK], [3, 3, WHITE]] as const;
-  expect(removeIsolatedStones(isolated)).toHaveLength(0);
-
-  // Vertical neighbor
-  const vertStones = [
-    [2, 2, BLACK],
-    [2, 3, WHITE],
-  ] as const;
-  const vertResult = removeIsolatedStones(vertStones);
-  expect(vertResult).toHaveLength(2);
+  // Nonzero coordinates keep broken coordinate packing from looking correct.
+  for (const [dx, dy] of [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 1], [1, -1], [1, 0], [1, 1]]) {
+    const adjacent = [[4, 4, BLACK], [4 + dx, 4 + dy, WHITE]] as const;
+    expect(removeIsolatedStones([...adjacent, [0, 0, BLACK]])).toEqual(adjacent);
+  }
+  expect(removeIsolatedStones([[0, 0, BLACK], [3, 3, WHITE]])).toEqual([]);
 });
 
 // ─── computeCanonicalKey ─────────────────────────────────────────────────────

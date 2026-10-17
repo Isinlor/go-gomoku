@@ -9,6 +9,7 @@ import {
   type SupportedSize,
 } from './gogomoku';
 import { GogoAI } from './ai';
+import { PuzzleDuplicateIndex, type ComparablePuzzle } from './puzzleSimilarity';
 import { insertMoveDescending, sortMovesDescending } from './moveOrdering';
 
 /**
@@ -122,17 +123,118 @@ export interface GeneratorStats {
 // ForcedWinSearcher – fast proof-tree search for forced wins
 // ---------------------------------------------------------------------------
 
+/** Exact window counts and move scores, updated after changed board points. */
+export class PuzzleWindowEvaluation {
+  private readonly board: Uint8Array;
+  private readonly black: Uint8Array;
+  private readonly white: Uint8Array;
+  private readonly blackScores: Int32Array;
+  private readonly whiteScores: Int32Array;
+  private readonly blackHistogram = new Int32Array(6);
+  private readonly whiteHistogram = new Int32Array(6);
+  private blackThreats = 0;
+  private whiteThreats = 0;
+  private ready = false;
+
+  constructor(area: number) {
+    this.board = new Uint8Array(area);
+    this.black = new Uint8Array(4 * area);
+    this.white = new Uint8Array(4 * area);
+    this.blackScores = new Int32Array(area);
+    this.whiteScores = new Int32Array(area);
+  }
+
+  private contribution(mine: number, theirs: number): number {
+    return (theirs === 0 ? ATTACK_WEIGHTS[Math.min(mine + 1, 5)] : 0)
+      + (mine === 0 ? DEFENSE_WEIGHTS[Math.min(theirs + 1, 5)] : 0);
+  }
+
+  sync(pos: GogoPosition): void {
+    const meta = pos.meta;
+    if (!this.ready) {
+      this.blackHistogram[0] = this.whiteHistogram[0] = meta.windowCount;
+      const emptyContribution = this.contribution(0, 0);
+      for (let point = 0; point < pos.area; point += 1) {
+        const windows = meta.windowsByPointOffsets[point + 1] - meta.windowsByPointOffsets[point];
+        this.blackScores[point] = this.whiteScores[point] = windows * emptyContribution + meta.centerBias[point] * 3;
+      }
+      this.ready = true;
+    }
+    for (let point = 0; point < pos.area; point += 1) {
+      const old = this.board[point];
+      const color = pos.board[point];
+      if (old === color) continue;
+      this.board[point] = color;
+      const deltaBlack = Number(color === BLACK) - Number(old === BLACK);
+      const deltaWhite = Number(color === WHITE) - Number(old === WHITE);
+      for (let cursor = meta.windowsByPointOffsets[point]; cursor < meta.windowsByPointOffsets[point + 1]; cursor += 1) {
+        const wi = meta.windowsByPoint[cursor];
+        const black = this.black[wi];
+        const white = this.white[wi];
+        const nextBlack = black + deltaBlack;
+        const nextWhite = white + deltaWhite;
+        this.blackHistogram[black] -= 1;
+        this.whiteHistogram[white] -= 1;
+        this.blackHistogram[nextBlack] += 1;
+        this.whiteHistogram[nextWhite] += 1;
+        this.blackThreats += Number(nextBlack === 4 && nextWhite === 0) - Number(black === 4 && white === 0);
+        this.whiteThreats += Number(nextWhite === 4 && nextBlack === 0) - Number(white === 4 && black === 0);
+        const blackScore = this.contribution(nextBlack, nextWhite) - this.contribution(black, white);
+        const whiteScore = this.contribution(nextWhite, nextBlack) - this.contribution(white, black);
+        for (let step = 0; step < 5; step += 1) {
+          const affected = meta.windows[wi * 5 + step];
+          this.blackScores[affected] += blackScore;
+          this.whiteScores[affected] += whiteScore;
+        }
+        this.black[wi] = nextBlack;
+        this.white[wi] = nextWhite;
+      }
+    }
+  }
+
+  score(move: number, player: Player): number {
+    return (player === BLACK ? this.blackScores : this.whiteScores)[move];
+  }
+
+  threats(attacker: Player): [number, number, number] {
+    const histogram = attacker === BLACK ? this.blackHistogram : this.whiteHistogram;
+    let maximum = 5;
+    while (maximum > 0 && histogram[maximum] === 0) maximum -= 1;
+    return attacker === BLACK
+      ? [this.blackThreats, this.whiteThreats, maximum]
+      : [this.whiteThreats, this.blackThreats, maximum];
+  }
+}
+
 export class ForcedWinSearcher {
+  private readonly windowEvaluation: PuzzleWindowEvaluation;
   private readonly moveBuffers: Int16Array[];
   private readonly scoreBuffers: Int32Array[];
   private readonly candidateMarks: Uint32Array;
   private readonly threatBuffer: Int16Array;
   private candidateEpoch = 0;
   private readonly area: number;
+  private readonly cacheSize: number;
+  private readonly cacheHashes: BigUint64Array;
+  private readonly cacheRemaining: Float64Array;
+  private readonly cacheAttackers: Uint8Array;
+  private readonly cacheToMove: Uint8Array;
+  private readonly cacheKo: Int16Array;
+  private readonly cacheResults: Uint8Array;
+  private readonly cacheBoards: Uint8Array;
   nodesSearched = 0;
 
-  constructor(area: number, maxDepth: number) {
+  constructor(area: number, maxDepth: number, useCache = true) {
     this.area = area;
+    this.windowEvaluation = new PuzzleWindowEvaluation(area);
+    this.cacheSize = useCache ? 65_536 : 0;
+    this.cacheHashes = new BigUint64Array(this.cacheSize);
+    this.cacheRemaining = new Float64Array(this.cacheSize);
+    this.cacheAttackers = new Uint8Array(this.cacheSize);
+    this.cacheToMove = new Uint8Array(this.cacheSize);
+    this.cacheKo = new Int16Array(this.cacheSize);
+    this.cacheResults = new Uint8Array(this.cacheSize);
+    this.cacheBoards = new Uint8Array(this.cacheSize * area);
     this.moveBuffers = [];
     this.scoreBuffers = [];
     for (let i = 0; i <= maxDepth; i += 1) {
@@ -151,12 +253,33 @@ export class ForcedWinSearcher {
     return this.search(pos, attacker, maxPly, 0);
   }
 
+  /** Prove a move within a horizon without searching every shorter horizon. */
+  hasForcedWinAfterMove(pos: GogoPosition, move: number, maxPly: number): boolean {
+    if (maxPly < 1) {
+      return false;
+    }
+    const attacker = pos.toMove;
+    if (!pos.play(move)) {
+      return false;
+    }
+    // The attacker can only finish on odd plies. An even horizon adds no turn.
+    const remaining = maxPly - 1 - (maxPly % 2 === 0 ? 1 : 0);
+    try {
+      return this.hasForcedWin(pos, attacker, remaining);
+    } finally {
+      pos.undo();
+    }
+  }
+
   /**
    * For a given move by the current player, what is the shortest forced-win
    * ply count?  Returns -1 when no forced win exists within `maxPly`.
    * Forced wins only happen at odd plies (1, 3, 5, …).
    */
   forcedWinDepthForMove(pos: GogoPosition, move: number, maxPly: number): number {
+    if (maxPly < 1) {
+      return -1;
+    }
     const attacker = pos.toMove;
     if (!pos.play(move)) {
       return -1;
@@ -184,9 +307,10 @@ export class ForcedWinSearcher {
   /**
    * Find the winning line (principal variation) from a position where a forced
    * win is known to exist. Returns an array of moves from the position to the
-   * winning state. The first move is the attacker's solution move.
+   * winning state. The first move is the attacker's solution move. Supply
+   * `firstMove` when that move has already been proven, avoiding a root search.
    */
-  findWinningLine(pos: GogoPosition, maxPly: number): number[] {
+  findWinningLine(pos: GogoPosition, maxPly: number, firstMove = -1): number[] {
     const attacker = pos.toMove;
     const line: number[] = [];
 
@@ -199,7 +323,9 @@ export class ForcedWinSearcher {
       const moveCount = pos.generateAllLegalMoves(moveBuffer);
       let bestMove = -1;
 
-      if (isAtk) {
+      if (ply === 0 && firstMove >= 0 && pos.isLegal(firstMove)) {
+        bestMove = firstMove;
+      } else if (isAtk) {
         // Attacker: find the move that leads to forced win
         for (let i = 0; i < moveCount; i += 1) {
           if (!pos.play(moveBuffer[i])) {
@@ -265,14 +391,58 @@ export class ForcedWinSearcher {
       return false;
     }
 
+    // A shorter proven win also wins with more time; a longer failed search
+    // rules out shorter wins. Compare the complete board as well as the hash
+    // so collisions cannot alter a proof result.
+    const slot = (Number(pos.hash & 65_535n) ^ attacker) & 65_535;
+    const boardOffset = slot * this.area;
+    if (
+      this.cacheSize !== 0 &&
+      this.cacheResults[slot] !== 0 &&
+      this.cacheHashes[slot] === pos.hash &&
+      (this.cacheResults[slot] === 2
+        ? this.cacheRemaining[slot] <= remaining
+        : this.cacheRemaining[slot] >= remaining) &&
+      this.cacheAttackers[slot] === attacker &&
+      this.cacheToMove[slot] === pos.toMove &&
+      this.cacheKo[slot] === pos.koPoint
+    ) {
+      let sameBoard = true;
+      for (let point = 0; point < this.area; point += 1) {
+        if (this.cacheBoards[boardOffset + point] !== pos.board[point]) {
+          sameBoard = false;
+          break;
+        }
+      }
+      if (sameBoard) {
+        return this.cacheResults[slot] === 2;
+      }
+    }
+
     const isAttacker = pos.toMove === attacker;
     const defender = otherPlayer(attacker);
 
     // Threat-based pruning — single pass over all windows
-    const [attackerThreats, defenderThreats] = this.countBothThreats(pos, attacker, defender);
+    const [attackerThreats, defenderThreats, maxAttackerStones] = this.countBothThreats(pos, attacker, defender);
+    const turns = Math.ceil(remaining);
+    const attackingTurns = isAttacker ? Math.ceil(turns / 2) : Math.floor(turns / 2);
+    // Captures remove stones; they cannot add attacker stones to a window.
+    // Even allowing every opponent stone to be captured, five is impossible
+    // if too many new attacker stones are needed for the remaining turns.
+    if (maxAttackerStones + attackingTurns < 5) {
+      return false;
+    }
 
-    if (isAttacker) {
-      return this.searchAttacker(
+    const result = isAttacker
+      ? this.searchAttacker(
+        pos,
+        attacker,
+        remaining,
+        depth,
+        attackerThreats,
+        defenderThreats,
+      )
+      : this.searchDefender(
         pos,
         attacker,
         remaining,
@@ -280,15 +450,16 @@ export class ForcedWinSearcher {
         attackerThreats,
         defenderThreats,
       );
+    if (this.cacheSize !== 0) {
+      this.cacheHashes[slot] = pos.hash;
+      this.cacheRemaining[slot] = remaining;
+      this.cacheAttackers[slot] = attacker;
+      this.cacheToMove[slot] = pos.toMove;
+      this.cacheKo[slot] = pos.koPoint;
+      this.cacheBoards.set(pos.board, boardOffset);
+      this.cacheResults[slot] = result ? 2 : 1;
     }
-    return this.searchDefender(
-      pos,
-      attacker,
-      remaining,
-      depth,
-      attackerThreats,
-      defenderThreats,
-    );
+    return result;
   }
 
   private searchAttacker(
@@ -319,15 +490,15 @@ export class ForcedWinSearcher {
       }
     }
 
-    // If defender has ≥2 threats and attacker has no immediate win, unlikely
-    // to force a win (would need to win immediately or make captures).
-    // Still search but with a reduced move set when remaining is small.
-    if (defenderThreats >= 2 && remaining <= 2) {
+    // With only one attacking turn left, completing an existing four is
+    // the only possible win. Captures remove enemy stones, never add ours.
+    // Every completion was tried above; quiet moves cannot win in time.
+    if (remaining <= 2) {
       return false;
     }
 
-    // If defender has exactly 1 threat, attacker MUST block it (or win first)
-    if (defenderThreats === 1 && attackerThreats === 0) {
+    // Blocking is mandatory only when a capture cannot remove the threat.
+    if (defenderThreats === 1 && attackerThreats === 0 && !this.canCaptureOpponent(pos, otherPlayer(attacker))) {
       const { moves: dMoves } = this.getWinThreatMoves(pos, otherPlayer(attacker));
       const block = dMoves[0];
       if (!pos.play(block)) {
@@ -342,11 +513,7 @@ export class ForcedWinSearcher {
     const count = this.generateMoves(pos, depth);
     const moves = this.moveBuffers[depth];
 
-    // When remaining plies are low, limit the number of moves tried.
-    // Attacker needs to create threats; only high-scoring moves can do that.
-    const maxMoves = remaining <= 2 ? Math.min(count, 10) : count;
-
-    for (let i = 0; i < maxMoves; i += 1) {
+    for (let i = 0; i < count; i += 1) {
       if (!pos.play(moves[i])) {
         continue;
       }
@@ -368,6 +535,11 @@ export class ForcedWinSearcher {
     defenderThreats: number,
   ): boolean {
     const defender = otherPlayer(attacker);
+    // Overlapping four-stone windows can share their only empty cell.
+    // Only distinct completion cells require separate blocking moves.
+    const attackerCompletions = attackerThreats > 1
+      ? this.getWinThreatMoves(pos, attacker).count
+      : attackerThreats;
 
     // When the defender can capture attacker stones, threat-based shortcuts
     // are unsafe: a single capture can remove a stone that participates in
@@ -376,12 +548,12 @@ export class ForcedWinSearcher {
     const capturesSafe = attackerThreats === 0 || !this.canCaptureOpponent(pos, attacker);
 
     // If attacker has ≥2 win threats and defender has 0, attacker wins
-    if (capturesSafe && attackerThreats >= 2 && defenderThreats === 0) {
+    if (capturesSafe && attackerCompletions >= 2 && defenderThreats === 0) {
       return true;
     }
 
     // If attacker has exactly 1 threat, defender must block it
-    if (capturesSafe && attackerThreats === 1 && defenderThreats === 0) {
+    if (capturesSafe && attackerCompletions === 1 && defenderThreats === 0) {
       const { moves: tMoves } = this.getWinThreatMoves(pos, attacker);
       const block = tMoves[0];
       if (!pos.play(block)) {
@@ -411,10 +583,10 @@ export class ForcedWinSearcher {
         }
       }
       // If attacker also has threats, defender might need to block those too
-      if (capturesSafe && attackerThreats >= 2) {
+      if (capturesSafe && attackerCompletions >= 2) {
         return true; // Double threat, defender already tried escaping
       }
-      if (capturesSafe && attackerThreats === 1) {
+      if (capturesSafe && attackerCompletions === 1) {
         const { moves: aMoves } = this.getWinThreatMoves(pos, attacker);
         const block = aMoves[0];
         if (!pos.play(block)) {
@@ -477,39 +649,10 @@ export class ForcedWinSearcher {
   private countBothThreats(
     pos: GogoPosition,
     attacker: Player,
-    defender: Player,
-  ): [number, number] {
-    const meta = pos.meta;
-    const board = pos.board;
-    const windows = meta.windows;
-    let atkThreats = 0;
-    let defThreats = 0;
-
-    for (let wi = 0; wi < meta.windowCount; wi += 1) {
-      const base = wi * 5;
-      let atk = 0;
-      let def = 0;
-      let empties = 0;
-      for (let step = 0; step < 5; step += 1) {
-        const cell = board[windows[base + step]];
-        if (cell === attacker) {
-          atk += 1;
-        } else if (cell === defender) {
-          def += 1;
-        } else {
-          empties += 1;
-        }
-      }
-      if (empties === 1) {
-        if (atk === 4) {
-          atkThreats += 1;
-        }
-        if (def === 4) {
-          defThreats += 1;
-        }
-      }
-    }
-    return [atkThreats, defThreats];
+    _defender: Player,
+  ): [number, number, number] {
+    this.windowEvaluation.sync(pos);
+    return this.windowEvaluation.threats(attacker);
   }
 
   private getWinThreatMoves(pos: GogoPosition, player: Player): { moves: Int16Array; count: number } {
@@ -547,6 +690,8 @@ export class ForcedWinSearcher {
   // ---- move generation ------------------------------------------------
 
   private generateMoves(pos: GogoPosition, depth: number): number {
+    // A previous threat branch may have played and undone moves since the scan.
+    this.windowEvaluation.sync(pos);
     const board = pos.board;
     const meta = pos.meta;
     const player = pos.toMove;
@@ -598,12 +743,12 @@ export class ForcedWinSearcher {
   }
 
   private scoreMove(
-    pos: GogoPosition,
+    _pos: GogoPosition,
     move: number,
     player: Player,
-    opponent: Player,
+    _opponent: Player,
   ): number {
-    return scoreWindowMove(pos, move, player, opponent);
+    return this.windowEvaluation.score(move, player);
   }
 }
 
@@ -725,12 +870,6 @@ export function validatePuzzlePosition(
     return null;
   }
 
-  // Quick pre-filter: attacker must have at least one open-three (3 in a
-  // window with 2 empty) to have any hope of a forced win.
-  if (!hasOpenThree(pos, attacker)) {
-    return null;
-  }
-
   // 1. No immediate threat: opponent cannot force a win in m plies
   if (searcher.hasForcedWin(pos, defender, m)) {
     return null;
@@ -761,15 +900,13 @@ export function validatePuzzlePosition(
   let solutionCount = 0;
 
   for (let i = 0; i < moveCount; i += 1) {
-    const depth = searcher.forcedWinDepthForMove(pos, moveBuffer[i], n);
-    if (depth === n) {
+    // The position-level check already ruled out every shorter forced win.
+    if (searcher.hasForcedWinAfterMove(pos, moveBuffer[i], n)) {
       solutionMove = moveBuffer[i];
       solutionCount += 1;
       if (solutionCount > 1) {
         return null;
       }
-    } else if (depth > 0 && depth < n) {
-      return null;
     }
   }
 
@@ -799,8 +936,7 @@ export function validatePuzzlePosition(
     if (moveBuffer[i] === solutionMove) {
       continue;
     }
-    const altDepth = searcher.forcedWinDepthForMove(pos, moveBuffer[i], altMaxPly);
-    if (altDepth !== -1) {
+    if (searcher.hasForcedWinAfterMove(pos, moveBuffer[i], altMaxPly)) {
       return null;
     }
   }
@@ -811,7 +947,7 @@ export function validatePuzzlePosition(
   }
 
   // 7. Find the winning line and compute the won state
-  const winLine = searcher.findWinningLine(pos, n + 2);
+  const winLine = searcher.findWinningLine(pos, n + 2, solutionMove);
   const winningMoves = winLine.map((mv) => encodeMove(mv, pos.meta));
 
   // Play out the winning line to get the won board state
@@ -950,6 +1086,8 @@ export interface GeneratorOptions {
   readonly maxGames?: number;
   /** When set, only validate positions at exactly this ply count. */
   readonly targetPly?: number;
+  /** Previously stored puzzles to include in duplicate detection. */
+  readonly existingPuzzles?: readonly ComparablePuzzle[];
   readonly onProgress?: (stats: GeneratorStats) => void;
 }
 
@@ -968,7 +1106,7 @@ export function generatePuzzles(
   const searcher = new ForcedWinSearcher(size * size, maxSearchDepth);
   const validationBuffers = createValidationBuffers(size * size);
   const puzzles: PuzzleCandidate[] = [];
-  const seenEncodings = new Set<string>();
+  const duplicates = new PuzzleDuplicateIndex(options.existingPuzzles);
   const startTime = performance.now();
 
   const stats: GeneratorStats = {
@@ -1010,8 +1148,7 @@ export function generatePuzzles(
       const candidate = validatePuzzlePosition(replay, difficulty, searcher, validationBuffers);
       stats.totalNodes += searcher.nodesSearched;
 
-      if (candidate !== null && !seenEncodings.has(candidate.encoded)) {
-        seenEncodings.add(candidate.encoded);
+      if (candidate !== null && duplicates.add(candidate)) {
         puzzles.push(candidate);
         stats.puzzlesFound += 1;
 

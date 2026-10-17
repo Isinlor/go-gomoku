@@ -19,6 +19,7 @@ import {
   type GeneratorStats,
 } from '../src/engine/puzzleGenerator';
 import { BLACK } from '../src/engine/gogomoku';
+import { PUZZLES } from '../src/engine/puzzles';
 
 const difficultyMap: Record<string, PuzzleDifficulty> = {
   beginner: BEGINNER,
@@ -55,6 +56,7 @@ const { puzzles, stats } = generatePuzzles(difficulty, countArg, {
   // (e.g. targetPly=6 yields ~1 puzzle per 5,500 games, so 100 puzzles needs ~550k games)
   maxGames: 5_000_000,
   targetPly: targetPlyArg,
+  existingPuzzles: PUZZLES,
   onProgress: (s: GeneratorStats) => {
     console.log(`  [progress] ${formatStats(s)}`);
   },

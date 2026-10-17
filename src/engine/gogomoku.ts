@@ -11,6 +11,11 @@ export interface PositionOptions {
   captureCapacity?: number;
 }
 
+interface GameSetup {
+  readonly rows: string[];
+  readonly toMove: Player;
+}
+
 export interface BoardMeta {
   readonly size: SupportedSize;
   readonly area: number;
@@ -25,6 +30,8 @@ export interface BoardMeta {
   readonly windowsByPoint: Int16Array;
   readonly centerBias: Int16Array;
   readonly zobristStones64: BigUint64Array;
+  /** Stone placement combined with the side-to-move toggle for make-move. */
+  readonly zobristMoves64: BigUint64Array;
   readonly zobristBlackToMove64: bigint;
   /** Zobrist keys for ko point: index 0..area-1 for each square, index area for "no ko". */
   readonly zobristKo64: BigUint64Array;
@@ -44,8 +51,9 @@ type GrowableTypedArrayConstructor<T extends GrowableTypedArray> = {
   new(length: number): T;
 };
 
+/** The two player codes sum to three, so subtraction swaps their colors. */
 export function otherPlayer(player: Player): Player {
-  return player === BLACK ? WHITE : BLACK;
+  return (BLACK + WHITE - player) as Player;
 }
 
 export function parseSupportedSize(size: number): SupportedSize {
@@ -64,7 +72,7 @@ function xorshift64(state: bigint): bigint {
   return state & UINT64_MASK;
 }
 
-function computePositionHashes(position: Pick<GogoPosition, 'area' | 'board' | 'meta' | 'toMove' | 'koPoint'>): bigint {
+export function computeZobristHashes(position: GogoPosition): bigint {
   let hash64 = 0n;
   if (position.toMove === BLACK) {
     hash64 ^= position.meta.zobristBlackToMove64;
@@ -81,10 +89,6 @@ function computePositionHashes(position: Pick<GogoPosition, 'area' | 'board' | '
   return hash64;
 }
 
-export function computeZobristHashes(position: GogoPosition): bigint {
-  return computePositionHashes(position);
-}
-
 function createBoardMeta(size: SupportedSize): BoardMeta {
   const area = size * size;
   const neighbors4 = new Int16Array(area * 4);
@@ -99,68 +103,52 @@ function createBoardMeta(size: SupportedSize): BoardMeta {
   const windows: number[] = [];
   let windowCount = 0;
 
-  for (let y = 0; y < size; y += 1) {
-    for (let x = 0; x < size; x += 1) {
-      const index = y * size + x;
-      xs[index] = x;
-      ys[index] = y;
-      neighbors4[index * 4] = x > 0 ? index - 1 : -1;
-      neighbors4[index * 4 + 1] = x + 1 < size ? index + 1 : -1;
-      neighbors4[index * 4 + 2] = y > 0 ? index - size : -1;
-      neighbors4[index * 4 + 3] = y + 1 < size ? index + size : -1;
-      const manhattan = Math.abs(x - center) + Math.abs(y - center);
-      centerBias[index] = size - manhattan;
+  for (let index = 0; index < area; index += 1) {
+    const x = index % size;
+    const y = Math.floor(index / size);
+    xs[index] = x;
+    ys[index] = y;
+    neighbors4[index * 4] = x > 0 ? index - 1 : -1;
+    neighbors4[index * 4 + 1] = x + 1 < size ? index + 1 : -1;
+    neighbors4[index * 4 + 2] = y > 0 ? index - size : -1;
+    neighbors4[index * 4 + 3] = y + 1 < size ? index + size : -1;
+    const manhattan = Math.abs(x - center) + Math.abs(y - center);
+    centerBias[index] = size - manhattan;
 
-      for (let ny = Math.max(0, y - 2); ny <= Math.min(size - 1, y + 2); ny += 1) {
-        for (let nx = Math.max(0, x - 2); nx <= Math.min(size - 1, x + 2); nx += 1) {
-          if (nx !== x || ny !== y) {
-            near2Buckets[index].push(ny * size + nx);
-          }
-        }
+    for (let ny = Math.max(0, y - 2); ny <= Math.min(size - 1, y + 2); ny += 1) {
+      for (let nx = Math.max(0, x - 2); nx <= Math.min(size - 1, x + 2); nx += 1) {
+        const neighbor = ny * size + nx;
+        if (neighbor !== index) near2Buckets[index].push(neighbor);
       }
     }
   }
 
-  for (let y = 0; y < size; y += 1) {
-    for (let x = 0; x < size; x += 1) {
-      for (let dir = 0; dir < LINE_DIRECTIONS.length; dir += 1) {
-        const dx = LINE_DIRECTIONS[dir][0];
-        const dy = LINE_DIRECTIONS[dir][1];
-        const endX = x + dx * 4;
-        const endY = y + dy * 4;
-        if (endX < 0 || endX >= size || endY < 0 || endY >= size) {
-          continue;
-        }
-        const windowIndex = windowCount;
-        for (let step = 0; step < 5; step += 1) {
-          const point = (y + dy * step) * size + (x + dx * step);
-          windows.push(point);
-          windowsBucket[point].push(windowIndex);
-        }
-        windowCount += 1;
+  // Enumerate windows in the same row-major, direction-major order used by
+  // scoring and proof search. Every window contains five in-bounds points.
+  for (let index = 0; index < area; index += 1) {
+    const x = xs[index];
+    const y = ys[index];
+    for (const [dx, dy] of LINE_DIRECTIONS) {
+      const endX = x + dx * 4;
+      const endY = y + dy * 4;
+      if (endX < 0 || endX >= size || endY < 0 || endY >= size) continue;
+      for (let step = 0; step < 5; step += 1) {
+        const point = (y + dy * step) * size + (x + dx * step);
+        windows.push(point);
+        windowsBucket[point].push(windowCount);
       }
+      windowCount += 1;
     }
   }
 
-  let near2Total = 0;
-  let windowsByPointTotal = 0;
   const near2Offsets = new Uint16Array(area + 1);
   const windowsByPointOffsets = new Uint16Array(area + 1);
   for (let i = 0; i < area; i += 1) {
-    near2Offsets[i] = near2Total;
-    windowsByPointOffsets[i] = windowsByPointTotal;
-    near2Total += near2Buckets[i].length;
-    windowsByPointTotal += windowsBucket[i].length;
+    near2Offsets[i + 1] = near2Offsets[i] + near2Buckets[i].length;
+    windowsByPointOffsets[i + 1] = windowsByPointOffsets[i] + windowsBucket[i].length;
   }
-  near2Offsets[area] = near2Total;
-  windowsByPointOffsets[area] = windowsByPointTotal;
-
-  const near2 = new Int16Array(near2Total);
-  const windowsByPoint = new Int16Array(windowsByPointTotal);
-  for (let i = 0; i < area; i += 1) {
-    near2.set(near2Buckets[i], near2Offsets[i]);
-    windowsByPoint.set(windowsBucket[i], windowsByPointOffsets[i]);
-  }
+  const near2 = Int16Array.from(near2Buckets.flat());
+  const windowsByPoint = Int16Array.from(windowsBucket.flat());
 
   let rngState64 = (0x9E3779B97F4A7C15n ^ BigInt(size * 0x12345)) & UINT64_MASK;
   const zobristStones64 = new BigUint64Array(area * 2);
@@ -170,6 +158,10 @@ function createBoardMeta(size: SupportedSize): BoardMeta {
   }
   rngState64 = xorshift64(rngState64);
   const zobristBlackToMove64 = rngState64;
+  const zobristMoves64 = new BigUint64Array(area * 2);
+  for (let i = 0; i < zobristMoves64.length; i += 1) {
+    zobristMoves64[i] = zobristStones64[i] ^ zobristBlackToMove64;
+  }
   const zobristKo64 = new BigUint64Array(area + 1);
   for (let i = 0; i < area + 1; i += 1) {
     rngState64 = xorshift64(rngState64);
@@ -190,6 +182,7 @@ function createBoardMeta(size: SupportedSize): BoardMeta {
     windowsByPoint,
     centerBias,
     zobristStones64,
+    zobristMoves64,
     zobristBlackToMove64,
     zobristKo64,
   };
@@ -233,7 +226,11 @@ export class GogoPosition {
   lastMove = -1;
   lastCapturedCount = 0;
   hash = 0n;
+  /** Bounded, non-destructive board mutation journal for incremental consumers. */
+  boardVersion = 0;
+  readonly boardChanges = new Uint16Array(1024);
 
+  private initialSetup?: GameSetup;
   private historyMoves: Int16Array;
   private historyPlayers: Uint8Array;
   private historyKo: Int16Array;
@@ -287,6 +284,11 @@ export class GogoPosition {
     const position = new GogoPosition(parseSupportedSize(size), options);
     position.toMove = toMove;
 
+    const symbols: Readonly<Record<string, Cell>> = {
+      '.': EMPTY, '+': EMPTY,
+      X: BLACK, x: BLACK, B: BLACK, b: BLACK,
+      O: WHITE, o: WHITE, W: WHITE, w: WHITE,
+    };
     for (let y = 0; y < size; y += 1) {
       const row = rows[y];
       if (row.length !== size) {
@@ -294,36 +296,24 @@ export class GogoPosition {
       }
       for (let x = 0; x < size; x += 1) {
         const symbol = row[x];
-        const index = y * size + x;
-        if (symbol === '.' || symbol === '+') {
-          continue;
-        }
-        if (symbol === 'X' || symbol === 'x' || symbol === 'B' || symbol === 'b') {
-          position.board[index] = BLACK;
-          position.stoneCount += 1;
-          continue;
-        }
-        if (symbol === 'O' || symbol === 'o' || symbol === 'W' || symbol === 'w') {
-          position.board[index] = WHITE;
-          position.stoneCount += 1;
-          continue;
-        }
-        throw new Error(`Unsupported board symbol: ${symbol}`);
+        const cell = symbols[symbol];
+        if (cell === undefined) throw new Error(`Unsupported board symbol: ${symbol}`);
+        position.board[y * size + x] = cell;
+        if (cell !== EMPTY) position.stoneCount += 1;
       }
     }
 
+    position.initialSetup = { rows: position.toAscii(), toMove };
     position.winner = position.detectExistingWinner();
 
-    position.hash = computePositionHashes(position);
+    position.hash = computeZobristHashes(position);
 
     return position;
   }
 
+  /** Replay game history from its initial board, preserving history and ko. */
   clone(): GogoPosition {
-    return GogoPosition.fromAscii(this.toAscii(), this.toMove, {
-      historyCapacity: this.historyMoves.length,
-      captureCapacity: this.capturePositions.length,
-    });
+    return decodeGame(this.encodeGame(), this.initialSetup);
   }
 
   toAscii(): string[] {
@@ -333,7 +323,7 @@ export class GogoPosition {
       const rowBase = y * this.size;
       for (let x = 0; x < this.size; x += 1) {
         const cell = this.board[rowBase + x];
-        row += cell === BLACK ? 'X' : cell === WHITE ? 'O' : '.';
+        row += '.XO'[cell] ?? '.';
       }
       rows.push(row);
     }
@@ -407,46 +397,22 @@ export class GogoPosition {
     const player = this.toMove;
     const opponent = otherPlayer(player);
     const captureStart = this.captureTop;
-    let capturedCount = 0;
-
     this.board[index] = player;
+    this.recordBoardChange(index);
     this.stoneCount += 1;
-    this.hash ^= this.meta.zobristStones64[index * 2 + (player - 1)];
+    this.hash ^= this.meta.zobristMoves64[index * 2 + (player - 1)];
 
-    const neighbors = this.meta.neighbors4;
-    const neighborBase = index * 4;
-    this.adjacentGroupEpoch += 1;
-
-    for (let offset = 0; offset < 4; offset += 1) {
-      const neighbor = neighbors[neighborBase + offset];
-      if (neighbor === -1 || this.board[neighbor] !== opponent || this.adjacentGroupMarks[neighbor] === this.adjacentGroupEpoch) {
-        continue;
-      }
-      const liberties = this.scanGroup(neighbor, opponent);
-      for (let groupIndex = 0; groupIndex < this.scanGroupSize; groupIndex += 1) {
-        this.adjacentGroupMarks[this.groupBuffer[groupIndex]] = this.adjacentGroupEpoch;
-      }
-      if (liberties !== 0) {
-        continue;
-      }
-      this.ensureCaptureCapacity(this.captureTop + this.scanGroupSize);
-      for (let groupIndex = 0; groupIndex < this.scanGroupSize; groupIndex += 1) {
-        const point = this.groupBuffer[groupIndex];
-        this.capturePositions[this.captureTop] = point;
-        this.captureTop += 1;
-        this.board[point] = EMPTY;
-        this.hash ^= this.meta.zobristStones64[point * 2 + (opponent - 1)];
-      }
-      capturedCount += this.scanGroupSize;
-      this.stoneCount -= this.scanGroupSize;
-    }
+    const capturedCount = this.captureAdjacentGroups(index, opponent);
 
     const madeFive = this.checkFiveFrom(index, player);
-    const ownLiberties = this.scanGroup(index, player);
-    const ownGroupSize = this.scanGroupSize;
+    // Exact size and liberty counts are only needed for single-stone ko.
+    // Otherwise one direct liberty is enough to establish legality.
+    const needsGroup = !this.hasDirectLiberty(index) || capturedCount === 1;
+    const ownLiberties = needsGroup ? this.scanGroup(index, player) : 1;
+    const ownGroupSize = needsGroup ? this.scanGroupSize : 0;
     if (ownLiberties === 0 && !madeFive) {
       this.hash = this.historyHash[this.ply];
-      this.rollbackIllegalMove(index, opponent, captureStart, capturedCount);
+      this.restoreStones(index, opponent, captureStart, capturedCount);
       return false;
     }
 
@@ -463,17 +429,56 @@ export class GogoPosition {
     this.historyCaptureCount[this.ply] = capturedCount;
     this.ply += 1;
 
-    this.hash ^= this.meta.zobristBlackToMove64;
     // Update ko in hash: XOR out old ko, XOR in new ko
-    const oldKoIdx = this.koPoint === -1 ? this.area : this.koPoint;
-    const newKoIdx = nextKo === -1 ? this.area : nextKo;
-    this.hash ^= this.meta.zobristKo64[oldKoIdx] ^ this.meta.zobristKo64[newKoIdx];
+    if (nextKo !== this.koPoint) {
+      const oldKoIdx = this.koPoint === -1 ? this.area : this.koPoint;
+      const newKoIdx = nextKo === -1 ? this.area : nextKo;
+      this.hash ^= this.meta.zobristKo64[oldKoIdx] ^ this.meta.zobristKo64[newKoIdx];
+    }
     this.koPoint = nextKo;
     this.toMove = opponent;
     this.winner = madeFive ? player : EMPTY;
     this.lastMove = index;
     this.lastCapturedCount = capturedCount;
     return true;
+  }
+
+  /** Keep capture traversal separate from move bookkeeping in CPU profiles. */
+  private captureAdjacentGroups(index: number, opponent: Player): number {
+    let capturedCount = 0;
+    const neighbors = this.meta.neighbors4;
+    const neighborBase = index * 4;
+    this.adjacentGroupEpoch += 1;
+
+    for (let offset = 0; offset < 4; offset += 1) {
+      const neighbor = neighbors[neighborBase + offset];
+      if (neighbor === -1 || this.board[neighbor] !== opponent || this.adjacentGroupMarks[neighbor] === this.adjacentGroupEpoch) {
+        continue;
+      }
+      // A directly adjacent empty point proves this group cannot be captured.
+      // No flood fill or group marking is needed for that common case.
+      if (this.hasDirectLiberty(neighbor)) continue;
+      const liberties = this.scanGroup(neighbor, opponent);
+      for (let groupIndex = 0; groupIndex < this.scanGroupSize; groupIndex += 1) {
+        this.adjacentGroupMarks[this.groupBuffer[groupIndex]] = this.adjacentGroupEpoch;
+      }
+      if (liberties !== 0) {
+        continue;
+      }
+      this.ensureCaptureCapacity(this.captureTop + this.scanGroupSize);
+      for (let groupIndex = 0; groupIndex < this.scanGroupSize; groupIndex += 1) {
+        const point = this.groupBuffer[groupIndex];
+        this.capturePositions[this.captureTop] = point;
+        this.captureTop += 1;
+        this.board[point] = EMPTY;
+        this.recordBoardChange(point);
+        this.hash ^= this.meta.zobristStones64[point * 2 + (opponent - 1)];
+      }
+      capturedCount += this.scanGroupSize;
+      this.stoneCount -= this.scanGroupSize;
+    }
+
+    return capturedCount;
   }
 
   undo(): boolean {
@@ -488,14 +493,7 @@ export class GogoPosition {
     const captureStart = this.historyCaptureStart[this.ply];
     const captureCount = this.historyCaptureCount[this.ply];
 
-    this.board[index] = EMPTY;
-    this.stoneCount -= 1;
-    for (let i = 0; i < captureCount; i += 1) {
-      const point = this.capturePositions[captureStart + i];
-      this.board[point] = opponent;
-    }
-    this.stoneCount += captureCount;
-    this.captureTop = captureStart;
+    this.restoreStones(index, opponent, captureStart, captureCount);
     this.toMove = player;
     this.koPoint = this.historyKo[this.ply];
     this.winner = this.historyWinner[this.ply] as Cell;
@@ -540,7 +538,9 @@ export class GogoPosition {
             this.libertyMarks[neighbor] = libertyEpoch;
             liberties += 1;
           }
-        } else if (cell === color && this.groupVisitMarks[neighbor] !== visitEpoch) {
+          continue;
+        }
+        if (cell === color && this.groupVisitMarks[neighbor] !== visitEpoch) {
           this.groupVisitMarks[neighbor] = visitEpoch;
           stack[stackSize] = neighbor;
           stackSize += 1;
@@ -594,12 +594,19 @@ export class GogoPosition {
     this.capturePositions = growTypedArray(this.capturePositions, minimumLength, Int16Array);
   }
 
-  private rollbackIllegalMove(index: number, opponent: Player, captureStart: number, capturedCount: number): void {
+  private recordBoardChange(point: number): void {
+    this.boardChanges[this.boardVersion++ & (this.boardChanges.length - 1)] = point;
+  }
+
+  /** Restore stones and capture storage for both undo and rejected suicide. */
+  private restoreStones(index: number, opponent: Player, captureStart: number, capturedCount: number): void {
     this.board[index] = EMPTY;
+    this.recordBoardChange(index);
     this.stoneCount -= 1;
     for (let i = captureStart; i < this.captureTop; i += 1) {
       const point = this.capturePositions[i];
       this.board[point] = opponent;
+      this.recordBoardChange(point);
     }
     this.stoneCount += capturedCount;
     this.captureTop = captureStart;
@@ -618,6 +625,19 @@ export class GogoPosition {
       moves.push(encodeMove(this.historyMoves[i], this.meta));
     }
     return `B${this.size}${moves.length > 0 ? ' ' + moves.join(' ') : ''}`;
+  }
+
+  /** A direct empty neighbor is enough to establish at least one liberty. */
+  private hasDirectLiberty(index: number): boolean {
+    const neighbors = this.meta.neighbors4;
+    const base = index * 4;
+    const board = this.board;
+    // The four entries are left, right, up and down. Off-board entries are -1;
+    // typed-array reads there return undefined, which cannot equal EMPTY.
+    return board[neighbors[base]] === EMPTY
+      || board[neighbors[base + 1]] === EMPTY
+      || board[neighbors[base + 2]] === EMPTY
+      || board[neighbors[base + 3]] === EMPTY;
   }
 
   private checkFiveFrom(index: number, color: Player): boolean {
@@ -685,14 +705,19 @@ export function decodeMove(move: string, size: SupportedSize): number {
   return y * size + x;
 }
 
-export function decodeGame(encoded: string): GogoPosition {
+export function decodeGame(encoded: string, setup?: GameSetup): GogoPosition {
   const parts = encoded.trim().split(/\s+/);
   const sizeToken = parts[0];
   if (!/^B(9|11|13)$/.test(sizeToken)) {
     throw new Error(`Invalid board size token: ${sizeToken}`);
   }
   const size = parseInt(sizeToken.slice(1), 10) as SupportedSize;
-  const position = new GogoPosition(size);
+  if (setup !== undefined && setup.rows.length !== size) {
+    throw new Error(`Setup board size ${setup.rows.length} does not match record size ${size}`);
+  }
+  const position = setup === undefined
+    ? new GogoPosition(size)
+    : GogoPosition.fromAscii(setup.rows, setup.toMove);
   for (let i = 1; i < parts.length; i += 1) {
     const moveStr = parts[i];
     const index = decodeMove(moveStr, size);

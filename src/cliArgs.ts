@@ -7,8 +7,8 @@ export function parseIntegerFlag(args: string[], index: number, flag: string): n
   if (rawValue === undefined) {
     throw new Error(`Missing value for ${flag}`);
   }
-  const value = Number.parseInt(rawValue, 10);
-  if (!Number.isFinite(value)) {
+  const value = Number(rawValue);
+  if (rawValue.trim() === '' || !Number.isInteger(value)) {
     throw new Error(`Invalid value for ${flag}: ${rawValue}`);
   }
   return value;

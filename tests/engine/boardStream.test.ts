@@ -6,9 +6,19 @@ import {
   streamUniqueBoards,
 } from '../../src/engine/boardStream';
 
-const UNIQUE_PLY3_TRANSLATION_AND_COLOR_COUNT = 2979;
+const UNIQUE_PLY2_TRANSLATION_AND_COLOR_COUNT = 44;
 
 describe('computePositionSymmetryKey', () => {
+  test('captured stones are absent from the symmetry key', () => {
+    const captured = decodeGame('B9 b1 a1 a2');
+    const remaining = GogoPosition.fromAscii([
+      '.X.......', 'X........', '.........', '.........', '.........',
+      '.........', '.........', '.........', '.........',
+    ]);
+    expect(captured.lastCapturedCount).toBe(1);
+    const options = { includeTranslationSymmetry: true, includeColorSymmetry: true };
+    expect(computePositionSymmetryKey(captured, options)).toBe(computePositionSymmetryKey(remaining, options));
+  });
   test('always folds rotation and reflection symmetries', () => {
     const cornerA = decodeGame('B9 a1');
     const cornerB = decodeGame('B9 i1');
@@ -222,12 +232,50 @@ describe('computePositionSymmetryKey', () => {
       includeColorSymmetry: false,
     });
 
-    expect(key).toBeTruthy();
-    expect(typeof key).toBe('string');
+    expect(key).toBe(computePositionSymmetryKey(GogoPosition.fromAscii(pos.toAscii().reverse()), {
+      includeTranslationSymmetry: true, includeColorSymmetry: false,
+    }));
+    const changed = pos.toAscii();
+    changed[0] = 'O' + changed[0].slice(1);
+    expect(key).not.toBe(computePositionSymmetryKey(GogoPosition.fromAscii(changed), {
+      includeTranslationSymmetry: true, includeColorSymmetry: false,
+    }));
   });
 });
 
 describe('streamUniqueBoards', () => {
+  test.each([0.999, 1, 1.001])('deadline accepts equality and stops immediately above it (%s ms)', elapsed => {
+    let calls = 0;
+    const boards: string[] = [];
+    const stats = streamUniqueBoards({
+      ply: 0, timeLimitMs: 1, now: () => calls++ === 0 ? 0 : elapsed,
+      includeTranslationSymmetry: false, includeColorSymmetry: false,
+    }, board => boards.push(board));
+    expect(boards).toEqual(elapsed > 1 ? [] : ['B9']);
+    expect(stats.truncatedByTime).toBe(elapsed > 1);
+  });
+
+  // Burnside's lemma gives these counts without using the stream traversal
+  // or its canonicalizer. Rotations/reflections act on colored stone sets;
+  // the two black stones at ply three are indistinguishable.
+  test.each([
+    [1, (81 + 3 + 4 * 9) / 8],
+    [2, (81 * 80 + 4 * 9 * 8) / 8],
+    [3, (81 * 80 * 79 / 2 + 40 + 4 * 9 * (28 + 36)) / 8],
+  ])('exhausts every distinct colored board at ply %s', { timeout: 10_000 }, (ply, expected) => {
+    let count = 0;
+    const stats = streamUniqueBoards({
+      ply, seed: 1, includeTranslationSymmetry: false, includeColorSymmetry: false,
+    }, (encoded) => {
+      expect(decodeGame(encoded).ply).toBe(ply);
+      count += 1;
+    });
+    expect(count).toBe(expected);
+    expect(stats.emitted).toBe(expected);
+    expect(stats.truncatedByAmount).toBe(false);
+    expect(stats.truncatedByTime).toBe(false);
+  });
+
   test('emits a centered representative when translation symmetry is enabled', () => {
     const boards: string[] = [];
 
@@ -308,10 +356,11 @@ describe('streamUniqueBoards', () => {
     expect(stats.prunedPrefixes).toBeGreaterThan(0);
   });
 
-  test('returns the known unique ply-three count with translation and color symmetry', { timeout: 10_000 }, () => {
+  // Exhaust a small space to verify the exact count; deeper traversal is bounded below.
+  test('returns the known unique ply-two count with translation and color symmetry', () => {
     const stats = streamUniqueBoards(
       {
-        ply: 3,
+        ply: 2,
         boardSize: 9,
         includeTranslationSymmetry: true,
         includeColorSymmetry: true,
@@ -321,14 +370,50 @@ describe('streamUniqueBoards', () => {
     );
 
     expect(stats.prunedPrefixes).toBeGreaterThan(0);
-    expect(stats.emitted).toBe(UNIQUE_PLY3_TRANSLATION_AND_COLOR_COUNT);
+    expect(stats.emitted).toBe(UNIQUE_PLY2_TRANSLATION_AND_COLOR_COUNT);
     expect(stats.exploredNodes).toBeGreaterThan(stats.emitted);
   });
 
-  test('stops once the time limit is reached', () => {
+  test('streams deeper prefixes with legal three-ply representative histories', () => {
     const boards: string[] = [];
-    let nowCall = 0;
-    const times = [0, 0, 2, 2, 2];
+    const stats = streamUniqueBoards({
+      ply: 3,
+      boardSize: 9,
+      includeTranslationSymmetry: true,
+      includeColorSymmetry: true,
+      maxBoards: 64,
+      seed: 1,
+    }, board => boards.push(board));
+    expect(boards).toHaveLength(64);
+    expect(stats.emitted).toBe(64);
+    expect(stats.truncatedByAmount).toBe(true);
+    expect(stats.exploredNodes).toBeGreaterThan(stats.emitted);
+    for (const board of boards) expect(decodeGame(board).ply).toBe(3);
+  });
+
+  test('a positive time budget allows a board to be emitted before expiry', () => {
+    const boards: string[] = [];
+    const stats = streamUniqueBoards({
+      ply: 1,
+      boardSize: 9,
+      maxBoards: 1,
+      timeLimitMs: 100,
+      now: () => 0,
+      seed: 3,
+      includeTranslationSymmetry: true,
+      includeColorSymmetry: true,
+    }, board => boards.push(board));
+
+    expect(boards).toHaveLength(1);
+    expect(decodeGame(boards[0]).ply).toBe(1);
+    expect(stats.emitted).toBe(1);
+    expect(stats.truncatedByTime).toBe(false);
+    expect(stats.truncatedByAmount).toBe(true);
+  });
+
+  test('stops emitting boards when the time budget expires after useful work', () => {
+    const boards: string[] = [];
+    let now = 0;
 
     const stats = streamUniqueBoards(
       {
@@ -337,17 +422,20 @@ describe('streamUniqueBoards', () => {
         includeTranslationSymmetry: true,
         includeColorSymmetry: true,
         timeLimitMs: 1,
-        now: () => times[nowCall++] ?? 2,
+        now: () => now,
         seed: 3,
       },
       (board) => {
         boards.push(board);
+        now = 2;
       },
     );
 
     expect(stats.truncatedByTime).toBe(true);
-    expect(stats.emitted).toBe(boards.length);
-    expect(boards.length).toBeLessThan(44);
+    expect(stats.truncatedByAmount).toBe(false);
+    expect(stats.emitted).toBe(1);
+    expect(boards).toHaveLength(1);
+    expect(decodeGame(boards[0]).ply).toBe(2);
   });
 
   test('supports a zero seed and a zero amount limit', () => {

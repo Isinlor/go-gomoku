@@ -154,3 +154,57 @@ test('a stale illegal heuristic winning reply leaves a loss unproven', () => {
   expect(position.hash).toBe(hash);
   expect(ai.lossProofMode).toBe(false);
 });
+
+test('loss proof reuses an independently verified opponent reply across root defenses', () => {
+  const position = GogoPosition.fromAscii(['.BBBB....', ...blank], WHITE);
+  const ai = proofAI(position);
+  const search = ai.searchDepths.bind(ai);
+  let discoveries = 0;
+  ai.searchDepths = (...args: any[]) => { discoveries++; return search(...args); };
+  expect(ai.proofSearchRoot(position, 2, -1)).toBe(-1_000_000_000 + 2);
+  expect(discoveries).toBeLessThanOrEqual(2);
+  expect(position.ply).toBe(0);
+  expect(ai.lossProofMode).toBe(false);
+});
+
+test('loss verification proves legal discovery hints before repeating child discovery', () => {
+  const position = GogoPosition.fromAscii(['.BBBB....', ...blank], WHITE);
+  const ai = proofAI(position);
+  ai.searchRoot(position, 2, -1);
+  const search = ai.searchDepths.bind(ai);
+  let discoveries = 0;
+  ai.searchDepths = (...args: any[]) => { discoveries++; return search(...args); };
+  expect(ai.proofSearchRoot(position, 2, -1)).toBe(-1_000_000_000 + 2);
+  expect(discoveries).toBe(0);
+  expect(position.ply).toBe(0);
+});
+
+test('a failed heuristic reply is tried only when the proof horizon permits it', () => {
+  const position = GogoPosition.fromAscii(['..BB.....', ...blank], WHITE);
+  const ai = proofAI(position);
+  position.play(80);
+  const childHash = position.hash;
+  const index = Number(childHash & ((1n << 18n) - 1n));
+  ai.ttHash[index] = childHash;
+  ai.ttBestMove[index] = 4;
+  position.undo();
+  const prove = ai.proveAttackMove.bind(ai);
+  const attempts: number[] = [];
+  ai.proveAttackMove = (searched: GogoPosition, move: number, depth: number) => {
+    if (searched.hash === childHash && move === 4) attempts.push(depth);
+    return prove(searched, move, depth);
+  };
+  expect(ai.proofSearchRoot(position, 4, 80)).toBe(0);
+  expect(attempts).toEqual([2]);
+  expect(position.ply).toBe(0);
+});
+
+test('loss discovery remains available when the concrete reply prover omits a winning witness', () => {
+  const position = GogoPosition.fromAscii(['.BBBB....', ...blank], WHITE);
+  const ai = proofAI(position);
+  const immediate = ai.findImmediateWin.bind(ai);
+  ai.findImmediateWin = (searched: GogoPosition) => searched.ply === 1 ? -1 : immediate(searched);
+  expect(ai.proofSearchRoot(position, 2, -1)).toBe(-1_000_000_000 + 2);
+  expect(position.ply).toBe(0);
+  expect(ai.lossProofMode).toBe(false);
+});

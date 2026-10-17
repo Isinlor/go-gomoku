@@ -1,3 +1,5 @@
+# https://isinlor.github.io/go-gomoku
+
 # GoGomoku engine + browser AI
 
 This package implements a browser-safe GoGomoku core with a Vue-based UI:
@@ -38,26 +40,25 @@ npm run coverage
 
 The coverage command is configured with 100% thresholds for lines, branches, and functions.
 
-The Puzzles workflow also compares performance against `master` on the same
-runner. It alternates master and candidate runs, measuring every original and
-generated puzzle three times per version. Each puzzle passes when its fastest
-candidate time is no slower than its slowest master time (equality passes).
-The Node script loads both engines directly from TypeScript source and measures
-only `findBestMove`; board decoding, AI construction, and solution checks are
-outside the timed section. Both engines solve the candidate's puzzle definitions
-with identical search options and time budgets.
-Each puzzle gets up to five comparisons, each with three fresh runs per
-version. Retries happen immediately for that puzzle. A puzzle that passes any
-comparison is validated and never rerun. CI fails if a puzzle still regresses
-after its fifth comparison. Incorrect solutions or invalid timings fail
-immediately.
-
 To run locally, use Node 24 and run from the new version's checkout. The benchmark
 needs no installed dependencies or test runner:
 
 ```bash
 npm run test:performance -- /path/to/master-checkout
 ```
+
+Run locally with Node 24 from the candidate checkout:
+
+```bash
+npm run test:strength -- /path/to/master-checkout --time-ms 5 --alpha 0.05
+```
+
+The strength test plays all 100 openings in `scripts/strength-openings.json` in
+random order with colors swapped (200 games per attempt). The pool contains 
+50 Black and 50 White self-play wins; The CLI defaults to 5 ms per move and alpha 0.05; 
+`--time-ms` and `--alpha` configure the shared move budget and gain significance.
+Game results report strength gains when symmetric gain evidence reaches its threshold,
+with a one-sided alpha bound across at most five attempts (threshold `5 / alpha`).
 
 ## Development
 

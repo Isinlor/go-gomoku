@@ -92,12 +92,23 @@ describe('GameToolbar', () => {
     expect(wrapper.emitted('update:blackTimeLimit')![0]).toEqual([150]);
   });
 
-  test('emits update:blackTimeLimit clamps to min 1', async () => {
+  test('uses the default time limit when black input is zero', async () => {
     const wrapper = mount(GameToolbar, { props: defaultProps });
     const input = wrapper.findAll('input[type="number"]')[0];
     await input.setValue('0');
     await input.trigger('change');
     expect(wrapper.emitted('update:blackTimeLimit')![0]).toEqual([75]);
+  });
+
+  test.each([0, 1])('time limit for player %s handles values below, at, and above the minimum', async player => {
+    const wrapper = mount(GameToolbar, { props: defaultProps });
+    const input = wrapper.findAll('input[type="number"]')[player];
+    const event = player === 0 ? 'update:blackTimeLimit' : 'update:whiteTimeLimit';
+    for (const [value, expected] of [['-1', 1], ['1', 1], ['2', 2], ['0', 75], ['', 75]]) {
+      await input.setValue(value);
+      await input.trigger('change');
+      expect(wrapper.emitted(event)!.at(-1)).toEqual([expected]);
+    }
   });
 
   test('emits update:whiteTimeLimit on change', async () => {

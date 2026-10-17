@@ -4,3 +4,5 @@ export * from './puzzles';
 export * from './uniqueness';
 export * from './boardStream';
 export * from './puzzleGenerator';
+export * from './puzzleSimilarity';
+export * from './gamePositions';

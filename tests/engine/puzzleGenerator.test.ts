@@ -1,7 +1,10 @@
 import { test, expect } from 'vitest';
+import { hasDuplicateSimilarity, puzzleSimilarities } from '../../src/engine/puzzleSimilarity';
+import { completeForcedWin } from '../helpers/forcedWinOracle';
 
 import {
   ForcedWinSearcher,
+  PuzzleWindowEvaluation,
   heuristicMoveScore,
   heuristicBestMove,
   isGameHistoryClean,
@@ -23,6 +26,59 @@ import {
   decodeGame,
   decodeMove,
 } from '../../src/engine/gogomoku';
+
+// Full cache parity sweeps compare both players at every point through undo and captures.
+test.each([9, 11, 13] as const)('cached puzzle windows on size %s match original calculations across captures and undo', { tags: ['slow'] }, (size) => {
+  const evaluation = new PuzzleWindowEvaluation(size * size);
+  const rng = new LCG(20261019);
+  const positions = [
+    decodeGame(`B${size} b1 a1 a2`),
+    playRandomGame(size, rng, 8),
+    playRandomGame(size, rng, 8),
+    GogoPosition.fromAscii(Array.from({ length: size }, (_, y) => (
+      y === 0 ? 'XXXXX' + '.'.repeat(size - 5)
+        : y === 2 ? '.OOOO' + '.'.repeat(size - 5) : '.'.repeat(size)
+    ))),
+  ];
+  for (const position of positions) {
+    do {
+      evaluation.sync(position);
+      for (const attacker of [BLACK, WHITE] as const) {
+        const defender = attacker === BLACK ? WHITE : BLACK;
+        let attackerThreats = 0;
+        let defenderThreats = 0;
+        let maximum = 0;
+        for (let wi = 0; wi < position.meta.windowCount; wi += 1) {
+          let ours = 0;
+          let theirs = 0;
+          for (let step = 0; step < 5; step += 1) {
+            const color = position.board[position.meta.windows[wi * 5 + step]];
+            ours += color === attacker ? 1 : 0;
+            theirs += color === defender ? 1 : 0;
+          }
+          attackerThreats += ours === 4 && theirs === 0 ? 1 : 0;
+          defenderThreats += theirs === 4 && ours === 0 ? 1 : 0;
+          maximum = Math.max(maximum, ours);
+        }
+        expect(evaluation.threats(attacker)).toEqual([attackerThreats, defenderThreats, maximum]);
+        const saved = position.toMove;
+        position.toMove = attacker;
+        const actual: number[] = [];
+        const expected: number[] = [];
+        for (let point = 0; point < position.area; point += 1) {
+          if (position.board[point] === EMPTY) {
+            actual.push(evaluation.score(point, attacker));
+            expected.push(heuristicMoveScore(position, point));
+          }
+        }
+        expect(actual).toEqual(expected);
+        position.toMove = saved;
+      }
+      // Repeated synchronization must preserve all cached values.
+      evaluation.sync(position);
+    } while (position.undo());
+  }
+});
 
 // ---------------------------------------------------------------------------
 // LCG tests
@@ -48,6 +104,153 @@ test('LCG nextInt produces values in range', () => {
 // ---------------------------------------------------------------------------
 // ForcedWinSearcher tests
 // ---------------------------------------------------------------------------
+
+test.each([true, false])('attacker can capture a single counter-threat instead of blocking it (cache=%s)', (cache) => {
+  const encoded = 'B9 b2 a1 c3 b3 d4 c2 e5 d3 i1 c5 i3 c6 i5 c7 i7';
+  const pos = decodeGame(encoded);
+  const before = pos.toAscii();
+  const hash = pos.hash;
+  const searcher = new ForcedWinSearcher(81, 4, cache);
+  const capture = decodeMove('c4', 9);
+  expect(pos.toMove).toBe(WHITE);
+  expect(pos.scanGroup(decodeMove('c3', 9), BLACK)).toBe(1);
+  expect(completeForcedWin(pos, WHITE, 3)).toBe(true);
+  expect(searcher.hasForcedWin(pos, WHITE, 3)).toBe(true);
+  expect(searcher.forcedWinDepthForMove(pos, capture, 3)).toBe(3);
+  expect(searcher.hasForcedWin(pos, WHITE, 1)).toBe(false);
+  expect(pos.toAscii()).toEqual(before);
+  expect(pos.hash).toBe(hash);
+  expect(pos.encodeGame()).toBe(encoded);
+
+  // Move the surrounding d3 stone to a9: c3 now has two liberties, and c4
+  // no longer captures it. Neither blocking nor capturing can force a win.
+  const extraLiberty = decodeGame(encoded.replace('e5 d3', 'e5 a9'));
+  expect(extraLiberty.scanGroup(decodeMove('c3', 9), BLACK)).toBe(2);
+  expect(completeForcedWin(extraLiberty, WHITE, 3)).toBe(false);
+  expect(searcher.hasForcedWin(extraLiberty, WHITE, 3)).toBe(false);
+  expect(searcher.forcedWinDepthForMove(extraLiberty, capture, 3)).toBe(-1);
+});
+
+test.each([true, false])('shared completion cells are not double threats (cache=%s)', { tags: ['slow'] }, (cache) => {
+  // Certificate A: g5 creates two windows, both completed only at e5.
+  const pos = GogoPosition.fromAscii([
+    '.........', '.........', '.........', '.........', '.XXX.X...',
+    '.........', '.........', '.........', '.........',
+  ], BLACK);
+  const searcher = new ForcedWinSearcher(81, 8, cache);
+  const board = pos.board.slice();
+  expect(searcher.forcedWinDepthForMove(pos, decodeMove('g5', 9), 7)).toBe(-1);
+  expect(pos.board).toEqual(board);
+  // The actual immediate win must remain available.
+  expect(searcher.forcedWinDepthForMove(pos, decodeMove('e5', 9), 7)).toBe(1);
+  expect(pos.play(decodeMove('g5', 9))).toBe(true);
+  expect(searcher.hasForcedWin(pos, BLACK, 2)).toBe(false);
+  expect(searcher.hasForcedWin(pos, BLACK, 6)).toBe(false);
+  expect(pos.play(decodeMove('e5', 9))).toBe(true);
+  expect(searcher.hasForcedWin(pos, BLACK, 5)).toBe(false);
+});
+
+test.each([BLACK, WHITE] as const)('overlapping four-stone windows can be blocked for player %s', (attacker) => {
+  for (const pattern of ['.XXX.XX..', '..XX.XXX.']) {
+    for (const vertical of [false, true]) {
+      const rows = Array.from({ length: 9 }, (_, y) => vertical
+        ? '....' + pattern[y] + '....'
+        : y === 4 ? pattern : '.........');
+      const pos = GogoPosition.fromAscii(rows.map((row) => attacker === BLACK ? row : row.replaceAll('X', 'O')),
+        attacker === BLACK ? WHITE : BLACK);
+      const searcher = new ForcedWinSearcher(81, 4);
+      expect(completeForcedWin(pos, attacker, 2)).toBe(false);
+      expect(searcher.hasForcedWin(pos, attacker, 2)).toBe(false);
+    }
+  }
+});
+
+test('shared completion remains blockable after an illegal defender winning move', () => {
+  // White's only completion e1 is forbidden by ko, so search reaches the
+  // second double-threat shortcut after attempting defender winning moves.
+  for (const [rank, forced] of [['.XXX.XX..', false], ['..XXXX...', true]] as const) {
+    const pos = GogoPosition.fromAscii([
+      'OOOO.....', '.........', '.........', '.........', rank,
+      '.........', '.........', '.........', '.........',
+    ], WHITE);
+    pos.koPoint = decodeMove('e1', 9);
+    const searcher = new ForcedWinSearcher(81, 4);
+    expect(completeForcedWin(pos, BLACK, 2)).toBe(forced);
+    expect(searcher.hasForcedWin(pos, BLACK, 2)).toBe(forced);
+    expect(pos.koPoint).toBe(decodeMove('e1', 9));
+    expect(pos.toMove).toBe(WHITE);
+  }
+});
+
+test.each([true, false])('legal-game shared-gap refutation invalidates the claimed five-ply win (cache=%s)', (cache) => {
+  // Certificate B, replayed entirely through legal moves.
+  const encoded = 'B9 e5 e2 d2 a4 h6 e3 c6 c4 c9 f1 b5 c3 d4 b9 d3 d1 g6 f4 h5 d5';
+  const pos = decodeGame(encoded);
+  const searcher = new ForcedWinSearcher(81, 8, cache);
+  expect(searcher.forcedWinDepthForMove(pos, decodeMove('d6', 9), 5)).toBe(-1);
+  expect(pos.encodeGame()).toBe(encoded);
+  expect(pos.play(decodeMove('d6', 9))).toBe(true);
+  expect(searcher.hasForcedWin(pos, BLACK, 4)).toBe(false);
+  expect(pos.play(decodeMove('c5', 9))).toBe(true);
+  expect(searcher.forcedWinDepthForMove(pos, decodeMove('e6', 9), 3)).toBe(-1);
+  expect(pos.play(decodeMove('e6', 9))).toBe(true);
+  expect(searcher.hasForcedWin(pos, BLACK, 2)).toBe(false);
+  expect(pos.play(decodeMove('f6', 9))).toBe(true);
+  expect(searcher.hasForcedWin(pos, BLACK, 1)).toBe(false);
+});
+
+test('reuses completed searches without changing forced-win results', () => {
+  const pos = decodeGame('B9 c5 e3 d5 e4 f5 e6');
+  const searcher = new ForcedWinSearcher(81, 6);
+  expect(searcher.hasForcedWin(pos, BLACK, 3)).toBe(true);
+  const firstNodes = searcher.nodesSearched;
+  expect(firstNodes).toBeGreaterThan(1);
+  expect(searcher.hasForcedWin(pos, BLACK, 3)).toBe(true);
+  expect(searcher.nodesSearched).toBeLessThan(firstNodes);
+  expect(pos.encodeGame()).toBe('B9 c5 e3 d5 e4 f5 e6');
+});
+
+test('does not expand positions that need more attacking stones than remaining turns', () => {
+  const pos = decodeGame('B9 e5 a1');
+  const searcher = new ForcedWinSearcher(81, 6);
+  expect(searcher.hasForcedWin(pos, BLACK, 3)).toBe(false);
+  expect(searcher.nodesSearched).toBe(1);
+  expect(searcher.hasForcedWin(pos, WHITE, 4)).toBe(false);
+  expect(searcher.nodesSearched).toBe(1);
+});
+
+test('cached and uncached searches agree across horizons, sides, and ko restrictions', () => {
+  const cached = new ForcedWinSearcher(81, 6);
+  const uncached = new ForcedWinSearcher(81, 6, false);
+  const pos = decodeGame('B9 c5 e3 d5 e4 f5 e6');
+  const encoded = pos.encodeGame();
+  for (const ko of [-1, pos.index(4, 4)]) {
+    pos.koPoint = ko;
+    for (const toMove of [BLACK, WHITE] as const) {
+      pos.toMove = toMove;
+      for (const attacker of [BLACK, WHITE] as const) {
+        for (const horizon of [1, 2, 3, 4]) {
+          expect(cached.hasForcedWin(pos, attacker, horizon))
+            .toBe(uncached.hasForcedWin(pos, attacker, horizon));
+          expect(pos.encodeGame()).toBe(encoded);
+          expect(pos.toMove).toBe(toMove);
+          expect(pos.koPoint).toBe(ko);
+        }
+      }
+    }
+  }
+});
+
+test('hash collisions cannot reuse a proof for a different board', () => {
+  const winning = decodeGame('B9 c5 e3 d5 e4 f5 e6');
+  const losing = decodeGame('B9 e5 a1');
+  winning.hash = 0n;
+  losing.hash = 0n;
+  const searcher = new ForcedWinSearcher(81, 6);
+  expect(searcher.hasForcedWin(winning, BLACK, 3)).toBe(true);
+  expect(searcher.hasForcedWin(losing, BLACK, 3)).toBe(false);
+  expect(searcher.hasForcedWin(winning, BLACK, 3)).toBe(true);
+});
 
 test('hasForcedWin detects immediate win (1 ply)', () => {
   // Black has 4 in a row, one move to win
@@ -146,6 +349,22 @@ test('forcedWinDepthForMove returns 1 for immediate win', () => {
   expect(searcher.forcedWinDepthForMove(pos, f5, 3)).toBe(1);
 });
 
+test.each([-1, 0, 1, 2])('move proofs respect the minimum one-ply budget (%s)', maxPly => {
+  const pos = GogoPosition.fromAscii([
+    '.XXXX....', '.........', '.........', '.........', '.........',
+    '.........', '.........', '.........', '.........',
+  ], BLACK);
+  const searcher = new ForcedWinSearcher(81, 4);
+  const win = decodeMove('f1', 9);
+  const before = pos.toAscii();
+  const hash = pos.hash;
+  expect(searcher.forcedWinDepthForMove(pos, win, maxPly)).toBe(maxPly < 1 ? -1 : 1);
+  expect(searcher.hasForcedWinAfterMove(pos, win, maxPly)).toBe(maxPly >= 1);
+  expect(pos.toAscii()).toEqual(before);
+  expect(pos.hash).toBe(hash);
+  expect(pos.ply).toBe(0);
+});
+
 test('forcedWinDepthForMove returns -1 for illegal move', () => {
   const pos = GogoPosition.fromAscii([
     '.........',
@@ -201,12 +420,17 @@ test('heuristicBestMove returns a valid move on a fresh board', () => {
 // ---------------------------------------------------------------------------
 
 test('isGameHistoryClean accepts clean game history', () => {
-  // Simple game with no forced wins at any point
+  // Simple game with no forced wins at any point.
   const pos = decodeGame('B9 e5 d5 e4 d4 e3');
   const searcher = new ForcedWinSearcher(81, 6);
-  // This should have a clean history (or detect the forced win was played)
-  const result = isGameHistoryClean(pos, searcher);
-  expect(typeof result).toBe('boolean');
+  expect(isGameHistoryClean(pos, searcher)).toBe(true);
+});
+
+test('clean history accepts the forcing move and rejects a quiet move from the same winning position', () => {
+  const prefix = 'B9 c5 e3 d5 e4 f5 e6';
+  const searcher = new ForcedWinSearcher(81, 6);
+  expect(isGameHistoryClean(decodeGame(prefix + ' e5'), searcher)).toBe(true);
+  expect(isGameHistoryClean(decodeGame(prefix + ' a1'), searcher)).toBe(false);
 });
 
 test('isGameHistoryClean returns true for empty position', () => {
@@ -241,20 +465,30 @@ test('validatePuzzlePosition validates known puzzle position', () => {
   const pos = decodeGame('B9 c5 e3 d5 e4 f5 e6');
   const searcher = new ForcedWinSearcher(81, 10);
   const result = validatePuzzlePosition(pos, BEGINNER, searcher);
-  // This might or might not pass all criteria (depends on history cleanliness
-  // and not-obvious check), but should at least not crash
-  if (result !== null) {
-    expect(result.depth).toBe(3);
-    expect(result.solution).toBe('e5');
-  }
+  // This hand-crafted position fails the generator's "not obvious" criterion:
+  // the static heuristic already selects its winning move.
+  expect(heuristicBestMove(pos)).toBe(decodeMove('e5', 9));
+  expect(result).toBeNull();
 });
 
-test('validatePuzzlePosition returns null when no open-three exists', () => {
+test('validator accepts a non-obvious unique win and rejects the same position at a shorter required depth', { tags: ['slow'] }, () => {
+  const encoded = 'B9 e5 e4 b6 e7 c4 f7 c7 f5 d7 c3 a9 d3 b1';
+  const pos = decodeGame(encoded);
+  const searcher = new ForcedWinSearcher(81, 8);
+  expect(validatePuzzlePosition(pos, BEGINNER, searcher)).toMatchObject({
+    encoded, solution: 'g6', depth: 3, threshold: 2,
+  });
+  expect(validatePuzzlePosition(pos, { ...BEGINNER, n: 1 }, searcher)).toBeNull();
+  expect(pos.encodeGame()).toBe(encoded);
+});
+
+test('validatePuzzlePosition searches for forced wins even when no open-three exists', () => {
   const pos = new GogoPosition(9);
   pos.play(pos.index(4, 4));
   pos.play(pos.index(0, 0));
   const searcher = new ForcedWinSearcher(81, 8);
   expect(validatePuzzlePosition(pos, BEGINNER, searcher)).toBeNull();
+  expect(searcher.nodesSearched).toBeGreaterThan(0);
 });
 
 // ---------------------------------------------------------------------------
@@ -279,21 +513,42 @@ test('playRandomGame with different seeds produces different games', () => {
 // generatePuzzles integration test
 // ---------------------------------------------------------------------------
 
-test('generatePuzzles finds beginner puzzles', { timeout: 60_000 }, () => {
-  const { puzzles, stats } = generatePuzzles(BEGINNER, 2, {
-    seed: 42,
-    maxGames: 500,
-  });
+// Three short seeded games exercise real validation and duplicate rejection
+// without searching long, dense positions unrelated to generator orchestration.
+const fastGeneratorOptions = { seed: 2826, maxGames: 3, maxMovesPerGame: 15, minStones: 12 };
+
+test('generatePuzzles finds beginner puzzles', { tags: ['slow'] }, () => {
+  const { puzzles, stats } = generatePuzzles(BEGINNER, 2, fastGeneratorOptions);
   expect(puzzles.length).toBe(2);
   expect(stats.puzzlesFound).toBe(2);
   expect(stats.gamesPlayed).toBeGreaterThan(0);
   expect(stats.positionsChecked).toBeGreaterThan(0);
+
+  const similarities = puzzleSimilarities(puzzles[0], puzzles[1]);
+  expect(similarities).not.toBeNull();
+  expect(hasDuplicateSimilarity(similarities!)).toBe(false);
 
   for (const p of puzzles) {
     expect(p.depth).toBe(3);
     expect(p.threshold).toBe(2);
     expect(p.solution.length).toBeGreaterThanOrEqual(2);
   }
+});
+
+test('generatePuzzles rejects an existing puzzle and returns the next distinct one', { tags: ['slow'] }, () => {
+  const existing = {
+    encoded: 'B9 e5 e4 b6 e7 c4 f7 c7 f5 d7 c3 a9 d3 b1',
+    solution: 'g6', depth: 3, threshold: 2,
+  };
+  const { puzzles } = generatePuzzles(BEGINNER, 1, {
+    ...fastGeneratorOptions,
+    existingPuzzles: [existing],
+  });
+  expect(puzzles).toHaveLength(1);
+  expect(puzzles[0]).toMatchObject({
+    encoded: 'B9 e5 f4 d2 d6 f8 h4 e6 a2 e9 e7 d4 g2 g9 f6 d5',
+    solution: 'g5', depth: 3, threshold: 2,
+  });
 });
 
 // ---------------------------------------------------------------------------
