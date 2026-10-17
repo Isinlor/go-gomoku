@@ -105,3 +105,16 @@ test('baseline timings allow incorrect moves and proof results while candidate c
   expect(() => measurePuzzle(engine, wrongSolution)).toThrow('solve');
   expect(() => measurePuzzle(engine, wrongProof)).toThrow('forcedLoss');
 });
+
+test('explicit allowed moves combine with other result conditions and explain failures', () => {
+  const move = engine.decodeMove(puzzle.solution, engine.decodeGame(puzzle.encoded).size);
+  const valid = { ...gamePosition, expectedResult: { allowedMoves: [move, 0], forcedWin: true } };
+  const invalid = { ...gamePosition, expectedResult: { allowedMoves: [79, 80] } };
+  expect(measurePuzzle(engine, valid)).toBeGreaterThanOrEqual(0);
+  expect(measurePuzzle(engine, valid, undefined, false)).toMatchObject({ solved: true });
+  expect(() => measurePuzzle(engine, invalid)).toThrow(`move ${puzzle.solution} was selected but allowed are h9, i9`);
+  expect(measurePuzzle(engine, invalid, undefined, false)).toMatchObject({ solved: false });
+  const wrongProof = { ...valid, expectedResult: { ...valid.expectedResult, forcedLoss: true } };
+  expect(() => measurePuzzle(engine, wrongProof)).toThrow('forcedLoss');
+  expect(measurePuzzle(engine, wrongProof, undefined, false)).toMatchObject({ solved: false });
+});
