@@ -479,7 +479,8 @@ export class GogoAI {
           shallowProofTried = true;
           const forcing = this.forcingQuiescence;
           if (this.tryEarlyWinProof(position, state, SHALLOW_PROOF_NODES_PER_DEPTH * this.maxDepth)) break;
-          if (forcing && !this.forcingQuiescence && depth === 1) shallowProofTried = false;
+          // A changed evaluation gets its own shallow-proof opportunity.
+          if (forcing && !this.forcingQuiescence) shallowProofTried = false;
         }
         // A strong tactical candidate often appears before discovery finds its
         // mate score. Try a bounded independent proof at the first promising

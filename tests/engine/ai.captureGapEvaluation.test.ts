@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { BLACK, WHITE, GogoAI, GogoPosition, type Player } from '../../src/engine';
+import { BLACK, WHITE, GogoAI, GogoPosition, decodeGame, type Player } from '../../src/engine';
 
 function setup(rows: string[], player: Player = BLACK) {
   const position = GogoPosition.fromAscii(rows, player);
@@ -79,5 +79,23 @@ test('a failed proof broadens discovery with a second evaluation and restores ga
   ai.findBestMove(position, 0);
   expect(ai.forcingQuiescence).toBe(true);
   expect(ai.evaluate(position)).toBeCloseTo(1267.6, 8);
+  expect(position.encodeGame()).toBe(before);
+});
+
+test('a failed depth-two gap probe leaves depth three available for the broader evaluation', { tags: ['slow'] }, () => {
+  const position = decodeGame('B9 b9 g9');
+  const rootPly = position.ply;
+  const ai = new GogoAI({ maxDepth: 30, quiescenceDepth: 4, now: () => 0 }) as any;
+  const root = ai.searchRoot.bind(ai);
+  const depths: number[] = [];
+  ai.searchRoot = (...args: any[]) => {
+    if (args[0] === position && position.ply === rootPly) depths.push(args[1]);
+    return root(...args);
+  };
+  const before = position.encodeGame();
+  const result = ai.findBestMove(position, 1250);
+  expect(result.forcedWin).toBe(true);
+  expect(Math.max(...depths)).toBe(3);
+  expect(result.nodes).toBeLessThan(30_000);
   expect(position.encodeGame()).toBe(before);
 });
