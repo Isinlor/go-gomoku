@@ -1084,6 +1084,8 @@ export interface GeneratorOptions {
   readonly maxMovesPerGame?: number;
   readonly minStones?: number;
   readonly maxGames?: number;
+  /** When set, only validate positions at exactly this ply count. */
+  readonly targetPly?: number;
   /** Previously stored puzzles to include in duplicate detection. */
   readonly existingPuzzles?: readonly ComparablePuzzle[];
   readonly onProgress?: (stats: GeneratorStats) => void;
@@ -1125,6 +1127,14 @@ export function generatePuzzles(
     for (let ply = 0; ply < pos.ply && puzzles.length < count; ply += 1) {
       const move = pos.getMoveAt(ply);
       replay.play(move);
+
+      // When targetPly is set, only validate the position at that exact ply.
+      if (options.targetPly !== undefined && replay.ply !== options.targetPly) {
+        if (replay.ply > options.targetPly) {
+          break;
+        }
+        continue;
+      }
 
       if (replay.stoneCount < minStones) {
         continue;
