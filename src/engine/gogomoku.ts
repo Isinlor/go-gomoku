@@ -24,6 +24,7 @@ export interface BoardMeta {
   readonly ys: Uint8Array;
   readonly near2Offsets: Uint16Array;
   readonly near2: Int16Array;
+  readonly near2Masks: Uint32Array;
   readonly windows: Int16Array;
   readonly windowCount: number;
   readonly windowsByPointOffsets: Uint16Array;
@@ -148,6 +149,13 @@ function createBoardMeta(size: SupportedSize): BoardMeta {
     windowsByPointOffsets[i + 1] = windowsByPointOffsets[i] + windowsBucket[i].length;
   }
   const near2 = Int16Array.from(near2Buckets.flat());
+  const near2Words = Math.ceil(area / 32);
+  const near2Masks = new Uint32Array(area * near2Words);
+  for (let point = 0; point < area; point += 1) {
+    for (const neighbor of near2Buckets[point]) {
+      near2Masks[point * near2Words + (neighbor >>> 5)] |= 1 << (neighbor & 31);
+    }
+  }
   const windowsByPoint = Int16Array.from(windowsBucket.flat());
 
   let rngState64 = (0x9E3779B97F4A7C15n ^ BigInt(size * 0x12345)) & UINT64_MASK;
@@ -176,6 +184,7 @@ function createBoardMeta(size: SupportedSize): BoardMeta {
     ys,
     near2Offsets,
     near2,
+    near2Masks,
     windows: Int16Array.from(windows),
     windowCount,
     windowsByPointOffsets,

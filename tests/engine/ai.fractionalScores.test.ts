@@ -82,7 +82,10 @@ test.each([BLACK, WHITE])('quiescence fractional bounds preserve cutoff threshol
   const alpha = lower ? -Infinity : expected + 1;
   const beta = lower ? expected - 1 : Infinity;
   expect(ai.quiescence(position, alpha, beta, 0, 0)).toBe(expected);
-  const index = Number(position.hash & BigInt(ai.qScore.length - 1));
+  // Shallow and deep discovery use different cache capacities. Locate the
+  // actual entry so this checks its fractional bound rather than its layout.
+  const index = ai.qHash.findIndex((hash: bigint) => hash === position.hash);
+  expect(index).toBeGreaterThanOrEqual(0);
   expect(ai.qFlag[index]).toBe(lower ? 2 : 3);
   expect(ai.qScore[index]).toBe(expected);
   expect(ai.quiescence(position, lower ? -Infinity : threshold, lower ? threshold : Infinity, 0, 0)).toBe(expected);

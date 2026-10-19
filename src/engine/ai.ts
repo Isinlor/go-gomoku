@@ -89,6 +89,8 @@ const CAPTURE_BONUS = 5_000;
 const ESCAPE_BONUS = 3_500;
 const NO_SCORE = Number.NEGATIVE_INFINITY;
 const MAX_CANDIDATES = 12;
+// Preserve shallow discovery and its proof candidates before pruning more deeply.
+const SELECTIVE_SEARCH_MIN_DEPTH = 6;
 const SHALLOW_PROOF_NODES_PER_DEPTH = 4096;
 const FORCING_PROOF_MAX_DEPTH = 9;
 const LOSS_PROOF_NODES_PER_DEPTH = 16384;
@@ -129,7 +131,8 @@ WINDOW_WINNING_MASK[4] = -1;
 // Transposition table constants
 const TT_SIZE_BITS = 18;
 const TT_SIZE = 1 << TT_SIZE_BITS;
-const QTT_SIZE = 1 << 12;
+const QTT_SIZE_BITS = 16;
+const QTT_SIZE = 1 << QTT_SIZE_BITS;
 const TT_NONE = 0;
 const TT_EXACT = 1;
 const TT_LOWERBOUND = 2;
@@ -200,6 +203,7 @@ export class GogoAI {
   private verifiedWinDepth = 0;
   private proofNodeLimit = Infinity;
   private partialRoot = { move: -1, score: -WIN_SCORE, depth: 0 };
+  private selectiveSearch = false;
 
   // Transposition table
   private qHash = new BigUint64Array(QTT_SIZE);
@@ -781,6 +785,8 @@ export class GogoAI {
 
   private searchRoot(position: GogoPosition, depth: number, hintMove: number): SearchResult {
     this.checkTimeNow();
+    // Sparse openings need candidate diversity before local ordering is reliable.
+    this.selectiveSearch = depth >= SELECTIVE_SEARCH_MIN_DEPTH && position.stoneCount >= 3;
     const beta = WIN_SCORE;
     const moves = this.moveBuffers[0];
     const scores = this.scoreBuffers[0];
@@ -883,6 +889,21 @@ export class GogoAI {
       }
     }
 
+    // A shallow node with a comfortable static surplus rarely needs a full
+    // quiet subtree. Keep mate scores and either side's immediate threats on
+    // the ordinary search path; exact searches never use this heuristic.
+    if (!this.proofMode && this.selectiveSearch && depth <= 2
+      && Math.abs(beta) < WIN_SCORE - this.maxPly
+      && this.evaluate(position) >= beta + 240 * depth
+      && this.findThreatResponses(position, ply) < 0 && this.findImmediateWin(position) === -1) {
+      this.ttHash[ttIndex] = hash;
+      this.ttScore[ttIndex] = beta;
+      this.ttDepth[ttIndex] = depth;
+      this.ttFlag[ttIndex] = TT_LOWERBOUND;
+      this.ttBestMove[ttIndex] = ttBest;
+      return beta;
+    }
+
     // Null move pruning: if we give the opponent a free move and they still
     // can't beat beta, the position is likely good enough to prune.
     // Skipped in proof mode because NMP is unsound (can miss forced wins).
@@ -936,6 +957,14 @@ export class GogoAI {
       }
       for (let i = 0; i < count; i += 1) {
         const move = moves[i];
+        // Scout tails are unlikely to improve alpha after the leading quiet
+        // moves fail. Always retain captures, escapes and line threats, and
+        // never apply this selective pruning to full-window or exact searches.
+        if (!this.proofMode && this.selectiveSearch && depth <= 2 && legalCount >= 3 + depth * depth
+          && beta - alpha <= 1 && responses < 0 && scores[i] < ESCAPE_BONUS) {
+          wasCapped = true;
+          continue;
+        }
         if (!position.play(move)) {
           continue;
         }
@@ -1005,7 +1034,10 @@ export class GogoAI {
     let searchDepth = depth - 1;
     // LMR is heuristic and remains disabled in exact numeric searches.
     if (!root && !this.proofMode && depth >= 3 && legalCount > 3) {
-      searchDepth = Math.max(1, searchDepth - 1);
+      const reduction = this.selectiveSearch
+        ? 1 + Math.floor(Math.log(depth) * Math.log(legalCount) / 2)
+        : 1;
+      searchDepth = Math.max(1, searchDepth - reduction);
     }
     let score = -this.searchWithNullMove(position, searchDepth, -alpha - 1, -alpha, ply);
     if (searchDepth < depth - 1 && score > alpha) {
@@ -1024,7 +1056,9 @@ export class GogoAI {
     }
 
     const hash = position.hash;
-    const index = Number(BigInt.asUintN(12, hash));
+    const index = this.selectiveSearch
+      ? Number(BigInt.asUintN(QTT_SIZE_BITS, hash))
+      : Number(BigInt.asUintN(12, hash));
     const searchDepth = Math.min(remainingDepth, this.maxPly - ply);
     // Forcing discovery and broadened discovery can have different values.
     // Tag their entries instead of discarding quiescence caches.
@@ -1287,15 +1321,17 @@ export class GogoAI {
       return 1;
     }
 
-    const board = position.board;
     const meta = position.meta;
-    const near2 = meta.near2;
-    const near2Offsets = meta.near2Offsets;
+    const near2Masks = meta.near2Masks;
     if (tacticalOnly) {
       return this.generateTacticalResponses(position, moves, scores, hintMove, ply);
     }
     this.beginPatternPass(position);
     this.candidateEpoch += 1;
+    const seen = this.tacticalCandidates;
+    const words = this.occupiedPoints.length;
+    seen.set(this.occupiedPoints);
+    if (position.koPoint !== -1) seen[position.koPoint >>> 5] |= 1 << (position.koPoint & 31);
     let count = 0;
 
     for (let word = 0; word < this.occupiedPoints.length; word += 1) {
@@ -1304,19 +1340,19 @@ export class GogoAI {
         const bit = bits & -bits;
         bits ^= bit;
         const point = word * 32 + 31 - Math.clz32(bit);
-        for (let cursor = near2Offsets[point]; cursor < near2Offsets[point + 1]; cursor += 1) {
-          const move = near2[cursor];
-          if (board[move] !== EMPTY || move === position.koPoint || this.candidateMarks[move] === this.candidateEpoch) {
-            continue;
+        for (let nearbyWord = 0; nearbyWord < words; nearbyWord += 1) {
+          let nearby = near2Masks[point * words + nearbyWord] & ~seen[nearbyWord];
+          seen[nearbyWord] |= nearby;
+          while (nearby !== 0) {
+            const next = nearby & -nearby;
+            nearby ^= next;
+            const move = nearbyWord * 32 + 31 - Math.clz32(next);
+            const score = this.scorePreparedMove(position, move, hintMove, ply);
+            if (score === NO_SCORE) continue;
+            moves[count] = move;
+            scores[count] = score;
+            count += 1;
           }
-          this.candidateMarks[move] = this.candidateEpoch;
-          const score = this.scorePreparedMove(position, move, hintMove, ply);
-          if (score === NO_SCORE) {
-            continue;
-          }
-          moves[count] = move;
-          scores[count] = score;
-          count += 1;
         }
       }
     }
