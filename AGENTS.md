@@ -38,3 +38,7 @@ Unless specifically asked you are not allowed to change benchmarks. You can make
 ## Result artifacts
 
 Avoid adding results to the repo unless asked or the results are the main deliverable. Prefer to summarize results in pr description.
+
+## Review
+
+Always check that the changes do not introduce new issues with the soundness of the `forcedWin` / `forcedLoss` proofs.
