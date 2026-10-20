@@ -72,6 +72,30 @@ const gamePosition = {
   expectedResult: { forcedWin: true, timedOut: false },
 };
 
+test.each([
+  [true, false, true],
+  [false, true, true],
+  [true, true, true],
+  [false, false, false],
+])('requires a forced or heuristic win with an allowed move (%s, %s)', (forcedWin, heuristicWin, solved) => {
+  const move = engine.decodeMove(puzzle.solution, engine.decodeGame(puzzle.encoded).size);
+  // Control the solver result to cover proof and heuristic regressions independently.
+  class ResultAI {
+    findBestMove() { return { move, forcedWin, heuristicWin }; }
+  }
+  const controlledEngine = { ...engine, GogoAI: ResultAI };
+  const fixture = { ...gamePosition, expectedResult: { allowedMoves: [move], requireWin: true } };
+  expect(measurePuzzle(controlledEngine, fixture, undefined, false)).toMatchObject({ solved });
+  if (solved) {
+    expect(measurePuzzle(controlledEngine, fixture)).toBeGreaterThanOrEqual(0);
+  } else {
+    expect(() => measurePuzzle(controlledEngine, fixture)).toThrow('expected a forced or heuristic win');
+  }
+  const wrongMove = { ...fixture, expectedResult: { ...fixture.expectedResult, allowedMoves: [79, 80] } };
+  expect(measurePuzzle(controlledEngine, wrongMove, undefined, false)).toMatchObject({ solved: false });
+  expect(() => measurePuzzle(controlledEngine, wrongMove)).toThrow('was selected but allowed are');
+});
+
 test('measures game positions with their own search settings and SearchResult assertions', () => {
   const budgets: number[] = [];
   const options: unknown[] = [];

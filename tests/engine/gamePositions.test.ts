@@ -10,9 +10,12 @@ test.each(GAME_POSITIONS.map(position => [position.id, position] as const))(
     expect(position.toMove).toBe(gamePosition.toMove);
     const ai = new GogoAI(gamePosition.searchOptions);
     const result = ai.findBestMove(position, gamePosition.timeLimitMs);
-    const { allowedMoves, ...expectedFields } = gamePosition.expectedResult;
+    const { allowedMoves, requireWin, ...expectedFields } = gamePosition.expectedResult;
     if (allowedMoves) {
       expect(allowedMoves, `move ${encodeMove(result.move, position.meta)} was selected but allowed are ${allowedMoves.map(move => encodeMove(move, position.meta)).join(', ')}`).toContain(result.move);
+    }
+    if (requireWin) {
+      expect(result.forcedWin || result.heuristicWin, 'expected a forced or heuristic win').toBe(true);
     }
     expect(result).toMatchObject(expectedFields);
     expect(position.isLegal(result.move)).toBe(true);

@@ -43,20 +43,22 @@ export function measurePuzzle(engine, puzzle, now = () => performance.now(), val
     const elapsed = now() - start;
     assert(position.isLegal(result.move), `${puzzle.id}: illegal move`);
     assert.equal(position.encodeGame(), puzzle.encoded, `${puzzle.id}: search changed position`);
-    const { allowedMoves, ...expectedFields } = puzzle.expectedResult;
+    const { allowedMoves, requireWin, ...expectedFields } = puzzle.expectedResult;
     const moveAllowed = allowedMoves === undefined || allowedMoves.includes(result.move);
+    const winSatisfied = !requireWin || result.forcedWin || result.heuristicWin;
     if (validateResult && allowedMoves !== undefined) {
       const formatMove = move => `${String.fromCharCode(97 + position.meta.xs[move])}${position.meta.ys[move] + 1}`;
       assert(moveAllowed, `${puzzle.id}: move ${formatMove(result.move)} was selected but allowed are ${allowedMoves.map(formatMove).join(', ')}`);
     }
     if (validateResult) {
+      assert(winSatisfied, `${puzzle.id}: expected a forced or heuristic win`);
       for (const [field, expected] of Object.entries(expectedFields)) {
         assert.equal(result[field], expected, `${puzzle.id}: incorrect SearchResult.${field}`);
       }
     }
     return validateResult ? elapsed : {
       elapsedMs: elapsed,
-      solved: moveAllowed && Object.entries(expectedFields).every(([field, expected]) => result[field] === expected),
+      solved: moveAllowed && winSatisfied && Object.entries(expectedFields).every(([field, expected]) => result[field] === expected),
     };
   }
   const expected = engine.decodeMove(puzzle.solution, position.size);

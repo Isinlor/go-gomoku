@@ -1,5 +1,11 @@
 import { expect, test } from 'vitest';
-import { GAME_POSITIONS, decodeGame, encodeMove, transformPoint } from '../../src/engine';
+import { GAME_POSITIONS, PLY2_FORCED_WINS, decodeGame, encodeMove, transformPoint } from '../../src/engine';
+
+test('ply-two winning positions require a forced or heuristic win alongside an allowed move', () => {
+  for (const fixture of PLY2_FORCED_WINS) {
+    expect(fixture.expectedResult).toMatchObject({ requireWin: true, allowedMoves: expect.any(Array) });
+  }
+});
 
 test('game positions have unique IDs and consistent search inputs', () => {
   expect(new Set(GAME_POSITIONS.map(position => position.id)).size).toBe(GAME_POSITIONS.length);
