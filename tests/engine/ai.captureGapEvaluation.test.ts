@@ -82,7 +82,7 @@ test('a failed proof broadens discovery with a second evaluation and restores ga
   expect(position.encodeGame()).toBe(before);
 });
 
-test('a failed depth-two gap probe leaves depth three available for the broader evaluation', { tags: ['slow'] }, () => {
+test('a failed gap probe keeps rediscovery shallow', { tags: ['slow'] }, () => {
   const position = decodeGame('B9 b9 g9');
   const rootPly = position.ply;
   const ai = new GogoAI({ maxDepth: 30, quiescenceDepth: 4, now: () => 0 }) as any;
@@ -95,7 +95,27 @@ test('a failed depth-two gap probe leaves depth three available for the broader 
   const before = position.encodeGame();
   const result = ai.findBestMove(position, 1250);
   expect(result.forcedWin).toBe(true);
-  expect(Math.max(...depths)).toBe(3);
+  expect(Math.max(...depths)).toBeLessThanOrEqual(3);
   expect(result.nodes).toBeLessThan(30_000);
   expect(position.encodeGame()).toBe(before);
+});
+
+test('a calibrated probe with no proof allowance preserves its playing objective', { tags: ['slow'] }, () => {
+  const { ai, position } = setup([empty, empty, empty, '....X....', '...X.X...', empty, empty, empty, empty]);
+  const before = position.encodeGame();
+  ai.configureEvaluation(position, 25);
+  ai.evaluate(position);
+  ai.deadline = Infinity;
+  const state = { bestMove: position.index(2, 4), bestScore: 480, completedDepth: 1, hintMove: -1 };
+  expect(ai.tryEarlyWinProof(position, state, 0, 1)).toBe(false);
+  // Independent totals include the capture-gap contribution retained by play.
+  expect(ai.evaluate(position)).toBeCloseTo(-2546 + 24 * 214.8 + 3 * 232 + 1135 + 305, 8);
+  expect(ai.forcingQuiescence).toBe(true);
+  expect(position.encodeGame()).toBe(before);
+  // The next timed search must restore its calibrated objective.
+  ai.findBestMove(position, 25);
+  const fresh = new GogoAI() as any;
+  fresh.ensureBuffers(position.area);
+  fresh.configureEvaluation(position, 25);
+  expect(ai.evaluate(position)).toBe(fresh.evaluate(position));
 });

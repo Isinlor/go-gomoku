@@ -173,14 +173,17 @@ test('discovery can recover from a bounded shallow proof and prove the candidate
   const puzzle = PUZZLES.find(p => p.id === 'gen-complex-1')!;
   const position = decodeGame(puzzle.encoded);
   const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4, now: () => 0 }) as any;
-  const prove = ai.tryEarlyProof.bind(ai);
+  const prototype = GogoAI.prototype as any;
+  const prove = prototype.tryEarlyProof;
   const proofs: boolean[] = [];
-  ai.tryEarlyProof = (position: GogoPosition, state: any, limit?: number) => {
-    const result = prove(position, state, limit === undefined ? undefined : 1);
+  prototype.tryEarlyProof = function (position: GogoPosition, state: any, limit?: number, ...args: any[]) {
+    const result = prove.call(this, position, state, limit === undefined ? undefined : 1, ...args);
     proofs.push(result);
     return result;
   };
-  const result = ai.findBestMove(position, 20000);
+  let result;
+  try { result = ai.findBestMove(position, 20000); }
+  finally { prototype.tryEarlyProof = prove; }
   expect(proofs[0]).toBe(false);
   expect(proofs.at(-1)).toBe(true);
   expect(proofs.slice(0, -1).every(proved => !proved)).toBe(true);

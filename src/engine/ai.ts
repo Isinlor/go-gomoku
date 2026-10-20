@@ -60,7 +60,7 @@ const WIN_SCORE = 1_000_000_000;
 const ATTACK_WEIGHTS = [0, 12, 72, 540, 100_000, 500_000] as const;
 const DEFENSE_WEIGHTS = [0, 16, 96, 720, 100_000, 500_000] as const;
 const EVAL_WEIGHTS = [0, 6, 32, 240, 500_000, WIN_SCORE >> 2] as const;
-// Calibrated on independent random-opening self-play for shallow searches.
+// Calibrated on independent random-opening self-play; shared by timed searches.
 const SHORT_EVAL_WEIGHTS = [0, -106, 48, 624, 500_000, WIN_SCORE >> 2] as const;
 const LOCAL_LIBERTY_WEIGHTS = [-200, -80, 20, 60, 80] as const;
 const SHORT_LIBERTY_WEIGHTS = [583, 313, 333, 335, 232] as const;
@@ -98,7 +98,7 @@ const SHALLOW_PROOF_NODES_PER_DEPTH = 4096;
 const FORCING_PROOF_MAX_DEPTH = 9;
 const LOSS_PROOF_NODES_PER_DEPTH = 16384;
 const ROOT_PROOF_NODE_LIMIT = 8_000_000;
-const ROOT_PROOF_MIN_REMAINING_MS = 10_000;
+const ROOT_PROOF_MIN_REMAINING_MS = 5_000;
 const WINDOW_PATTERN_BLACK = new Int32Array(36);
 const WINDOW_PATTERN_WHITE = new Int32Array(36);
 for (let count = 0; count < 5; count += 1) {
@@ -475,6 +475,7 @@ export class GogoAI {
         if (result.move === -1) {
           continue;
         }
+        const previousPromisingMove = state.bestScore >= ATTACK_WEIGHTS[2] ? state.bestMove : -1;
         const stableRootMove = result.move === state.bestMove;
         state.bestMove = result.move;
         state.bestScore = result.score;
@@ -495,10 +496,10 @@ export class GogoAI {
         // Expensive first iterations and sparse openings need another look
         // before speculative proof. Cheap tactical setups can be proved now.
         const shallowProofReady = this.canProbeShallowProof(position, depth, result.nodes);
-        if (!shallowProofTried && shallowProofReady && depth <= 3 && endDepth >= 5 && result.score >= ATTACK_WEIGHTS[2]) {
+        if (!shallowProofTried && shallowProofReady && endDepth >= 5 && result.score >= ATTACK_WEIGHTS[2]) {
           shallowProofTried = true;
           const forcing = this.forcingQuiescence;
-          if (this.tryEarlyWinProof(position, state, SHALLOW_PROOF_NODES_PER_DEPTH * this.maxDepth)) break;
+          if (this.tryEarlyWinProof(position, state, SHALLOW_PROOF_NODES_PER_DEPTH * this.maxDepth, this.maxDepth, true)) break;
           // A changed evaluation gets its own shallow-proof opportunity.
           if (forcing && !this.forcingQuiescence) shallowProofTried = false;
         }
@@ -516,7 +517,7 @@ export class GogoAI {
           && result.score < EVAL_WEIGHTS[4] / 2
           && this.deadline - this.now() >= ROOT_PROOF_MIN_REMAINING_MS) {
           rootProofTried = true;
-          if (this.tryRootProofPortfolio(position, state, stableRootMove)) break;
+          if (this.tryRootProofPortfolio(position, state, stableRootMove, previousPromisingMove)) break;
         }
       } catch (error) {
         if (error !== this.timeoutSignal) {
@@ -534,7 +535,7 @@ export class GogoAI {
     }
   }
 
-  private tryRootProofPortfolio(position: GogoPosition, state: SearchState, stableRootMove: boolean): boolean {
+  private tryRootProofPortfolio(position: GogoPosition, state: SearchState, stableRootMove: boolean, previousPromisingMove = -1): boolean {
     // All candidates share the same attacker and full proof rules. Completed
     // bounds and proven subpositions remain valid across this entire batch.
     this.clearProofTable();
@@ -543,6 +544,15 @@ export class GogoAI {
     // count to estimate proof cost for the other candidates.
     const costs = new Float64Array(MAX_CANDIDATES);
     try {
+      // An odd/even horizon can demote a promising setup below the proof beam.
+      // Preserve that witness before spending the budget on newly ranked moves.
+      if (previousPromisingMove !== -1 && previousPromisingMove !== state.bestMove) {
+        const probe = { ...state, bestMove: previousPromisingMove, hintMove: previousPromisingMove };
+        if (this.tryEarlyWinProof(position, probe, ROOT_PROOF_NODE_LIMIT, this.maxDepth)) {
+          Object.assign(state, probe);
+          return true;
+        }
+      }
       for (let depthLimit = 1; ; depthLimit = Math.min(depthLimit + 2, this.maxDepth)) {
         for (let i = 0; i < this.rootProofCount; i += 1) {
           if (this.now() >= this.deadline) return false;
@@ -566,11 +576,32 @@ export class GogoAI {
   }
 
   private canProbeShallowProof(position: GogoPosition, depth: number, nodes: number): boolean {
-    return depth >= 2 || (position.stoneCount >= 5 && nodes <= 1024);
+    // Reserve first-iteration probes for cheap tactical candidates. The
+    // calibrated evaluation can make an unstable first choice look promising.
+    return depth >= 2 || (position.stoneCount >= 5 && nodes <= (this.shortEvaluation ? 256 : 1024));
   }
 
   /** Speculative win/loss probes share budget and heuristic restoration. */
-  private tryEarlyWinProof(position: GogoPosition, state: SearchState, nodeLimit?: number, depthLimit = this.maxDepth): boolean {
+  private tryEarlyWinProof(position: GogoPosition, state: SearchState, nodeLimit?: number, depthLimit = this.maxDepth, reserveDiscovery = false): boolean {
+    // Calibrated play reserves time inside its classic scout. That scout must
+    // not halve the same allowance again while verifying its own candidates.
+    if (!reserveDiscovery || this.shortEvaluation || !this.forcingQuiescence) {
+      return this.tryWinProofWithDiscovery(position, state, nodeLimit, depthLimit);
+    }
+    // Node quotas grow with the configured horizon, but shallow speculation
+    // must also leave time to improve the move when its proof is inconclusive.
+    const deadline = this.deadline;
+    const now = this.now();
+    this.deadline = now + Math.max(0, deadline - now) / 2;
+    try {
+      return this.tryWinProofWithDiscovery(position, state, nodeLimit, depthLimit);
+    } finally {
+      this.deadline = deadline;
+      this.timedOut = this.now() >= deadline;
+    }
+  }
+
+  private tryWinProofWithDiscovery(position: GogoPosition, state: SearchState, nodeLimit: number | undefined, depthLimit: number): boolean {
     // Give one candidate the average discovery work per root candidate.
     // A revised candidate retains the caller's full proof allowance.
     const probeLimit = this.forcingQuiescence
@@ -578,6 +609,7 @@ export class GogoAI {
       : nodeLimit;
     const proven = this.tryEarlyProof(position, state, probeLimit, 0, depthLimit);
     if (!proven && this.forcingQuiescence && !this.timedOut) {
+      if (this.shortEvaluation) return this.tryClassicProofScout(position, state, nodeLimit, depthLimit);
       // If a forcing candidate cannot be established, rediscover at the same
       // depth with quiet defensive setups before probing the revised candidate.
       const depth = state.completedDepth;
@@ -599,8 +631,56 @@ export class GogoAI {
     return proven;
   }
 
+  /** Classic discovery supplies exact witnesses without replacing calibrated play. */
+  private tryClassicProofScout(position: GogoPosition, state: SearchState, nodeLimit: number | undefined, depthLimit: number): boolean {
+    if (nodeLimit === 0) return false;
+    const scout = { ...state };
+    const deadline = this.deadline;
+    const now = this.now();
+    // Classic scores and ordering belong to their own search. An inconclusive
+    // scout must leave the calibrated TT, quiescence cache and heuristics usable
+    // when discovery resumes, including after a scout timeout or exception.
+    const classic = new GogoAI({ maxDepth: this.maxDepth, quiescenceDepth: this.quiescenceDepth, maxPly: this.maxPly, now: this.now });
+    classic.ensureBuffers(position.area);
+    classic.deadline = now + Math.max(0, deadline - now) / 2;
+    classic.forcingQuiescence = false;
+    classic.ttBestMove.fill(-1);
+    classic.nodesVisited = this.nodesVisited;
+    try {
+      const fallback = classic.pickFallbackMove(position);
+      Object.assign(scout, { bestMove: fallback, bestScore: 0, completedDepth: 0, hintMove: fallback });
+      classic.searchDepths(position, 1, scout, depthLimit, true);
+      let resolved = !!(scout.provenWin || scout.provenLoss);
+      if (!resolved && !classic.timedOut && scout.bestScore >= ATTACK_WEIGHTS[2]) {
+        resolved = classic.tryEarlyProof(position, scout, SHALLOW_PROOF_NODES_PER_DEPTH * this.maxDepth, 0, depthLimit);
+      }
+      if (resolved) Object.assign(state, scout);
+      return resolved;
+    } finally {
+      this.nodesVisited = classic.nodesVisited;
+      this.timedOut = this.now() >= deadline;
+    }
+  }
+
   private tryEarlyLossProof(position: GogoPosition, state: SearchState, nodeLimit: number, lossDepth: number): boolean {
-    return this.tryEarlyProof(position, state, nodeLimit, lossDepth);
+    let proofState = state;
+    if (this.shortEvaluation && nodeLimit > 0) {
+      // Prove the hardest classic defense first, without replacing calibrated
+      // play or overwriting its useful continuation hints with ordering work.
+      const ordering = new GogoAI({ maxDepth: 2, quiescenceDepth: this.quiescenceDepth, maxPly: this.maxPly, now: this.now });
+      ordering.ensureBuffers(position.area);
+      ordering.deadline = this.deadline;
+      proofState = { ...state, bestScore: 0, completedDepth: 0, hintMove: -1 };
+      ordering.searchDepths(position, 1, proofState, 2);
+      this.nodesVisited += ordering.nodesVisited;
+      if (ordering.timedOut) {
+        this.timedOut = true;
+        return false;
+      }
+    }
+    const proven = this.tryEarlyProof(position, proofState, nodeLimit, lossDepth);
+    if (proven) Object.assign(state, proofState);
+    return proven;
   }
 
   private tryEarlyProof(position: GogoPosition, state: SearchState, nodeLimit = Infinity, lossDepth = 0, depthLimit = this.maxDepth): boolean {
@@ -1263,9 +1343,10 @@ export class GogoAI {
     return (position.toMove === BLACK ? score : -score) + (this.shortEvaluation ? 1135 : 0);
   }
 
-  /** Select shallow-search evaluation and invalidate scores from the old policy. */
+  /** Keep timed searches on one objective; invalidate scores when the policy changes. */
   private configureEvaluation(position: GogoPosition, timeLimitMs: number): void {
-    const short = timeLimitMs > 0 && timeLimitMs < 100 && this.quiescenceDepth > 0;
+    // More time must deepen the same evaluation, rather than restore weaker weights.
+    const short = timeLimitMs > 0 && this.quiescenceDepth > 0;
     if (short === this.shortEvaluation) return;
     this.shortEvaluation = short;
     this.ttFlag.fill(0);

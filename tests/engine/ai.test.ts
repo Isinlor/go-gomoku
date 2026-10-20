@@ -1848,7 +1848,8 @@ test('proof mode: non-timeout error in resume phase is rethrown', () => {
     return false;
   };
 
-  expect(() => ai.findBestMove(pos, 100)).toThrow('RESUME_BUG');
+  // Focus on post-search verification and resume, without speculative scouts.
+  expect(() => ai.findBestMove(pos, 25)).toThrow('RESUME_BUG');
 });
 
 // === AND/OR Prover Tests ===
@@ -2415,7 +2416,8 @@ test('recompute heuristic flags after resume: flags update when score changes', 
 
   anyAI.verifyWinningMove = function () { return false; };
 
-  const result = ai.findBestMove(pos, 100);
+  // Focus on post-search verification and resume, without speculative scouts.
+  const result = ai.findBestMove(pos, 25);
   // After resume, bestScore is from d=3+ which won't be a forced win
   // So heuristicWin should be false (recomputed)
   expect(result.heuristicWin).toBe(false);
