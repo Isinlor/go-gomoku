@@ -28,7 +28,8 @@ test('an unsuccessful win-proof probe rebuilds discovery with quiet defensive se
   expect(ai.quiescence(position, -1e9, 1e9, 0, 4)).toBe(-133);
   ai.findBestMove(position, 5);
   ai.deadline = Infinity;
-  expect(ai.quiescence(position, -1e9, 1e9, 0, 4)).toBe(initial);
+  // Restored forcing quiescence stands pat under the current evaluation.
+  expect(ai.quiescence(position, -1e9, 1e9, 0, 4)).toBe(ai.evaluate(position));
   expect(position.ply).toBe(0);
 });
 
@@ -49,13 +50,15 @@ test('speculative work is bounded by discovery and an unpromising revised candid
   expect(position.ply).toBe(0);
 });
 
-test('initial quiescence policy is unchanged across move budgets and AI reuse', { tags: ['slow'] }, () => {
+test('forcing quiescence avoids speculative blocks across evaluation policies and AI reuse', { tags: ['slow'] }, () => {
   const { ai, position } = setup();
-  const expected = ai.evaluate(position);
   for (const budget of [5, 99, 100, 1000, 5]) {
     ai.findBestMove(position, budget);
     ai.deadline = Infinity;
+    const expected = ai.evaluate(position);
+    const nodes = ai.nodesVisited;
     expect(ai.quiescence(position, -1e9, 1e9, 0, 4)).toBe(expected);
+    expect(ai.nodesVisited - nodes).toBe(1);
     expect(position.ply).toBe(0);
   }
 });
