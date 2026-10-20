@@ -9,12 +9,17 @@ export interface GamePosition {
   readonly searchOptions: Readonly<Omit<GogoAIOptions, 'now'>>;
   readonly timeLimitMs: number;
   /** Deterministic result conditions; allowedMoves is expected to cover every win in the fixture's documented depth horizon. */
-  readonly expectedResult: Readonly<Partial<SearchResult> & { allowedMoves?: readonly number[] }>;
+  readonly expectedResult: Readonly<Partial<SearchResult> & {
+    allowedMoves?: readonly number[];
+    /** Require forcedWin or heuristicWin in addition to the other conditions. */
+    requireWin?: true;
+  }>;
 }
 
 /**
  * Ply2 positions with exhaustive lists of the fastest winning moves (11 plies).
  * No winning move is faster, and all equally fast alternatives are listed.
+ * The solver must select a listed move and report a forced or heuristic win.
  */
 export const PLY2_FORCED_WINS: readonly GamePosition[] = [
   ['B9 b9 g9', 'e9'],
@@ -123,7 +128,7 @@ export const PLY2_FORCED_WINS: readonly GamePosition[] = [
   toMove: BLACK,
   searchOptions: { maxDepth: 30, quiescenceDepth: 4, maxPly: 64 },
   timeLimitMs: 1250,
-  expectedResult: { allowedMoves: winningMoves.map(move => decodeMove(move, 9)) },
+  expectedResult: { allowedMoves: winningMoves.map(move => decodeMove(move, 9)), requireWin: true as const },
 }));
 
 export const GAME_POSITIONS: readonly GamePosition[] = [
