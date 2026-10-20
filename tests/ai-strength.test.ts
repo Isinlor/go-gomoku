@@ -76,11 +76,11 @@ test('uses the supplied balanced opening pool and preserves its provenance', () 
 });
 
 function sequenceEngine(moves: number[], budgets: number[] = []) {
+  let i = 0;
   return { ...engine, GogoAI: class {
-    i = 0;
     findBestMove(_position: unknown, budget: number) {
       budgets.push(budget);
-      return { move: moves[this.i++] };
+      return { move: moves[i++ % moves.length] };
     }
   } };
 }
@@ -94,6 +94,21 @@ test('plays actual legal games on own-version positions with equal time budgets'
   expect(budgets).toHaveLength(18);
   expect(new Set(budgets)).toEqual(new Set([5]));
   expect(MOVE_MS).toBe(5);
+});
+
+test('version comparisons use the deployed config and a fresh AI on each move', () => {
+  const options: unknown[] = [];
+  const configured = { ...engine, GogoAI: class {
+    used = false;
+    constructor(config: unknown) { options.push(config); }
+    findBestMove(position: engine.GogoPosition) {
+      expect(this.used).toBe(false);
+      this.used = true;
+      return { move: position.toMove === 1 ? Math.floor(position.ply / 2) : 9 + Math.floor(position.ply / 2) };
+    }
+  } };
+  expect(playStrengthGame(configured, configured, 'B9', 1)).toBe(1);
+  expect(options).toEqual(Array(9).fill({ maxDepth: 30, quiescenceDepth: 4, maxPly: 96 }));
 });
 
 test.each([99, 100, 101])('caps games at 100 total plies, including the opening (win at %s)', winPly => {
@@ -341,6 +356,9 @@ test('interleaves evaluations and counts all six comparative diagnostics', () =>
   const calls: string[] = [];
   const makeEngine = (name: string, moves: number[], scores: number[]) => ({
     decodeGame: (encoded: string) => Number(encoded), GogoAI: class {
+      constructor(config: unknown) {
+        expect(config).toEqual({ maxDepth: 30, quiescenceDepth: 4, maxPly: 96 });
+      }
       findBestMove(index: number, budget: number) {
         expect(budget).toBe(5);
         calls.push(`${name}${index}`);

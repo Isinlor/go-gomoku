@@ -1,5 +1,6 @@
 export * from './gogomoku';
 export * from './ai';
+export * from './aiConfig';
 export * from './puzzles';
 export * from './uniqueness';
 export * from './boardStream';

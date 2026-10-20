@@ -60,6 +60,15 @@ random order with colors swapped (200 games per attempt). The pool contains
 Game results report strength gains when symmetric gain evidence reaches its threshold,
 with a one-sided alpha bound across at most five attempts (threshold `5 / alpha`).
 
+The Validation workflow runs `npm run test:strength-across-time-budgets`: parallel
+125 ms versus 25 ms and 25 ms versus 5 ms color-swapped match checks, with a
+combined false-regression bound below 0.01%, a 45 s screening deadline, and a
+90 s maximum. A pass means no regression detected.
+Both strength checks use the app's exported `AI_CONFIG` (depth 30, quiescence 4,
+max ply 96), with a fresh AI per move as in the browser worker.
+The time-budget check logs every higher-budget loss with its opening, color,
+and complete encoded game, including losses from unfinished pairs.
+
 ## Development
 
 ```bash
@@ -71,10 +80,10 @@ Opens a Vite dev server with hot module replacement.
 ## Public API
 
 ```ts
-import { GogoPosition, GogoAI, BLACK, WHITE } from './src/engine';
+import { AI_CONFIG, GogoPosition, GogoAI, BLACK, WHITE } from './src/engine';
 
 const position = new GogoPosition(9);
-const ai = new GogoAI({ maxDepth: 6, quiescenceDepth: 6, maxPly: 96 });
+const ai = new GogoAI(AI_CONFIG);
 
 position.playXY(4, 4);          // black
 const result = ai.findBestMove(position, 75);

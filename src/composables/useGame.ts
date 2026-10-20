@@ -1,6 +1,7 @@
 import { ref, shallowRef, triggerRef, computed, onUnmounted } from 'vue';
 import {
   GogoPosition,
+  AI_CONFIG,
   BLACK,
   EMPTY,
   playerName,
@@ -17,12 +18,6 @@ export interface UseGameOptions {
   getLocationHref?: () => string;
   setLocationHash?: (hash: string) => void;
 }
-
-const AI_CONFIG = {
-  maxDepth: 30,
-  quiescenceDepth: 4,
-  maxPly: 96,
-} as const;
 
 export function useGame(options: UseGameOptions = {}) {
   const getLocationHash = options.getLocationHash ?? (() => window.location.hash);
