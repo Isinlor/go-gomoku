@@ -60,7 +60,10 @@ const WIN_SCORE = 1_000_000_000;
 const ATTACK_WEIGHTS = [0, 12, 72, 540, 100_000, 500_000] as const;
 const DEFENSE_WEIGHTS = [0, 16, 96, 720, 100_000, 500_000] as const;
 const EVAL_WEIGHTS = [0, 6, 32, 240, 500_000, WIN_SCORE >> 2] as const;
+// Calibrated on independent random-opening self-play for shallow searches.
+const SHORT_EVAL_WEIGHTS = [0, -106, 48, 624, 500_000, WIN_SCORE >> 2] as const;
 const LOCAL_LIBERTY_WEIGHTS = [-200, -80, 20, 60, 80] as const;
+const SHORT_LIBERTY_WEIGHTS = [583, 313, 333, 335, 232] as const;
 const CAPTURE_GAP_WEIGHT = 480;
 // Two bits per neighbor: border=0, empty=1, black=2, white=3.
 // Precompute local geometry so leaf evaluation only needs four reads and a lookup.
@@ -113,9 +116,12 @@ for (let code = 0; code < 36; code += 1) {
   WINDOW_WHITE_COUNTS[code] = code % 6;
 }
 const WINDOW_EVALUATION = new Int32Array(36);
+const SHORT_WINDOW_EVALUATION = new Int32Array(36);
 for (let count = 1; count <= 5; count += 1) {
   WINDOW_EVALUATION[count * 6] = EVAL_WEIGHTS[count];
   WINDOW_EVALUATION[count] = -EVAL_WEIGHTS[count];
+  SHORT_WINDOW_EVALUATION[count * 6] = SHORT_EVAL_WEIGHTS[count];
+  SHORT_WINDOW_EVALUATION[count] = -SHORT_EVAL_WEIGHTS[count];
 }
 
 // Classify counts once; mutation updates use branch-free bit replacement.
@@ -164,6 +170,7 @@ export class GogoAI {
   private scoredGroupPassEpoch = 1;
   private scoredGroupHash = -1n;
   private windowBoard = new Uint8Array(0);
+  private directLiberties = new Uint8Array(0);
   // One code (black * 6 + white) feeds classifications, patterns and evaluation.
   private windowCounts = new Uint8Array(0);
   private activeWindows = new Uint32Array(0);
@@ -204,6 +211,7 @@ export class GogoAI {
   private proofNodeLimit = Infinity;
   private partialRoot = { move: -1, score: -WIN_SCORE, depth: 0 };
   private selectiveSearch = false;
+  private shortEvaluation = false;
 
   // Transposition table
   private qHash = new BigUint64Array(QTT_SIZE);
@@ -226,6 +234,7 @@ export class GogoAI {
 
   findBestMove(position: GogoPosition, timeLimitMs: number): SearchResult {
     this.ensureBuffers(position.area);
+    this.configureEvaluation(position, timeLimitMs);
     this.windowHash = -1n;
     this.windowPosition = null;
     this.evaluationPosition = null;
@@ -378,6 +387,13 @@ export class GogoAI {
     this.occupiedPoints = new Uint32Array(Math.ceil(area / 32));
     this.windowCounts = new Uint8Array(4 * area);
     const size = Math.sqrt(area);
+    this.directLiberties = new Uint8Array(area);
+    for (let point = 0; point < area; point += 1) {
+      const x = point % size;
+      const y = Math.floor(point / size);
+      this.directLiberties[point] = Number(x > 0) + Number(x + 1 < size)
+        + Number(y > 0) + Number(y + 1 < size);
+    }
     this.activeWindows = new Uint32Array(Math.ceil((size - 4) * (4 * size - 8) / 32));
     this.winningWindows = new Uint32Array(this.activeWindows.length);
     this.windowEvaluation = 0;
@@ -1146,6 +1162,7 @@ export class GogoAI {
     const windows = meta.windowsByPoint;
     let dirtyCount = this.dirtyWindowCount;
     let evaluation = this.windowEvaluation;
+    const evaluationWeights = this.shortEvaluation ? SHORT_WINDOW_EVALUATION : WINDOW_EVALUATION;
     const changes = position.boardVersion - this.windowVersion;
     const incremental = this.windowPosition === position && changes > 0 && changes <= position.boardChanges.length;
     const count = incremental ? changes : position.area;
@@ -1168,12 +1185,17 @@ export class GogoAI {
         }
         const oldCode = counts[wi];
         const code = oldCode + countDelta;
-        evaluation += WINDOW_EVALUATION[code] - WINDOW_EVALUATION[oldCode];
+        evaluation += evaluationWeights[code] - evaluationWeights[oldCode];
         counts[wi] = code;
         const bit = 1 << (wi & 31);
         const word = wi >>> 5;
         winning[word] = (winning[word] & ~bit) | (WINDOW_WINNING_MASK[code] & bit);
         active[word] = (active[word] & ~bit) | (WINDOW_ACTIVE_MASK[code] & bit);
+      }
+      const libertyDelta = Number(oldCell !== EMPTY) - Number(cell !== EMPTY);
+      for (let offset = 0; offset < 4; offset += 1) {
+        const neighbor = meta.neighbors4[point * 4 + offset];
+        if (neighbor !== -1) this.directLiberties[neighbor] += libertyDelta;
       }
       this.windowBoard[point] = cell;
     }
@@ -1238,24 +1260,36 @@ export class GogoAI {
     this.evaluationPosition = position;
     this.evaluationVersion = position.boardVersion;
     const score = this.windowEvaluation + this.localEvaluation / 10;
-    return position.toMove === BLACK ? score : -score;
+    return (position.toMove === BLACK ? score : -score) + (this.shortEvaluation ? 1135 : 0);
+  }
+
+  /** Select shallow-search evaluation and invalidate scores from the old policy. */
+  private configureEvaluation(position: GogoPosition, timeLimitMs: number): void {
+    const short = timeLimitMs > 0 && timeLimitMs < 100 && this.quiescenceDepth > 0;
+    if (short === this.shortEvaluation) return;
+    this.shortEvaluation = short;
+    this.ttFlag.fill(0);
+    this.qFlag.fill(0);
+    this.resetLocalEvaluation();
+    const weights = short ? SHORT_WINDOW_EVALUATION : WINDOW_EVALUATION;
+    this.windowEvaluation = 0;
+    for (let window = 0; window < position.meta.windowCount; window += 1) {
+      this.windowEvaluation += weights[this.windowCounts[window]];
+    }
   }
 
   private updateLocalScore(position: GogoPosition, point: number): void {
     const cell = position.board[point];
     let score = 0;
     if (cell !== EMPTY) {
-      let liberties = 0;
-      for (let offset = 0; offset < 4; offset += 1) {
-        const neighbor = position.meta.neighbors4[point * 4 + offset];
-        if (position.board[neighbor] === EMPTY) liberties += 1;
-      }
+      const liberties = this.directLiberties[point];
       // Integer tenths retain the fractional center bias without accumulated
       // rounding error as moves and captures are repeatedly played and undone.
-      score = position.meta.centerBias[point] * 9 + LOCAL_LIBERTY_WEIGHTS[liberties] * 10;
+      const weights = this.shortEvaluation ? SHORT_LIBERTY_WEIGHTS : LOCAL_LIBERTY_WEIGHTS;
+      score = position.meta.centerBias[point] * (this.shortEvaluation ? 2148 : 9) + weights[liberties] * 10;
       if (cell === WHITE) score = -score;
     } else if (this.forcingQuiescence) {
-      score = this.captureGapScore(position, point, cell) * 10;
+      score = this.captureGapScore(position, point, cell) * (this.shortEvaluation ? 305 / 48 : 10);
     }
     this.localEvaluation += score - this.localScores[point];
     this.localScores[point] = score;
@@ -1464,7 +1498,7 @@ export class GogoAI {
         if (board[point] !== groupColor || this.scorerGroupMarks[point] === groupEpoch) {
           continue;
         }
-        if (this.hasExcessDirectLiberties(position, point, maximumLiberties)) continue;
+        if (this.hasExcessDirectLiberties(point, maximumLiberties)) continue;
         const liberties = position.scanGroup(point, groupColor);
         const size = position.scanGroupSize;
         const root = position.groupBuffer[0];
@@ -1578,16 +1612,9 @@ export class GogoAI {
     return count;
   }
 
-  /** Direct liberties are a cheap lower bound on a connected group's total. */
-  private hasExcessDirectLiberties(position: GogoPosition, point: number, maximum: number): boolean {
-    const neighbors = position.meta.neighbors4;
-    const base = point * 4;
-    const board = position.board;
-    const liberties = Number(board[neighbors[base]] === EMPTY)
-      + Number(board[neighbors[base + 1]] === EMPTY)
-      + Number(board[neighbors[base + 2]] === EMPTY)
-      + Number(board[neighbors[base + 3]] === EMPTY);
-    return liberties > maximum;
+  /** Callers prepare window state before using this lower bound on group liberties. */
+  private hasExcessDirectLiberties(point: number, maximum: number): boolean {
+    return this.directLiberties[point] > maximum;
   }
 
   private primeScoredGroupInfo(position: GogoPosition, point: number, color: Player): void {
@@ -1672,7 +1699,7 @@ export class GogoAI {
       const neighbor = neighbors[neighborBase + offset];
       if (neighbor === -1 || board[neighbor] === EMPTY) continue;
       const cell = board[neighbor] as Player;
-      if (this.hasExcessDirectLiberties(position, neighbor, 2)) continue;
+      if (this.hasExcessDirectLiberties(neighbor, 2)) continue;
       this.primeScoredGroupInfo(position, neighbor, cell);
       const root = this.scoredGroupRoots[neighbor];
       if (this.scorerGroupMarks[root] === this.scorerGroupEpoch) continue;
@@ -1930,6 +1957,16 @@ export class GogoAI {
       if (this.proofTTResult[ttIdx] === 1) return true;
       if (this.proofTTResult[ttIdx] === -1 && this.proofTTDepth[ttIdx] >= depthLeft) return false;
       ttBest = this.proofTTBestMove[ttIdx];
+    }
+
+    // Shared batches can cache a short refutation without choosing a defense:
+    // one attacking turn needs an existing four, since defenses only add
+    // blockers or remove attacking stones. Preserve independent-proof ordering
+    // and explicit hints; ko can clear a forbidden winning point.
+    if (this.reuseProofCache && ttBest === -1 && depthLeft <= 3
+      && position.koPoint === -1 && this.findThreatResponses(position, ply) < 0) {
+      this.storeProofTT(ttIdx, hash, depthLeft, -1);
+      return false;
     }
 
     if (ttBest === -1) ttBest = this.killerMoves[ply * 2];
