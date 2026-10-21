@@ -54,7 +54,8 @@ function forcedDefensiveMove(ai: GogoAI, position: GogoPosition): number {
 test.each([0.999, 1, 2])('checks the 1 ms deadline after confirming i1 at %s ms', elapsed => {
   const position = decodeGame('B9 e5 f6 f4 d6 g3 e6 h2');
   const before = snapshot(position);
-  const fallback = new GogoAI({ now: () => 0 }).findBestMove(position, 0).move;
+  let fallbackCalls = 0;
+  const fallback = new GogoAI({ now: () => fallbackCalls++ === 0 ? 0 : 1 }).findBestMove(position, 1).move;
   let calls = 0;
   const ai = new GogoAI({ now: () => ++calls <= 2 ? 0 : elapsed });
   const result = ai.findBestMove(position, 1);

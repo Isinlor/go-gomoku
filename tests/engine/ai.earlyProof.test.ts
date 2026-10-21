@@ -169,10 +169,10 @@ test.each(['refutation', 'timeout', 'error'])('unsuccessful early loss proof res
   expect(position.encodeGame()).toBe(before);
 });
 
-test('discovery can recover from a bounded shallow proof and prove the candidate later', { timeout: 5000 }, () => {
+test.each([0, 4])('discovery can recover from a bounded shallow proof and prove the candidate later (quiescence %s)', { timeout: 5000 }, quiescenceDepth => {
   const puzzle = PUZZLES.find(p => p.id === 'gen-complex-1')!;
   const position = decodeGame(puzzle.encoded);
-  const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4, now: () => 0 }) as any;
+  const ai = new GogoAI({ maxDepth: 10, quiescenceDepth, now: () => 0 }) as any;
   const prototype = GogoAI.prototype as any;
   const prove = prototype.tryEarlyProof;
   const proofs: boolean[] = [];
@@ -207,6 +207,16 @@ test('an early loss proof verifies all legal defenses independently of the disco
   const result = ai.findBestMove(position, 1000);
   expect(result).toMatchObject({ forcedLoss: true, heuristicLoss: true, depth: 6, score: -1_000_000_000 + 6 });
   expect(position.ply).toBe(0);
+});
+
+test('a revised discovery leader gets a bounded proof after an earlier candidate fails', { timeout: 5_000 }, () => {
+  const position = decodeGame('B9 e1 b6');
+  const result = new GogoAI({ maxDepth: 30, quiescenceDepth: 4, now: () => 0 }).findBestMove(position, 1250);
+  expect(result.forcedWin).toBe(true);
+  expect(result.move).toBe(decodeMove('c1', position.size));
+  // Avoid the extra discovery iterations after the leader changes.
+  expect(result.nodes).toBeLessThan(210_000);
+  expect(position.encodeGame()).toBe('B9 e1 b6');
 });
 
 test('an unproven early loss leaves discovery available at deeper depths', () => {

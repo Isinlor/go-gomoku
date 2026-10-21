@@ -47,3 +47,19 @@ test('a real candidate portfolio deepens past shallow failures to a verified win
   expect(ai.verifyWinningMove(position, state.bestMove, 1000, state.completedDepth)).toBe(true);
   expect(position.ply).toBe(0);
 });
+
+test('broadening a proof retains refutations within the shared short horizon', () => {
+  const position = new GogoPosition(9);
+  const ai = new GogoAI({ now: () => 0, maxDepth: 3 }) as any;
+  const defend = ai.proofDefend.bind(ai);
+  const broadNodes: number[] = [];
+  ai.proofDefend = (...args: any[]) => {
+    const before = ai.nodesVisited;
+    const result = defend(...args);
+    if (!ai.forcingProofMode && args[1] === 3 && args[2] === 1) broadNodes.push(ai.nodesVisited - before);
+    return result;
+  };
+  expect(ai.verifyWinningMove(position, 40, 1000, 3)).toBe(false);
+  expect(broadNodes).toEqual([1]);
+  expect(position.ply).toBe(0);
+});
