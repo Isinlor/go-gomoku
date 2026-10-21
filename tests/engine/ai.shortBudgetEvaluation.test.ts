@@ -127,6 +127,22 @@ test('an inconclusive classic proof scout preserves the calibrated move and scor
   expect(position.encodeGame()).toBe('B9 e5 d5');
 });
 
+test.each([4096, undefined])('an inconclusive classic scout shares its node allowance across discovery and proofs (%s)', { tags: ['slow'] }, allowance => {
+  const position = decodeGame('B9 a8 b2 c9');
+  const ai = new GogoAI({ maxDepth: 11, now: () => 0 }) as any;
+  ai.ensureBuffers(position.area);
+  ai.configureEvaluation(position, 1000);
+  ai.deadline = 1000;
+  const state = { bestMove: 20, bestScore: 891.8, completedDepth: 2, hintMove: 20 };
+  const original = { ...state };
+  ai.nodesVisited = 37;
+  expect(ai.tryClassicProofScout(position, state, allowance, 11)).toBe(false);
+  expect(ai.nodesVisited - 37).toBeLessThan(2 * (allowance ?? 45_056) + 4);
+  expect(ai.timedOut).toBe(false);
+  expect(state).toEqual(original);
+  expect(position.encodeGame()).toBe('B9 a8 b2 c9');
+});
+
 test.each([false, true])('an inconclusive scout preserves usable playing caches, including on slice timeout (%s)', sliceTimeout => {
   const position = decodeGame('B9 e5 d5');
   let scouting = false, calls = 0;
