@@ -44,7 +44,8 @@ for (const player of [BLACK, WHITE] as const) {
       const before = position.encodeGame();
       const result = new GogoAI({ maxDepth: 7, now: () => 0 }).findBestMove(position, 1000);
       expect(result.forcedWin).toBe(true);
-      expect(result.depth).toBe(7);
+      // Horizon mates can now reach exact verification before depth seven.
+      expect(result.depth).toBeLessThanOrEqual(7);
       expect(result.move).toBe(point(4, 8));
       const prover = new GogoAI({ now: () => 0 }) as any;
       prover.lossProofMode = true;

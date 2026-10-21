@@ -685,7 +685,11 @@ export class GogoAI {
       classic.searchDepths(position, 1, scout, depthLimit, true);
       let resolved = !!(scout.provenWin || scout.provenLoss);
       if (!resolved && !classic.timedOut && scout.bestScore >= ATTACK_WEIGHTS[2]) {
-        resolved = classic.tryEarlyProof(position, scout, SHALLOW_PROOF_NODES_PER_DEPTH * this.maxDepth, 0, depthLimit);
+        // As in normal discovery, a mate score warrants exact verification
+        // within the scout's deadline rather than a speculative node quota.
+        const proofLimit = classic.isHeuristicWinScore(scout.bestScore, scout.completedDepth)
+          ? undefined : SHALLOW_PROOF_NODES_PER_DEPTH * this.maxDepth;
+        resolved = classic.tryEarlyProof(position, scout, proofLimit, 0, depthLimit);
       }
       if (resolved) Object.assign(state, scout);
       return resolved;
@@ -772,9 +776,9 @@ export class GogoAI {
     }
   }
 
-  /** Tactical extensions contribute to discovery's mate horizon too. */
+  /** Include the winning move detected just beyond the tactical horizon. */
   private isHeuristicWinScore(score: number, depth: number): boolean {
-    return this.isForcedWinScore(score, Math.min(this.maxPly, depth + this.quiescenceDepth));
+    return this.isForcedWinScore(score, Math.min(this.maxPly, depth + this.quiescenceDepth + 1));
   }
 
   private isForcedWinScore(score: number, depth: number): boolean {

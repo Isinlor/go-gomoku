@@ -169,10 +169,10 @@ test.each(['refutation', 'timeout', 'error'])('unsuccessful early loss proof res
   expect(position.encodeGame()).toBe(before);
 });
 
-test('discovery can recover from a bounded shallow proof and prove the candidate later', { timeout: 5000 }, () => {
+test.each([0, 4])('discovery can recover from a bounded shallow proof and prove the candidate later (quiescence %s)', { timeout: 5000 }, quiescenceDepth => {
   const puzzle = PUZZLES.find(p => p.id === 'gen-complex-1')!;
   const position = decodeGame(puzzle.encoded);
-  const ai = new GogoAI({ maxDepth: 10, quiescenceDepth: 4, now: () => 0 }) as any;
+  const ai = new GogoAI({ maxDepth: 10, quiescenceDepth, now: () => 0 }) as any;
   const prototype = GogoAI.prototype as any;
   const prove = prototype.tryEarlyProof;
   const proofs: boolean[] = [];

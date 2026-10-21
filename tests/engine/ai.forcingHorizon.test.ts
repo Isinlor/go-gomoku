@@ -80,3 +80,19 @@ test('forcing cache entries respect the remaining recursion allowance', () => {
   expect(expected).toBeGreaterThan(-999_999_000);
   expect(ai.quiescence(position, -Infinity, Infinity, 2, 2)).toBe(expected);
 });
+
+test.each([BLACK, WHITE])('a five detected one ply beyond the tactical horizon reaches exact verification (%s)', player => {
+  const stone = player === BLACK ? 'X' : 'O';
+  const position = GogoPosition.fromAscii(['.' + stone.repeat(3) + '.....', ...Array(8).fill('.........')], player);
+  const before = position.encodeGame();
+  const result = new GogoAI({ maxDepth: 1, quiescenceDepth: 1, now: () => 0 }).findBestMove(position, 5);
+  expect(result.score).toBe(999_999_997);
+  expect(result).toMatchObject({ move: 4, depth: 1, heuristicWin: true, forcedWin: true, timedOut: false });
+  expect(position.encodeGame()).toBe(before);
+});
+
+test('mate classification cannot extend beyond the recursion cap', () => {
+  const ai = new GogoAI({ maxPly: 2, quiescenceDepth: 1 }) as any;
+  expect(ai.isHeuristicWinScore(999_999_998, 1)).toBe(true);
+  expect(ai.isHeuristicWinScore(999_999_997, 1)).toBe(false);
+});
