@@ -663,6 +663,7 @@ export class GogoPosition {
       let ny = y + dy;
       while (nx >= 0 && nx < size && ny >= 0 && ny < size && this.board[ny * size + nx] === color) {
         count += 1;
+        if (count === 5) return true;
         nx += dx;
         ny += dy;
       }
@@ -671,12 +672,9 @@ export class GogoPosition {
       ny = y - dy;
       while (nx >= 0 && nx < size && ny >= 0 && ny < size && this.board[ny * size + nx] === color) {
         count += 1;
+        if (count === 5) return true;
         nx -= dx;
         ny -= dy;
-      }
-
-      if (count >= 5) {
-        return true;
       }
     }
 

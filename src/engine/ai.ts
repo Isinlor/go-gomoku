@@ -96,6 +96,7 @@ const MAX_CANDIDATES = 12;
 const SELECTIVE_SEARCH_MIN_DEPTH = 6;
 const SHALLOW_PROOF_NODES_PER_DEPTH = 4096;
 const FORCING_PROOF_MAX_DEPTH = 9;
+const SHARED_PROOF_HORIZON = 4;
 const LOSS_PROOF_NODES_PER_DEPTH = 16384;
 const ROOT_PROOF_NODE_LIMIT = 8_000_000;
 const ROOT_PROOF_MIN_REMAINING_MS = 5_000;
@@ -124,15 +125,42 @@ for (let count = 1; count <= 5; count += 1) {
   SHORT_WINDOW_EVALUATION[count] = -SHORT_EVAL_WEIGHTS[count];
 }
 
-// Classify counts once; mutation updates use branch-free bit replacement.
-const WINDOW_ACTIVE_MASK = new Int32Array(36);
-const WINDOW_WINNING_MASK = new Int32Array(36);
-for (let count = 2; count <= 5; count += 1) {
-  WINDOW_ACTIVE_MASK[count * 6] = -1;
-  WINDOW_ACTIVE_MASK[count] = -1;
+// Rank timed moves by the window change used by the playing evaluation.
+// Tactical membership continues to use the independent pattern classification.
+const SHORT_MOVE_BLACK = new Int32Array(36);
+const SHORT_MOVE_WHITE = new Int32Array(36);
+for (let black = 0; black <= 4; black += 1) {
+  for (let white = 0; white <= 4 - black; white += 1) {
+    const code = black * 6 + white;
+    SHORT_MOVE_BLACK[code] = SHORT_WINDOW_EVALUATION[code + 6] - SHORT_WINDOW_EVALUATION[code];
+    SHORT_MOVE_WHITE[code] = SHORT_WINDOW_EVALUATION[code] - SHORT_WINDOW_EVALUATION[code + 1];
+  }
 }
-WINDOW_WINNING_MASK[4 * 6] = -1;
-WINDOW_WINNING_MASK[4] = -1;
+
+// Classify counts once; update tactical bitsets only when membership changes.
+const WINDOW_CLASSIFICATION = new Uint8Array(36);
+for (let count = 2; count <= 5; count += 1) {
+  WINDOW_CLASSIFICATION[count * 6] = 1;
+  WINDOW_CLASSIFICATION[count] = 1;
+}
+WINDOW_CLASSIFICATION[4 * 6] = 3;
+WINDOW_CLASSIFICATION[4] = 3;
+
+// Each board edit changes a window code by at most six. Pack its evaluation
+// delta and classification changes into one lookup in the incremental hot loop.
+const windowTransitions = (weights: Int32Array): Int32Array[] => Array.from({ length: 13 }, (_, change) => {
+  const transitions = new Int32Array(36);
+  for (let oldCode = 0; oldCode < 36; oldCode += 1) {
+    const code = oldCode + change - 6;
+    if (code >= 0 && code < 36) {
+      transitions[oldCode] = (weights[code] - weights[oldCode]) * 4
+        + (WINDOW_CLASSIFICATION[oldCode] ^ WINDOW_CLASSIFICATION[code]);
+    }
+  }
+  return transitions;
+});
+const WINDOW_TRANSITIONS = windowTransitions(WINDOW_EVALUATION);
+const SHORT_WINDOW_TRANSITIONS = windowTransitions(SHORT_WINDOW_EVALUATION);
 
 // Transposition table constants
 const TT_SIZE_BITS = 18;
@@ -185,9 +213,11 @@ export class GogoAI {
   private evaluationBoard = new Uint8Array(0);
   private localScores = new Int32Array(0);
   private localEvaluation = 0;
-  private pointPatternBlack = new Int32Array(0);
-  private pointPatternWhite = new Int32Array(0);
+  private pointPatternBlack = new Float64Array(0);
+  private pointPatternWhite = new Float64Array(0);
   private patternsReady = false;
+  private patternsCalibrated = false;
+  private proofOrdering = false;
   private patternDirty = new Uint8Array(0);
   private dirtyWindows = new Int16Array(0);
   private patternCodes = new Uint8Array(0);
@@ -217,6 +247,7 @@ export class GogoAI {
   private qHash = new BigUint64Array(QTT_SIZE);
   private qScore = new Float64Array(QTT_SIZE);
   private qDepth = new Int16Array(QTT_SIZE);
+  private qPlyLeft = new Int32Array(QTT_SIZE);
   private qFlag = new Uint8Array(QTT_SIZE);
 
   private ttHash = new BigUint64Array(TT_SIZE);
@@ -314,7 +345,7 @@ export class GogoAI {
       };
     }
 
-    const heuristicWin = this.isForcedWinScore(state.bestScore, state.completedDepth);
+    const heuristicWin = this.isHeuristicWinScore(state.bestScore, state.completedDepth);
     const heuristicLoss = !state.partial && this.isForcedLossScore(state.bestScore, state.completedDepth);
     let provenWin = false;
     let provenLoss = false;
@@ -359,7 +390,7 @@ export class GogoAI {
     }
 
     // Recompute heuristic flags in case resume changed bestScore/completedDepth
-    const finalHeuristicWin = this.isForcedWinScore(state.bestScore, state.completedDepth);
+    const finalHeuristicWin = this.isHeuristicWinScore(state.bestScore, state.completedDepth);
     const finalHeuristicLoss = !state.partial && this.isForcedLossScore(state.bestScore, state.completedDepth);
 
     return {
@@ -400,8 +431,8 @@ export class GogoAI {
     this.evaluationBoard = new Uint8Array(area);
     this.localScores = new Int32Array(area);
     this.localEvaluation = 0;
-    this.pointPatternBlack = new Int32Array(area);
-    this.pointPatternWhite = new Int32Array(area);
+    this.pointPatternBlack = new Float64Array(area);
+    this.pointPatternWhite = new Float64Array(area);
     this.patternsReady = false;
     this.patternDirty = new Uint8Array(4 * area);
     this.dirtyWindows = new Int16Array(4 * area);
@@ -482,7 +513,7 @@ export class GogoAI {
         state.completedDepth = depth;
         delete state.partial;
         state.hintMove = result.move;
-        if (this.isForcedWinScore(result.score, depth) || this.isForcedLossScore(result.score, depth)) {
+        if (this.isHeuristicWinScore(result.score, depth) || this.isForcedLossScore(result.score, depth)) {
           break;
         }
         if (!earlyProof) continue;
@@ -523,7 +554,9 @@ export class GogoAI {
         if (error !== this.timeoutSignal) {
           throw error;
         }
-        if (this.partialRoot.move !== -1 && (state.completedDepth === 0 || this.partialRoot.score > state.bestScore)) {
+        // The preceding leader is searched first, so completed children can
+        // be compared at this deeper horizon even when every score fell.
+        if (this.partialRoot.move !== -1) {
           state.bestMove = this.partialRoot.move;
           state.bestScore = this.partialRoot.score;
           state.completedDepth = this.partialRoot.depth;
@@ -685,6 +718,8 @@ export class GogoAI {
 
   private tryEarlyProof(position: GogoPosition, state: SearchState, nodeLimit = Infinity, lossDepth = 0, depthLimit = this.maxDepth): boolean {
     const deadline = this.deadline;
+    const previousOrdering = this.proofOrdering;
+    this.proofOrdering = true;
     // Winning-move verification starts its own node counter; loss verification
     // adds to discovery's counter. Restore accounting according to that API.
     const nodes = lossDepth === 0 ? this.nodesVisited : 0;
@@ -727,6 +762,7 @@ export class GogoAI {
       if (error !== this.timeoutSignal) throw error;
       return false;
     } finally {
+      this.proofOrdering = previousOrdering;
       this.deadline = deadline;
       this.proofNodeLimit = previousNodeLimit;
       this.nodesVisited += nodes;
@@ -734,6 +770,11 @@ export class GogoAI {
       this.killerMoves.set(killers);
       this.timedOut = this.now() >= deadline;
     }
+  }
+
+  /** Tactical extensions contribute to discovery's mate horizon too. */
+  private isHeuristicWinScore(score: number, depth: number): boolean {
+    return this.isForcedWinScore(score, Math.min(this.maxPly, depth + this.quiescenceDepth));
   }
 
   private isForcedWinScore(score: number, depth: number): boolean {
@@ -815,6 +856,16 @@ export class GogoAI {
 
   /** Prove a winning opponent reply after EVERY legal defense, including distant moves. */
   private proofSearchRoot(position: GogoPosition, depth: number, hintMove: number): number {
+    const previous = this.proofOrdering;
+    this.proofOrdering = true;
+    try {
+      return this.searchLossProof(position, depth, hintMove);
+    } finally {
+      this.proofOrdering = previous;
+    }
+  }
+
+  private searchLossProof(position: GogoPosition, depth: number, hintMove: number): number {
     this.checkTimeNow();
     const count = this.generateAllBoardMoves(position, this.moveBuffers[0], this.scoreBuffers[0], hintMove);
     // Child discovery uses the root buffers too. Keep the defense list intact.
@@ -901,6 +952,19 @@ export class GogoAI {
       let count = stage === 0
         ? this.generateNearbyMoves(position, moves, scores, hintMove)
         : this.generateAllBoardMoves(position, moves, scores, hintMove);
+      // Partial iterations must compare the previous leader at this horizon.
+      // Keep it first independently of history and tactical score magnitudes.
+      if (moves[0] !== hintMove) {
+        for (let index = 1; index < count; index += 1) {
+          if (moves[index] !== hintMove) continue;
+          const score = scores[index];
+          moves.copyWithin(1, 0, index);
+          scores.copyWithin(1, 0, index);
+          moves[0] = hintMove;
+          scores[0] = score;
+          break;
+        }
+      }
       if (stage === 0 && !this.proofMode && depth > 1) count = Math.min(count, rootLimit);
       for (let i = 0; i < count; i += 1) {
         const move = moves[i];
@@ -1160,7 +1224,8 @@ export class GogoAI {
     // Tag their entries instead of discarding quiescence caches.
     const cacheDepth = this.forcingQuiescence ? -searchDepth - 1 : searchDepth;
     const originalAlpha = alpha;
-    if (this.qHash[index] === hash && this.qDepth[index] === cacheDepth) {
+    if (this.qHash[index] === hash && this.qDepth[index] === cacheDepth
+      && (!this.forcingQuiescence || this.qPlyLeft[index] === this.maxPly - ply)) {
       const cached = this.adjustMateScore(this.qScore[index], -ply);
       const flag = this.qFlag[index];
       if (flag === TT_EXACT || (flag === TT_LOWERBOUND && cached >= beta) || (flag === TT_UPPERBOUND && cached <= alpha)) return cached;
@@ -1168,21 +1233,22 @@ export class GogoAI {
     const store = (score: number): number => {
       this.qHash[index] = hash;
       this.qDepth[index] = cacheDepth;
+      this.qPlyLeft[index] = this.maxPly - ply;
       this.qScore[index] = this.adjustMateScore(score, ply);
       this.qFlag[index] = score >= beta ? TT_LOWERBOUND : score <= originalAlpha ? TT_UPPERBOUND : TT_EXACT;
       return score;
     };
 
     const standPat = this.evaluate(position);
-    if (remainingDepth === 0 || ply >= this.maxPly) {
-      return store(standPat);
-    }
+    if (ply >= this.maxPly) return store(standPat);
     // A large positive static score suggests an own four. Confirm its legality
     // exactly before avoiding tactical generation; smaller scores take the
     // normal path without an extra window scan.
-    if (standPat >= EVAL_WEIGHTS[4] / 2 && this.findImmediateWin(position) !== -1) {
+    if ((remainingDepth > 0 || (this.forcingQuiescence && this.quiescenceDepth > 0))
+      && standPat >= EVAL_WEIGHTS[4] / 2 && this.findImmediateWin(position) !== -1) {
       return store(WIN_SCORE - ply - 1);
     }
+    if (remainingDepth === 0) return store(standPat);
 
     const responses = this.findThreatResponses(position, ply);
     if (responses < 0 && standPat >= beta) {
@@ -1213,7 +1279,9 @@ export class GogoAI {
       legalCount += 1;
       let score = 0;
       try {
-        score = -this.quiescence(position, -beta, -alpha, ply + 1, remainingDepth - 1);
+        // Forcing discovery retains its attack allowance through a unique
+        // reply. Broader setup scouts keep their independent fixed horizon.
+        score = -this.quiescence(position, -beta, -alpha, ply + 1, remainingDepth - (this.forcingQuiescence && responses === 1 ? 0 : 1));
       } finally {
         position.undo();
       }
@@ -1225,7 +1293,12 @@ export class GogoAI {
       if (alpha >= beta) return store(score);
     }
 
-    return store(legalCount === 0 ? standPat : bestScore);
+    // Every move outside a complete response set permits five next turn.
+    // An entirely immobile side remains neutral under the game rules.
+    if (responses >= 0 && legalCount === 0) {
+      return store(position.hasAnyLegalMove() ? -WIN_SCORE + ply + 2 : 0);
+    }
+    return store(bestScore);
   }
 
   /** Share incremental five-cell counts across scoring, evaluation and threats. */
@@ -1242,7 +1315,7 @@ export class GogoAI {
     const windows = meta.windowsByPoint;
     let dirtyCount = this.dirtyWindowCount;
     let evaluation = this.windowEvaluation;
-    const evaluationWeights = this.shortEvaluation ? SHORT_WINDOW_EVALUATION : WINDOW_EVALUATION;
+    const transitionTables = this.shortEvaluation ? SHORT_WINDOW_TRANSITIONS : WINDOW_TRANSITIONS;
     const changes = position.boardVersion - this.windowVersion;
     const incremental = this.windowPosition === position && changes > 0 && changes <= position.boardChanges.length;
     const count = incremental ? changes : position.area;
@@ -1257,6 +1330,7 @@ export class GogoAI {
       const pointWord = point >>> 5;
       this.occupiedPoints[pointWord] = (this.occupiedPoints[pointWord] & ~pointBit) | (-Number(cell !== EMPTY) & pointBit);
       const countDelta = ((cell & 1) - (oldCell & 1)) * 6 + (cell >> 1) - (oldCell >> 1);
+      const transitions = transitionTables[countDelta + 6];
       for (let cursor = offsets[point]; cursor < offsets[point + 1]; cursor += 1) {
         const wi = windows[cursor];
         if (dirty[wi] === 0) {
@@ -1265,12 +1339,16 @@ export class GogoAI {
         }
         const oldCode = counts[wi];
         const code = oldCode + countDelta;
-        evaluation += evaluationWeights[code] - evaluationWeights[oldCode];
+        const transition = transitions[oldCode];
+        evaluation += transition >> 2;
         counts[wi] = code;
-        const bit = 1 << (wi & 31);
-        const word = wi >>> 5;
-        winning[word] = (winning[word] & ~bit) | (WINDOW_WINNING_MASK[code] & bit);
-        active[word] = (active[word] & ~bit) | (WINDOW_ACTIVE_MASK[code] & bit);
+        const changed = transition & 3;
+        if (changed !== 0) {
+          const bit = 1 << (wi & 31);
+          const word = wi >>> 5;
+          if (changed & 1) active[word] ^= bit;
+          if (changed & 2) winning[word] ^= bit;
+        }
       }
       const libertyDelta = Number(oldCell !== EMPTY) - Number(cell !== EMPTY);
       for (let offset = 0; offset < 4; offset += 1) {
@@ -1290,9 +1368,22 @@ export class GogoAI {
   private beginPatternPass(position: GogoPosition): void {
     this.beginWindowPass(position);
     const meta = position.meta;
+    const calibrated = this.shortEvaluation && !this.proofOrdering;
+    if (calibrated !== this.patternsCalibrated) {
+      this.patternsCalibrated = calibrated;
+      this.patternsReady = false;
+      this.patternCodes.fill(0);
+      this.dirtyWindowCount = meta.windowCount;
+      for (let window = 0; window < meta.windowCount; window += 1) {
+        this.patternDirty[window] = 1;
+        this.dirtyWindows[window] = window;
+      }
+    }
+    const blackWeights = calibrated ? SHORT_MOVE_BLACK : WINDOW_PATTERN_BLACK;
+    const whiteWeights = calibrated ? SHORT_MOVE_WHITE : WINDOW_PATTERN_WHITE;
     if (!this.patternsReady) {
       for (let point = 0; point < position.area; point += 1) {
-        const baseline = (meta.windowsByPointOffsets[point + 1] - meta.windowsByPointOffsets[point]) * WINDOW_PATTERN_BLACK[0];
+        const baseline = (meta.windowsByPointOffsets[point + 1] - meta.windowsByPointOffsets[point]) * blackWeights[0];
         this.pointPatternBlack[point] = baseline;
         this.pointPatternWhite[point] = baseline;
       }
@@ -1305,8 +1396,8 @@ export class GogoAI {
       this.patternCodes[wi] = code;
       this.patternDirty[wi] = 0;
       if (code === oldCode) continue;
-      const blackDelta = WINDOW_PATTERN_BLACK[code] - WINDOW_PATTERN_BLACK[oldCode];
-      const whiteDelta = WINDOW_PATTERN_WHITE[code] - WINDOW_PATTERN_WHITE[oldCode];
+      const blackDelta = blackWeights[code] - blackWeights[oldCode];
+      const whiteDelta = whiteWeights[code] - whiteWeights[oldCode];
       if (blackDelta !== 0 || whiteDelta !== 0) {
         for (let offset = 0; offset < 5; offset += 1) {
           const affected = meta.windows[wi * 5 + offset];
@@ -1718,7 +1809,7 @@ export class GogoAI {
 
   private finalizeMoveScore(position: GogoPosition, move: number, player: Player, baseScore: number, hintMove: number, ply: number): number {
     let score = baseScore;
-    score += position.meta.centerBias[move] * CENTER_MULTIPLIER;
+    score += position.meta.centerBias[move] * (this.shortEvaluation && !this.proofOrdering ? 214.8 : CENTER_MULTIPLIER);
     score += this.history[(player - 1) * this.bufferArea + move];
     if (move === hintMove) {
       score += HINT_BONUS;
@@ -1757,7 +1848,9 @@ export class GogoAI {
     const board = position.board;
     let pattern = 0;
     if (directPatterns) {
-      const weights = player === BLACK ? WINDOW_PATTERN_BLACK : WINDOW_PATTERN_WHITE;
+      const weights = this.shortEvaluation && !this.proofOrdering
+        ? (player === BLACK ? SHORT_MOVE_BLACK : SHORT_MOVE_WHITE)
+        : (player === BLACK ? WINDOW_PATTERN_BLACK : WINDOW_PATTERN_WHITE);
       for (let index = meta.windowsByPointOffsets[move]; index < meta.windowsByPointOffsets[move + 1]; index += 1) {
         const window = meta.windowsByPoint[index];
         pattern += weights[this.windowCounts[window]];
@@ -1766,9 +1859,18 @@ export class GogoAI {
       pattern = player === BLACK ? this.pointPatternBlack[move] : this.pointPatternWhite[move];
     }
 
+    let tacticalPattern = pattern;
+    if (this.shortEvaluation && !this.proofOrdering && tacticalOnly) {
+      tacticalPattern = 0;
+      const weights = player === BLACK ? WINDOW_PATTERN_BLACK : WINDOW_PATTERN_WHITE;
+      for (let index = meta.windowsByPointOffsets[move]; index < meta.windowsByPointOffsets[move + 1]; index += 1) {
+        tacticalPattern += weights[this.windowCounts[meta.windowsByPoint[index]]];
+      }
+    }
+
     // A point belongs to at most 20 windows. Without a four-stone window,
     // their combined attack/defense weights stay below the tactical threshold.
-    if (tacticalOnly && pattern >= TACTICAL_PATTERN_THRESHOLD) {
+    if (tacticalOnly && tacticalPattern >= TACTICAL_PATTERN_THRESHOLD) {
       return this.finalizeMoveScore(position, move, player, pattern, hintMove, ply);
     }
 
@@ -1888,6 +1990,8 @@ export class GogoAI {
     this.verifiedWinDepth = 0;
 
     if (!position.play(move)) return false;
+    const previousOrdering = this.proofOrdering;
+    this.proofOrdering = true;
     const deadline = this.deadline;
     try {
       // Forcing sequences are much cheaper to prove than quiet setups. Give
@@ -1897,10 +2001,13 @@ export class GogoAI {
       for (const forcingOnly of this.reuseProofCache ? [false] : [true, false]) {
         this.forcingProofMode = forcingOnly;
         this.deadline = forcingOnly ? deadline - Math.max(0, timeLimitMs) * 3 / 4 : deadline;
-        // Restricted failures cannot refute quiet setups. Invalidate their
-        // depths before broadening; proven wins and independently checked
-        // move hints remain useful. Both proof probes require positive depth.
-        if (!forcingOnly && !this.reuseProofCache) this.proofTTDepth.fill(0);
+        // Both generators coincide at short horizons. A restricted failure
+        // remains a valid bound there; longer quiet setups need a fresh search.
+        if (!forcingOnly && !this.reuseProofCache) {
+          for (let index = 0; index < this.proofTTDepth.length; index += 1) {
+            this.proofTTDepth[index] = Math.min(this.proofTTDepth[index], SHARED_PROOF_HORIZON);
+          }
+        }
         const limit = Math.min(depthLimit, this.maxPly, forcingOnly ? FORCING_PROOF_MAX_DEPTH : Infinity);
         for (let maxDepth = 1; maxDepth <= limit; maxDepth += 2) {
           try {
@@ -1918,6 +2025,7 @@ export class GogoAI {
       }
       return false;
     } finally {
+      this.proofOrdering = previousOrdering;
       this.forcingProofMode = false;
       this.deadline = deadline;
       position.undo();
@@ -1987,7 +2095,7 @@ export class GogoAI {
     // Loss verification keeps a bounded forcing attack set and exhaustive defenses.
     // With at most two attacking turns, a four or tactical capture is needed.
     const rootLossReply = this.lossProofMode && ply === 1;
-    const forcingOnly = depthLeft <= 4 || this.lossProofMode || this.forcingProofMode;
+    const forcingOnly = depthLeft <= SHARED_PROOF_HORIZON || this.lossProofMode || this.forcingProofMode;
     const minimumStones = rootLossReply || !forcingOnly ? 2 : 3;
     let count = responses >= 0 ? responses
       : this.generateAttackingMoves(position, moves, scores, -1, ply, minimumStones);

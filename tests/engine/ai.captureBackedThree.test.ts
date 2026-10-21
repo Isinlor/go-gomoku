@@ -67,7 +67,8 @@ for (const player of [BLACK, WHITE] as const) {
 
     const result = new GogoAI({ maxDepth: 7, now: () => 0 }).findBestMove(precursor, 1000);
     expect(result.forcedWin).toBe(true);
-    expect(result.depth).toBe(omitted === 0 ? 3 : 7);
+    // Quiescence exposes the immediate fork during the first root iteration.
+    expect(result.depth).toBe(omitted === 0 ? 1 : 7);
     // Without the support, filling the row's gap wins faster than adding it.
     expect(result.move).toBe(omitted === 0 ? point(4, 4) : completion);
     expect(precursor.encodeGame()).toBe(before);
