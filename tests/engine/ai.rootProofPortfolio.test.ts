@@ -29,6 +29,27 @@ test('deep discovery verifies ranked root candidates and accepts a proof', () =>
   expect(state.bestMove).toBe(11);
 });
 
+test('an admitted proof portfolio has its own finite work allowance inside a scout', () => {
+  const position = GogoPosition.fromAscii(['.XXXX....', ...Array(8).fill('.........')], BLACK);
+  const before = position.toAscii();
+  const ai = new GogoAI({ maxDepth: 13, now: () => 0 }) as any;
+  ai.ensureBuffers(position.area);
+  ai.deadline = 10_000;
+  ai.proofNodeLimit = 1;
+  ai.rootProofCount = 1;
+  ai.rootProofMoves[0] = 0;
+  const state = { bestMove: 0, bestScore: 0, completedDepth: 5, hintMove: 0 };
+  expect(ai.tryRootProofPortfolio(position, state, true)).toBe(true);
+  expect(state).toMatchObject({ provenWin: true });
+  expect(ai.proofNodeLimit).toBeGreaterThan(ai.nodesVisited);
+  expect(Number.isFinite(ai.proofNodeLimit)).toBe(true);
+  expect(position.toAscii()).toEqual(before);
+  expect(position.ply).toBe(0);
+  expect(position.play(state.bestMove)).toBe(true);
+  expect(position.winner).toBe(BLACK);
+  position.undo();
+});
+
 test('deep discovery preserves its result when candidate proofs fail', () => {
   const { ai, position } = makePortfolioSearch();
   let attempts = 0;

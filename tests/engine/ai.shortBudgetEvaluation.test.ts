@@ -137,10 +137,26 @@ test.each([4096, undefined])('an inconclusive classic scout shares its node allo
   const original = { ...state };
   ai.nodesVisited = 37;
   expect(ai.tryClassicProofScout(position, state, allowance, 11)).toBe(false);
-  expect(ai.nodesVisited - 37).toBeLessThan(2 * (allowance ?? 45_056) + 4);
+  expect(ai.nodesVisited - 37).toBeLessThan(3 * (allowance ?? 45_056) + 4);
   expect(ai.timedOut).toBe(false);
   expect(state).toEqual(original);
   expect(position.encodeGame()).toBe('B9 a8 b2 c9');
+});
+
+test('sparse-opening scouts obey the same shared work allowance', () => {
+  const position = decodeGame('B9 e5 d5');
+  const ai = new GogoAI({ maxDepth: 3, now: () => 0 }) as any;
+  ai.ensureBuffers(position.area);
+  ai.configureEvaluation(position, 1000);
+  ai.deadline = 1000;
+  ai.nodesVisited = 37;
+  const state = { bestMove: 0, bestScore: -7, completedDepth: 1, hintMove: 0 };
+  const original = { ...state };
+  expect(ai.tryClassicProofScout(position, state, 128, 3)).toBe(false);
+  expect(ai.nodesVisited - 37).toBeLessThan(388);
+  expect(ai.timedOut).toBe(false);
+  expect(state).toEqual(original);
+  expect(position.encodeGame()).toBe('B9 e5 d5');
 });
 
 test.each([false, true])('an inconclusive scout preserves usable playing caches, including on slice timeout (%s)', sliceTimeout => {

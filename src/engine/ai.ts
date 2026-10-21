@@ -536,6 +536,9 @@ export class GogoAI {
   }
 
   private tryRootProofPortfolio(position: GogoPosition, state: SearchState, stableRootMove: boolean, previousPromisingMove = -1): boolean {
+    // Admission grants this batch its advertised proof work. A bounded scout
+    // must not truncate that allocation with its smaller discovery allowance.
+    this.proofNodeLimit += ROOT_PROOF_NODE_LIMIT;
     // All candidates share the same attacker and full proof rules. Completed
     // bounds and proven subpositions remain valid across this entire batch.
     this.clearProofTable();
@@ -646,12 +649,9 @@ export class GogoAI {
     classic.forcingQuiescence = false;
     classic.ttBestMove.fill(-1);
     classic.nodesVisited = this.nodesVisited;
-    // Share a bounded allowance across discovery and nested proofs, leaving
-    // room for both the initial candidate and its rediscovered alternative.
-    // Sparse openings still need diversity to discover distant edge setups.
-    if (position.stoneCount >= 3) {
-      classic.proofNodeLimit = classic.nodesVisited + 2 * (nodeLimit ?? SHALLOW_PROOF_NODES_PER_DEPTH * this.maxDepth);
-    }
+    // Reserve work for discovery, the initial candidate's proof and its
+    // rediscovered alternative, sharing the total across nested searches.
+    classic.proofNodeLimit = classic.nodesVisited + 3 * (nodeLimit ?? SHALLOW_PROOF_NODES_PER_DEPTH * this.maxDepth);
     try {
       const fallback = classic.pickFallbackMove(position);
       Object.assign(scout, { bestMove: fallback, bestScore: 0, completedDepth: 0, hintMove: fallback });
