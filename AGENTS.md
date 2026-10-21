@@ -38,3 +38,9 @@ Unless specifically asked you are not allowed to change benchmarks. You can make
 ## Result artifacts
 
 Avoid adding results to the repo unless asked or the results are the main deliverable. Prefer to summarize results in pr description.
+
+## Reward hacking
+
+If you make changes and you notice that validation tests are failing, you are not allowed to introduce changes intended to fix that specific cases with unprincipled branching.
+You are not allowed to say do something else for timeouts between x,y, or for ply3 do something else than we do for ply4 in the specific scenario where you noticed tests like that are failing.
+You are allowed to introduce new constants or branches, but you need to justify them in a principled way. All in all, you are just not allowed to reward hack and over-fit to the validation set.
