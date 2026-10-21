@@ -5,6 +5,7 @@ import openings from './strength-openings.json' with { type: 'json' };
 import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads';
 import { fileURLToPath } from 'node:url';
 import { loadEngine } from './puzzle-performance.mjs';
+import { AI_CONFIG } from '../src/engine/aiConfig.ts';
 
 export const MOVE_MS = 5;
 
@@ -55,7 +56,7 @@ export function evaluateOpenings(master, candidate, boards = openings.boards, ti
     if (index % 2) engines.reverse();
     const searches = {};
     for (const [name, engine] of engines) {
-      const search = new engine.GogoAI().findBestMove(engine.decodeGame(board.encoded), timeMs);
+      const search = new engine.GogoAI(AI_CONFIG).findBestMove(engine.decodeGame(board.encoded), timeMs);
       searches[name] = search;
       const sign = Math.sign(search.score);
       result[name].signs[sign < 0 ? 'negative' : sign > 0 ? 'positive' : 'zero']++;
@@ -83,7 +84,7 @@ export function evaluateOpenings(master, candidate, boards = openings.boards, ti
 /** Own-version positions avoid passing incompatible class instances to an AI. */
 export function playStrengthGame(master, candidate, opening, candidateColor, timeMs = MOVE_MS) {
   const positions = [master.decodeGame(opening), candidate.decodeGame(opening)];
-  const ais = [new master.GogoAI(), new candidate.GogoAI()];
+  const engines = [master, candidate];
   const referee = positions[0];
   // Repeating a full position (including turn and ko) ends a capture cycle.
   const seen = new Set();
@@ -91,7 +92,7 @@ export function playStrengthGame(master, candidate, opening, candidateColor, tim
     if (!referee.hasAnyLegalMove() || seen.has(referee.hash)) break;
     seen.add(referee.hash);
     const index = referee.toMove === candidateColor ? 1 : 0;
-    const { move } = ais[index].findBestMove(positions[index], timeMs);
+    const { move } = new engines[index].GogoAI(AI_CONFIG).findBestMove(positions[index], timeMs);
     assert(Number.isInteger(move) && referee.isLegal(move), 'AI returned an illegal move');
     for (const position of positions) {
       assert(position.play(move), 'Engine rules disagree');
@@ -106,7 +107,7 @@ export function playStrengthGame(master, candidate, opening, candidateColor, tim
 export function sampleStrength(master, candidate, send, random = randomInt, play = playStrengthGame, timeMs = MOVE_MS) {
   // Warm both engines before scoring; randomize warmup order too.
   const engines = random(2) ? [master, candidate] : [candidate, master];
-  for (const engine of engines) new engine.GogoAI().findBestMove(engine.decodeGame('B9 e5 d5'), timeMs);
+  for (const engine of engines) new engine.GogoAI(AI_CONFIG).findBestMove(engine.decodeGame('B9 e5 d5'), timeMs);
   let bets = STAKES.map(() => 1);
   let gainBets = STAKES.map(() => 1);
   let score = 0;

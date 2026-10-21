@@ -180,3 +180,23 @@ test('an unsuccessful stable leader does not exclude alternative proof candidate
   expect(attempted).toEqual([[10, 13], [11, 1], [10, 13], [11, 3]]);
   expect(state.bestMove).toBe(11);
 });
+
+test.each([true, false])('a promising previous leader remains eligible without excluding alternatives (wins: %s)', previousWins => {
+  const { ai, position } = makePortfolioSearch();
+  ai.rootProofCount = 1;
+  ai.rootProofMoves[0] = 11;
+  ai.searchRoot = (_position: unknown, depth: number) => ({ move: 11, score: 0, depth, nodes: 1 });
+  const attempted: [number, number][] = [];
+  ai.tryEarlyWinProof = (_position: unknown, state: { bestMove: number; provenWin?: boolean }, _limit: number, depth: number) => {
+    attempted.push([state.bestMove, depth]);
+    if (!(previousWins && state.bestMove === 10 && depth === 13)
+      && !(!previousWins && state.bestMove === 11 && depth === 1)) return false;
+    state.provenWin = true;
+    return true;
+  };
+  const state = { bestMove: 10, bestScore: 100, completedDepth: 4, hintMove: 10 };
+  ai.searchDepths(position, 5, state, 13, true);
+  expect(attempted).toEqual(previousWins ? [[10, 13]] : [[10, 13], [11, 1]]);
+  expect(state.bestMove).toBe(previousWins ? 10 : 11);
+  expect(state.provenWin).toBe(true);
+});

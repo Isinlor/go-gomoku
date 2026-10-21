@@ -87,6 +87,9 @@ test.each(['black', 'white'] as const)('switching the current %s player to AI su
   expect(workers[0].postMessage).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
     encodedGame: player === 'black' ? 'B9' : 'B9 e5',
     timeLimitMs: 125,
+    maxDepth: 30,
+    quiescenceDepth: 4,
+    maxPly: 96,
   }));
   expect(wrapper.findAll('.board button').every(button => (button.element as HTMLButtonElement).disabled)).toBe(true);
 });

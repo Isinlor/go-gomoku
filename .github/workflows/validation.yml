@@ -1,10 +1,10 @@
-name: Puzzles
+name: Validation
 
 on:
   push:
-   branches: 
-     - main
-     - master
+    branches:
+      - main
+      - master
   pull_request:
 
 jobs:
@@ -58,3 +58,16 @@ jobs:
           node-version: 24
       - name: Compare AI strength with master
         run: npm run test:strength -- .strength-master
+
+  strength-across-time-budgets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Check AI strength across time budgets
+        run: npm run test:strength-across-time-budgets
