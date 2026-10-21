@@ -526,6 +526,8 @@ export class GogoAI {
         }
         // Expensive first iterations and sparse openings need another look
         // before speculative proof. Cheap tactical setups can be proved now.
+        // A failed probe applies to its candidate, not a revised root leader.
+        if (!stableRootMove) shallowProofTried = false;
         const shallowProofReady = this.canProbeShallowProof(position, depth, result.nodes);
         if (!shallowProofTried && shallowProofReady && endDepth >= 5 && result.score >= ATTACK_WEIGHTS[2]) {
           shallowProofTried = true;

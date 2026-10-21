@@ -209,6 +209,16 @@ test('an early loss proof verifies all legal defenses independently of the disco
   expect(position.ply).toBe(0);
 });
 
+test('a revised discovery leader gets a bounded proof after an earlier candidate fails', { timeout: 5_000 }, () => {
+  const position = decodeGame('B9 e1 b6');
+  const result = new GogoAI({ maxDepth: 30, quiescenceDepth: 4, now: () => 0 }).findBestMove(position, 1250);
+  expect(result.forcedWin).toBe(true);
+  expect(result.move).toBe(decodeMove('c1', position.size));
+  // Avoid the extra discovery iterations after the leader changes.
+  expect(result.nodes).toBeLessThan(210_000);
+  expect(position.encodeGame()).toBe('B9 e1 b6');
+});
+
 test('an unproven early loss leaves discovery available at deeper depths', () => {
   const position = new GogoPosition(9);
   const ai = new GogoAI({ maxDepth: 6, now: () => 0 }) as any;
