@@ -63,3 +63,17 @@ test('numeric evaluation retains a proof opportunity after broadening discovery'
   expect(result.nodes).toBeLessThan(20_000);
   expect(position.encodeGame()).toBe('B9 a3 d1');
 });
+
+test('a scout reserves discovery work as well as both candidate proofs', { timeout: 5000 }, () => {
+  const position = decodeGame('B9 c1 e4');
+  const ai = new GogoAI({ maxDepth: 30, now: () => 0 }) as any;
+  ai.ensureBuffers(position.area);
+  ai.configureEvaluation(position, 1250);
+  ai.deadline = 1250;
+  const state = { bestMove: 4, bestScore: 1690.4, completedDepth: 2, hintMove: 4 };
+  expect(ai.tryClassicProofScout(position, state, 122_880, 30)).toBe(true);
+  expect(state).toMatchObject({ bestMove: decodeMove('e1', 9), provenWin: true });
+  expect(ai.nodesVisited).toBeLessThan(260_000);
+  expect(ai.timedOut).toBe(false);
+  expect(position.encodeGame()).toBe('B9 c1 e4');
+});

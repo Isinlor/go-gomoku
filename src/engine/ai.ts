@@ -571,6 +571,9 @@ export class GogoAI {
   }
 
   private tryRootProofPortfolio(position: GogoPosition, state: SearchState, stableRootMove: boolean, previousPromisingMove = -1): boolean {
+    // Admission grants this batch its advertised proof work. A bounded scout
+    // must not truncate that allocation with its smaller discovery allowance.
+    this.proofNodeLimit += ROOT_PROOF_NODE_LIMIT;
     // All candidates share the same attacker and full proof rules. Completed
     // bounds and proven subpositions remain valid across this entire batch.
     this.clearProofTable();
@@ -681,6 +684,9 @@ export class GogoAI {
     classic.forcingQuiescence = false;
     classic.ttBestMove.fill(-1);
     classic.nodesVisited = this.nodesVisited;
+    // Reserve work for discovery, the initial candidate's proof and its
+    // rediscovered alternative, sharing the total across nested searches.
+    classic.proofNodeLimit = classic.nodesVisited + 3 * (nodeLimit ?? SHALLOW_PROOF_NODES_PER_DEPTH * this.maxDepth);
     try {
       const fallback = classic.pickFallbackMove(position);
       Object.assign(scout, { bestMove: fallback, bestScore: 0, completedDepth: 0, hintMove: fallback });
@@ -730,13 +736,16 @@ export class GogoAI {
     // adds to discovery's counter. Restore accounting according to that API.
     const nodes = lossDepth === 0 ? this.nodesVisited : 0;
     const previousNodeLimit = this.proofNodeLimit;
-    this.proofNodeLimit = nodeLimit;
+    // Winning verification resets its counter; translate any enclosing scout
+    // allowance into that counter and retain it when trying alternatives.
+    const remainingNodes = previousNodeLimit - this.nodesVisited;
+    this.proofNodeLimit = Math.min(nodeLimit, remainingNodes);
     const history = this.history.slice();
     const killers = this.killerMoves.slice();
     try {
       if (lossDepth !== 0) {
         this.deadline = Number.isFinite(nodeLimit) ? deadline : this.now() + (deadline - this.now()) / 4;
-        this.proofNodeLimit = this.nodesVisited + nodeLimit;
+        this.proofNodeLimit = Math.min(this.nodesVisited + nodeLimit, previousNodeLimit);
         const score = this.proofSearchRoot(position, lossDepth, state.bestMove);
         if (!this.isForcedLossScore(score, lossDepth)) return false;
         state.bestScore = score;
@@ -752,7 +761,7 @@ export class GogoAI {
         // The heuristic's first choice can hide a winning quiet setup. Probe
         // alternatives with an independent bounded root proof before spending
         // the remaining budget on deeper heuristic iterations.
-        this.proofNodeLimit = this.nodesVisited + nodeLimit;
+        this.proofNodeLimit = Math.min(this.nodesVisited + nodeLimit, remainingNodes);
         this.resetProofSearch();
         const depth = Math.min(depthLimit, FORCING_PROOF_MAX_DEPTH);
         if (!this.proofAttack(position, depth, 0)) return false;

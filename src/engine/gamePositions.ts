@@ -132,6 +132,48 @@ export const PLY2_FORCED_WINS: readonly GamePosition[] = [
 }));
 
 export const GAME_POSITIONS: readonly GamePosition[] = [
+  // Non-terminal quiet positions: depth-11 search must finish within one second
+  // without claiming a proven win or loss.
+  {
+    id: 'quiet-ply3',
+    encoded: 'B9 a8 b2 c9',
+    toMove: WHITE,
+    searchOptions: { maxDepth: 11, quiescenceDepth: 4, maxPly: 64 },
+    timeLimitMs: 1_000,
+    expectedResult: { depth: 11, forcedWin: false, forcedLoss: false, timedOut: false },
+  },
+  {
+    id: 'quiet-ply6',
+    encoded: 'B9 d3 g3 c8 a6 i1 a9',
+    toMove: BLACK,
+    searchOptions: { maxDepth: 11, quiescenceDepth: 4, maxPly: 64 },
+    timeLimitMs: 1_000,
+    expectedResult: { depth: 11, forcedWin: false, forcedLoss: false, timedOut: false },
+  },
+  {
+    id: 'quiet-ply11',
+    encoded: 'B9 a5 b4 e2 g9 d9 h4 a1 c1 f8 b5 e8',
+    toMove: WHITE,
+    searchOptions: { maxDepth: 11, quiescenceDepth: 4, maxPly: 64 },
+    timeLimitMs: 1_000,
+    expectedResult: { depth: 11, forcedWin: false, forcedLoss: false, timedOut: false },
+  },
+  {
+    id: 'quiet-ply18',
+    encoded: 'B9 b8 b9 f6 e7 f8 d4 e5 i7 f7 f5 h6 g9 f1 c2 a6 a7 h3 g6',
+    toMove: BLACK,
+    searchOptions: { maxDepth: 11, quiescenceDepth: 4, maxPly: 64 },
+    timeLimitMs: 1_000,
+    expectedResult: { depth: 11, forcedWin: false, forcedLoss: false, timedOut: false },
+  },
+  {
+    id: 'quiet-ply27',
+    encoded: 'B9 c5 e5 e4 b7 c7 a5 d8 d3 f6 g2 d6 e7 f1 f2 h7 c2 a9 d7 b4 e6 d9 f8 d1 g6 g8 g9 f4',
+    toMove: WHITE,
+    searchOptions: { maxDepth: 11, quiescenceDepth: 4, maxPly: 64 },
+    timeLimitMs: 1_000,
+    expectedResult: { depth: 11, forcedWin: false, forcedLoss: false, timedOut: false },
+  },
   ...PLY2_FORCED_WINS,
   {
     id: 'ply2-i1-g6',

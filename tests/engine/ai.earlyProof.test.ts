@@ -97,7 +97,7 @@ test('discovery continues when the early proof depth limit cannot establish the 
   expect(position.encodeGame()).toBe(before);
 });
 
-test.each([['gen-expert-1', 50_000], ['gen-complex-1', 56_000]] as const)('complex puzzle %s retains early proof with bounded search work', { timeout: 5_000 }, (id, nodeLimit) => {
+test.each([['gen-expert-1', 50_000], ['gen-complex-1', 56_000], ['gen-unblockable-gap', 46_000]] as const)('complex puzzle %s retains early proof with bounded search work', { timeout: 5_000 }, (id, nodeLimit) => {
   const puzzle = PUZZLES.find(p => p.id === id)!;
   const position = decodeGame(puzzle.encoded);
   const result = new GogoAI({ maxDepth: 10, quiescenceDepth: 4, now: () => 0 }).findBestMove(position, 20_000);
