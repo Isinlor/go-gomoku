@@ -2027,7 +2027,7 @@ test('proofAttack: returns false when position has a winner (defender won)', () 
   const anyAI = ai as any;
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new BigUint64Array(1 << 18);
+  anyAI.proofTTHash.fill(0n);
   anyAI.proofTTResult = new Int8Array(1 << 18);
   anyAI.proofTTDepth = new Int8Array(1 << 18);
 
@@ -2051,7 +2051,7 @@ test('proofAttack: returns false at depth 0', () => {
   const anyAI = ai as any;
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new BigUint64Array(1 << 18);
+  anyAI.proofTTHash.fill(0n);
   anyAI.proofTTResult = new Int8Array(1 << 18);
   anyAI.proofTTDepth = new Int8Array(1 << 18);
 
@@ -2075,7 +2075,7 @@ test('proofAttack: TT hit returns cached result', () => {
   const anyAI = ai as any;
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new BigUint64Array(1 << 18);
+  anyAI.proofTTHash.fill(0n);
   anyAI.proofTTResult = new Int8Array(1 << 18);
   anyAI.proofTTDepth = new Int8Array(1 << 18);
 
@@ -2106,7 +2106,7 @@ test('proofDefend: returns true when attacker already won', () => {
   const anyAI = ai as any;
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new BigUint64Array(1 << 18);
+  anyAI.proofTTHash.fill(0n);
   anyAI.proofTTResult = new Int8Array(1 << 18);
   anyAI.proofTTDepth = new Int8Array(1 << 18);
 
@@ -2131,7 +2131,7 @@ test('proofDefend: returns false at depth 0', () => {
   const anyAI = ai as any;
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new BigUint64Array(1 << 18);
+  anyAI.proofTTHash.fill(0n);
   anyAI.proofTTResult = new Int8Array(1 << 18);
   anyAI.proofTTDepth = new Int8Array(1 << 18);
 
@@ -2155,7 +2155,7 @@ test('proofDefend: TT hit returns cached result', () => {
   const anyAI = ai as any;
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new BigUint64Array(1 << 18);
+  anyAI.proofTTHash.fill(0n);
   anyAI.proofTTResult = new Int8Array(1 << 18);
   anyAI.proofTTDepth = new Int8Array(1 << 18);
 
@@ -2187,7 +2187,7 @@ test('proofDefend: defender makes five and refutes attack', () => {
   const anyAI = ai as any;
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new BigUint64Array(1 << 18);
+  anyAI.proofTTHash.fill(0n);
   anyAI.proofTTResult = new Int8Array(1 << 18);
   anyAI.proofTTDepth = new Int8Array(1 << 18);
 
@@ -2458,7 +2458,7 @@ test('proofAttack: TT hit returns -1 (proven not winning)', () => {
   const anyAI = ai as any;
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new BigUint64Array(1 << 18);
+  anyAI.proofTTHash.fill(0n);
   anyAI.proofTTResult = new Int8Array(1 << 18);
   anyAI.proofTTDepth = new Int8Array(1 << 18);
 
@@ -2489,7 +2489,7 @@ test('proofAttack: TT hash match but result=0 falls through to search', () => {
   const anyAI = ai as any;
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new BigUint64Array(1 << 18);
+  anyAI.proofTTHash.fill(0n);
   anyAI.proofTTResult = new Int8Array(1 << 18);
   anyAI.proofTTDepth = new Int8Array(1 << 18);
 
@@ -2523,7 +2523,7 @@ test('proofDefend: all defenses fail → attacker proven to win', () => {
   const anyAI = ai as any;
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new BigUint64Array(1 << 18);
+  anyAI.proofTTHash.fill(0n);
   anyAI.proofTTResult = new Int8Array(1 << 18);
   anyAI.proofTTDepth = new Int8Array(1 << 18);
 
@@ -2556,7 +2556,7 @@ test('proofDefend: fullboard fallback when near-2 generates nothing', () => {
   const anyAI = ai as any;
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new BigUint64Array(1 << 18);
+  anyAI.proofTTHash.fill(0n);
   anyAI.proofTTResult = new Int8Array(1 << 18);
   anyAI.proofTTDepth = new Int8Array(1 << 18);
 
@@ -2685,7 +2685,7 @@ test('proofAttack: illegal move is skipped', () => {
   const anyAI = ai as any;
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new BigUint64Array(1 << 18);
+  anyAI.proofTTHash.fill(0n);
   anyAI.proofTTResult = new Int8Array(1 << 18);
   anyAI.proofTTDepth = new Int8Array(1 << 18);
 
@@ -2711,7 +2711,7 @@ test('proofDefend: TT hit with proven winning result', () => {
   const anyAI = ai as any;
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new BigUint64Array(1 << 18);
+  anyAI.proofTTHash.fill(0n);
   anyAI.proofTTResult = new Int8Array(1 << 18);
   anyAI.proofTTDepth = new Int8Array(1 << 18);
 
@@ -2742,7 +2742,7 @@ test('proofDefend: TT hit with proven not-winning result', () => {
   const anyAI = ai as any;
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new BigUint64Array(1 << 18);
+  anyAI.proofTTHash.fill(0n);
   anyAI.proofTTResult = new Int8Array(1 << 18);
   anyAI.proofTTDepth = new Int8Array(1 << 18);
 
@@ -2773,7 +2773,7 @@ test('proofDefend: TT hash match but result=0 falls through to search', () => {
   const anyAI = ai as any;
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new BigUint64Array(1 << 18);
+  anyAI.proofTTHash.fill(0n);
   anyAI.proofTTResult = new Int8Array(1 << 18);
   anyAI.proofTTDepth = new Int8Array(1 << 18);
 
@@ -2850,7 +2850,7 @@ test('proofAttack: play() failure is handled (suicide move skipped)', () => {
   ], BLACK);
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new BigUint64Array(1 << 18);
+  anyAI.proofTTHash.fill(0n);
   anyAI.proofTTResult = new Int8Array(1 << 18);
   anyAI.proofTTDepth = new Int8Array(1 << 18);
 
@@ -2910,7 +2910,7 @@ test('proofDefend: play() failure is handled', () => {
   ], WHITE);
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new BigUint64Array(1 << 18);
+  anyAI.proofTTHash.fill(0n);
   anyAI.proofTTResult = new Int8Array(1 << 18);
   anyAI.proofTTDepth = new Int8Array(1 << 18);
 
@@ -3021,7 +3021,7 @@ test('proofDefend: returns false (not proven) when no legal moves exist', () => 
   ], WHITE);
   anyAI.ensureBuffers(pos.area);
   anyAI.deadline = 1e15;
-  anyAI.proofTTHash = new BigUint64Array(1 << 18);
+  anyAI.proofTTHash.fill(0n);
   anyAI.proofTTResult = new Int8Array(1 << 18);
   anyAI.proofTTDepth = new Int8Array(1 << 18);
 

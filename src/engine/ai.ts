@@ -1,4 +1,4 @@
-import { BLACK, EMPTY, GogoPosition, otherPlayer, type Player, WHITE } from './gogomoku';
+import { BLACK, EMPTY, HASH_LOW_WORD, GogoPosition, otherPlayer, type Player, WHITE } from './gogomoku';
 import { insertMoveDescending, sortMovesDescending } from './moveOrdering';
 
 export interface SearchResult {
@@ -196,7 +196,8 @@ export class GogoAI {
   private scoredGroupSizes = new Uint8Array(0);
   private scoredGroupRoots = new Int16Array(0);
   private scoredGroupPassEpoch = 1;
-  private scoredGroupHash = -1n;
+  private scoredGroupHash = -1;
+  private scoredGroupHashHigh = -1;
   private windowBoard = new Uint8Array(0);
   private directLiberties = new Uint8Array(0);
   // One code (black * 6 + white) feeds classifications, patterns and evaluation.
@@ -204,7 +205,8 @@ export class GogoAI {
   private activeWindows = new Uint32Array(0);
   private occupiedPoints = new Uint32Array(0);
   private winningWindows = new Uint32Array(0);
-  private windowHash = -1n;
+  private windowHash = -1;
+  private windowHashHigh = -1;
   private windowPosition: GogoPosition | null = null;
   private windowVersion = 0;
   private evaluationPosition: GogoPosition | null = null;
@@ -242,15 +244,20 @@ export class GogoAI {
   private partialRoot = { move: -1, score: -WIN_SCORE, depth: 0 };
   private selectiveSearch = false;
   private shortEvaluation = false;
+  private classicScout: GogoAI | null = null;
+  private classicScoutNodes = 0;
 
+  // Native word views keep the full 64-bit keys without boxing BigInts in search.
   // Transposition table
   private qHash = new BigUint64Array(QTT_SIZE);
+  private qHash32 = new Uint32Array(this.qHash.buffer);
   private qScore = new Float64Array(QTT_SIZE);
   private qDepth = new Int16Array(QTT_SIZE);
   private qPlyLeft = new Int32Array(QTT_SIZE);
   private qFlag = new Uint8Array(QTT_SIZE);
 
   private ttHash = new BigUint64Array(TT_SIZE);
+  private ttHash32 = new Uint32Array(this.ttHash.buffer);
   private ttScore = new Float64Array(TT_SIZE);
   private ttDepth = new Int8Array(TT_SIZE);
   private ttFlag = new Uint8Array(TT_SIZE);
@@ -264,9 +271,11 @@ export class GogoAI {
   }
 
   findBestMove(position: GogoPosition, timeLimitMs: number): SearchResult {
+    this.classicScout = null;
+    this.classicScoutNodes = 0;
     this.ensureBuffers(position.area);
     this.configureEvaluation(position, timeLimitMs);
-    this.windowHash = -1n;
+    this.windowHash = -1;
     this.windowPosition = null;
     this.evaluationPosition = null;
     if (!this.forcingQuiescence) {
@@ -438,7 +447,7 @@ export class GogoAI {
     this.dirtyWindows = new Int16Array(4 * area);
     this.patternCodes = new Uint8Array(4 * area);
     this.dirtyWindowCount = 0;
-    this.windowHash = -1n;
+    this.windowHash = -1;
     this.moveBuffers = new Array(this.maxPly + 1);
     this.scoreBuffers = new Array(this.maxPly + 1);
     for (let ply = 0; ply <= this.maxPly; ply += 1) {
@@ -460,7 +469,7 @@ export class GogoAI {
     this.scoredGroupRoots = new Int16Array(area);
     this.scoredGroupRoots.fill(-1);
     this.scoredGroupPassEpoch = 1;
-    this.scoredGroupHash = -1n;
+    this.scoredGroupHash = -1;
     this.killerMoves = new Int16Array((this.maxPly + 1) * 2);
     this.killerMoves.fill(-1);
   }
@@ -672,21 +681,31 @@ export class GogoAI {
   /** Classic discovery supplies exact witnesses without replacing calibrated play. */
   private tryClassicProofScout(position: GogoPosition, state: SearchState, nodeLimit: number | undefined, depthLimit: number): boolean {
     if (nodeLimit === 0) return false;
+    // Share the startup allowance across candidates. Further calibrated
+    // discovery earns equal scout work, so repeated probes cannot dominate it.
+    const initialNodes = this.nodesVisited;
+    const allowance = 3 * (nodeLimit ?? SHALLOW_PROOF_NODES_PER_DEPTH * this.maxDepth);
+    const remainingNodes = Math.max(0, Math.min(allowance, allowance + initialNodes - 2 * this.classicScoutNodes));
+    if (remainingNodes === 0) return false;
     const scout = { ...state };
     const deadline = this.deadline;
     const now = this.now();
     // Classic scores and ordering belong to their own search. An inconclusive
     // scout must leave the calibrated TT, quiescence cache and heuristics usable
     // when discovery resumes, including after a scout timeout or exception.
-    const classic = new GogoAI({ maxDepth: this.maxDepth, quiescenceDepth: this.quiescenceDepth, maxPly: this.maxPly, now: this.now });
+    const previousScout = this.classicScout;
+    const classic = previousScout ?? new GogoAI({ maxDepth: this.maxDepth, quiescenceDepth: this.quiescenceDepth, maxPly: this.maxPly, now: this.now });
+    this.classicScout = classic;
     classic.ensureBuffers(position.area);
     classic.deadline = now + Math.max(0, deadline - now) / 2;
     classic.forcingQuiescence = false;
-    classic.ttBestMove.fill(-1);
+    if (previousScout === null) classic.ttBestMove.fill(-1);
+    classic.timedOut = false;
+    classic.resetMoveOrdering();
     classic.nodesVisited = this.nodesVisited;
     // Reserve work for discovery, the initial candidate's proof and its
     // rediscovered alternative, sharing the total across nested searches.
-    classic.proofNodeLimit = classic.nodesVisited + 3 * (nodeLimit ?? SHALLOW_PROOF_NODES_PER_DEPTH * this.maxDepth);
+    classic.proofNodeLimit = classic.nodesVisited + remainingNodes;
     try {
       const fallback = classic.pickFallbackMove(position);
       Object.assign(scout, { bestMove: fallback, bestScore: 0, completedDepth: 0, hintMove: fallback });
@@ -702,6 +721,7 @@ export class GogoAI {
       if (resolved) Object.assign(state, scout);
       return resolved;
     } finally {
+      this.classicScoutNodes += classic.nodesVisited - initialNodes;
       this.nodesVisited = classic.nodesVisited;
       this.timedOut = this.now() >= deadline;
     }
@@ -765,7 +785,7 @@ export class GogoAI {
         this.resetProofSearch();
         const depth = Math.min(depthLimit, FORCING_PROOF_MAX_DEPTH);
         if (!this.proofAttack(position, depth, 0)) return false;
-        state.bestMove = this.proofTTBestMove[Number(BigInt.asUintN(TT_SIZE_BITS, position.hash))];
+        state.bestMove = this.proofTTBestMove[position.hashWords[HASH_LOW_WORD] & (TT_SIZE - 1)];
         state.hintMove = state.bestMove;
         this.verifiedWinDepth = depth;
       }
@@ -912,7 +932,7 @@ export class GogoAI {
             }
           }
           if (provenReply) {
-            winningReply = this.proofTTBestMove[Number(BigInt.asUintN(TT_SIZE_BITS, position.hash))];
+            winningReply = this.proofTTBestMove[position.hashWords[HASH_LOW_WORD] & (TT_SIZE - 1)];
             continue;
           }
           this.proofMode = false;
@@ -1048,12 +1068,13 @@ export class GogoAI {
     const origAlpha = alpha;
 
     // Transposition table probe
-    const hash = position.hash;
-    const ttIndex = Number(BigInt.asUintN(TT_SIZE_BITS, hash));
+    const hash = position.hashWords[0];
+    const hashHigh = position.hashWords[1];
+    const ttIndex = position.hashWords[HASH_LOW_WORD] & (TT_SIZE - 1);
     let ttBest = -1;
     // Extract ordering hints even when the score flag was cleared. Score
     // cutoffs additionally require a valid entry at sufficient depth.
-    if (this.ttHash[ttIndex] === hash) {
+    if (this.ttHash32[ttIndex * 2] === hash && this.ttHash32[ttIndex * 2 + 1] === hashHigh) {
       ttBest = this.ttBestMove[ttIndex];
       if (this.ttFlag[ttIndex] !== TT_NONE && this.ttDepth[ttIndex] >= depth) {
         const ttFlag = this.ttFlag[ttIndex];
@@ -1071,7 +1092,8 @@ export class GogoAI {
       && Math.abs(beta) < WIN_SCORE - this.maxPly
       && this.evaluate(position) >= beta + 240 * depth
       && this.findThreatResponses(position, ply) < 0 && this.findImmediateWin(position) === -1) {
-      this.ttHash[ttIndex] = hash;
+      this.ttHash32[ttIndex * 2] = hash;
+      this.ttHash32[ttIndex * 2 + 1] = hashHigh;
       this.ttScore[ttIndex] = beta;
       this.ttDepth[ttIndex] = depth;
       this.ttFlag[ttIndex] = TT_LOWERBOUND;
@@ -1086,20 +1108,25 @@ export class GogoAI {
       const R = depth >= 6 ? 3 : 2;
       const savedToMove = position.toMove;
       const savedKo = position.koPoint;
-      const savedHash = position.hash;
+      const savedHash = position.hashWords[0];
+      const savedHashHigh = position.hashWords[1];
       position.toMove = otherPlayer(savedToMove);
       position.koPoint = -1;
       // Update hash: toggle side-to-move + change ko from savedKo to -1
       const oldKoIdx = savedKo === -1 ? position.area : savedKo;
       const noKoIdx = position.area;
-      position.hash ^= position.meta.zobristBlackToMove64 ^ position.meta.zobristKo64[oldKoIdx] ^ position.meta.zobristKo64[noKoIdx];
+      position.hashWords[0] ^= position.meta.zobristTurn32[0]
+        ^ position.meta.zobristKo32[oldKoIdx * 2] ^ position.meta.zobristKo32[noKoIdx * 2];
+      position.hashWords[1] ^= position.meta.zobristTurn32[1]
+        ^ position.meta.zobristKo32[oldKoIdx * 2 + 1] ^ position.meta.zobristKo32[noKoIdx * 2 + 1];
       let nullScore: number;
       try {
         nullScore = -this.searchWithoutNullMove(position, depth - 1 - R, -beta, -beta + 1, ply + 1);
       } finally {
         position.toMove = savedToMove;
         position.koPoint = savedKo;
-        position.hash = savedHash;
+        position.hashWords[0] = savedHash;
+        position.hashWords[1] = savedHashHigh;
       }
       if (nullScore >= beta) {
         return beta;
@@ -1176,7 +1203,8 @@ export class GogoAI {
     const storeFlag = bestScore <= origAlpha ? TT_UPPERBOUND
                     : alpha >= beta ? TT_LOWERBOUND
                     : TT_EXACT;
-    this.ttHash[ttIndex] = hash;
+    this.ttHash32[ttIndex * 2] = hash;
+    this.ttHash32[ttIndex * 2 + 1] = hashHigh;
     this.ttBestMove[ttIndex] = bestMove;
     this.ttFlag[ttIndex] = TT_NONE;
     if (!wasCapped || storeFlag === TT_LOWERBOUND) {
@@ -1230,23 +1258,25 @@ export class GogoAI {
       return -WIN_SCORE + ply;
     }
 
-    const hash = position.hash;
+    const hash = position.hashWords[0];
+    const hashHigh = position.hashWords[1];
     const index = this.selectiveSearch
-      ? Number(BigInt.asUintN(QTT_SIZE_BITS, hash))
-      : Number(BigInt.asUintN(12, hash));
+      ? (position.hashWords[HASH_LOW_WORD] & (QTT_SIZE - 1))
+      : (position.hashWords[HASH_LOW_WORD] & 4095);
     const searchDepth = Math.min(remainingDepth, this.maxPly - ply);
     // Forcing discovery and broadened discovery can have different values.
     // Tag their entries instead of discarding quiescence caches.
     const cacheDepth = this.forcingQuiescence ? -searchDepth - 1 : searchDepth;
     const originalAlpha = alpha;
-    if (this.qHash[index] === hash && this.qDepth[index] === cacheDepth
+    if ((this.qHash32[index * 2] === hash && this.qHash32[index * 2 + 1] === hashHigh) && this.qDepth[index] === cacheDepth
       && (!this.forcingQuiescence || this.qPlyLeft[index] === this.maxPly - ply)) {
       const cached = this.adjustMateScore(this.qScore[index], -ply);
       const flag = this.qFlag[index];
       if (flag === TT_EXACT || (flag === TT_LOWERBOUND && cached >= beta) || (flag === TT_UPPERBOUND && cached <= alpha)) return cached;
     }
     const store = (score: number): number => {
-      this.qHash[index] = hash;
+      this.qHash32[index * 2] = hash;
+      this.qHash32[index * 2 + 1] = hashHigh;
       this.qDepth[index] = cacheDepth;
       this.qPlyLeft[index] = this.maxPly - ply;
       this.qScore[index] = this.adjustMateScore(score, ply);
@@ -1318,7 +1348,7 @@ export class GogoAI {
 
   /** Share incremental five-cell counts across scoring, evaluation and threats. */
   private beginWindowPass(position: GogoPosition): void {
-    if (this.windowHash === position.hash) return;
+    if (this.windowHash === position.hashWords[0] && this.windowHashHigh === position.hashWords[1]) return;
     const board = position.board;
     const meta = position.meta;
     const counts = this.windowCounts;
@@ -1374,7 +1404,8 @@ export class GogoAI {
     }
     this.windowEvaluation = evaluation;
     this.dirtyWindowCount = dirtyCount;
-    this.windowHash = position.hash;
+    this.windowHash = position.hashWords[0];
+    this.windowHashHigh = position.hashWords[1];
     this.windowPosition = position;
     this.windowVersion = position.boardVersion;
   }
@@ -1670,9 +1701,10 @@ export class GogoAI {
     const neighbors = position.meta.neighbors4;
     const maximumLiberties = responsePly < 0 ? 2 : 1;
 
-    if (this.scoredGroupHash !== position.hash) {
+    if (this.scoredGroupHash !== position.hashWords[0] || this.scoredGroupHashHigh !== position.hashWords[1]) {
       this.scoredGroupPassEpoch += 1;
-      this.scoredGroupHash = position.hash;
+      this.scoredGroupHash = position.hashWords[0];
+      this.scoredGroupHashHigh = position.hashWords[1];
     }
     this.scorerGroupEpoch += 1;
     const groupEpoch = this.scorerGroupEpoch;
@@ -1805,9 +1837,10 @@ export class GogoAI {
   }
 
   private primeScoredGroupInfo(position: GogoPosition, point: number, color: Player): void {
-    if (this.scoredGroupHash !== position.hash) {
+    if (this.scoredGroupHash !== position.hashWords[0] || this.scoredGroupHashHigh !== position.hashWords[1]) {
       this.scoredGroupPassEpoch += 1;
-      this.scoredGroupHash = position.hash;
+      this.scoredGroupHash = position.hashWords[0];
+      this.scoredGroupHashHigh = position.hashWords[1];
     }
     if (this.scoredGroupEpoch[point] === this.scoredGroupPassEpoch) return;
     const liberties = position.scanGroup(point, color);
@@ -1965,6 +1998,7 @@ export class GogoAI {
   // Attacker tries threats and longer tactical setups; defender checks refutations.
   // This is much faster than full negamax for proving tactical wins.
   private proofTTHash = new BigUint64Array(TT_SIZE);
+  private proofHash32 = new Uint32Array(this.proofTTHash.buffer);
   // 1 = proven win, -1 = no forcing win within stored depth, 0 = unknown
   private proofTTResult = new Int8Array(TT_SIZE);
   private proofTTDepth = new Int8Array(TT_SIZE);
@@ -1984,8 +2018,9 @@ export class GogoAI {
     this.proofTTBestMove.fill(-1);
   }
 
-  private storeProofTT(ttIdx: number, hash: bigint, depthLeft: number, result: 1 | -1, bestMove?: number): void {
-    this.proofTTHash[ttIdx] = hash;
+  private storeProofTT(ttIdx: number, hash: number, hashHigh: number, depthLeft: number, result: 1 | -1, bestMove?: number): void {
+    this.proofHash32[ttIdx * 2] = hash;
+    this.proofHash32[ttIdx * 2 + 1] = hashHigh;
     this.proofTTResult[ttIdx] = result;
     this.proofTTDepth[ttIdx] = depthLeft;
     this.proofTTBestMove[ttIdx] = bestMove ?? -1;
@@ -2019,6 +2054,8 @@ export class GogoAI {
         // Both generators coincide at short horizons. A restricted failure
         // remains a valid bound there; longer quiet setups need a fresh search.
         if (!forcingOnly && !this.reuseProofCache) {
+          // Restricted attack rewards should not bias the broader setup search.
+          this.history.fill(0);
           for (let index = 0; index < this.proofTTDepth.length; index += 1) {
             this.proofTTDepth[index] = Math.min(this.proofTTDepth[index], SHARED_PROOF_HORIZON);
           }
@@ -2060,10 +2097,11 @@ export class GogoAI {
     if (depthLeft <= 0) return false;
 
     // Proof TT probe
-    const hash = position.hash;
-    const ttIdx = Number(BigInt.asUintN(TT_SIZE_BITS, hash));
+    const hash = position.hashWords[0];
+    const hashHigh = position.hashWords[1];
+    const ttIdx = position.hashWords[HASH_LOW_WORD] & (TT_SIZE - 1);
     let ttBest = -1;
-    if (this.proofTTHash[ttIdx] === hash) {
+    if (this.proofHash32[ttIdx * 2] === hash && this.proofHash32[ttIdx * 2 + 1] === hashHigh) {
       // A proven win is an exact fact about this position. A failed proof
       // only rules out wins at the same or a smaller search depth.
       if (this.proofTTResult[ttIdx] === 1) return true;
@@ -2075,7 +2113,7 @@ export class GogoAI {
     // forbid the point. Recognize it before generating and scoring attacks.
     const winningMove = this.findImmediateWin(position);
     if (winningMove !== -1) {
-      this.storeProofTT(ttIdx, hash, depthLeft, 1, winningMove);
+      this.storeProofTT(ttIdx, hash, hashHigh, depthLeft, 1, winningMove);
       return true;
     }
 
@@ -2084,19 +2122,21 @@ export class GogoAI {
 
     // Heuristic TT moves are ordering hints only: independently prove the
     // continuation before accepting them, just like dedicated proof TT hints.
-    if (ttBest === -1 && this.ttHash[ttIdx] === hash) {
+    if (ttBest === -1 && (this.ttHash32[ttIdx * 2] === hash && this.ttHash32[ttIdx * 2 + 1] === hashHigh)) {
       ttBest = this.ttBestMove[ttIdx];
     }
 
     // Hash move first: try the TT best move before generating all tactical moves.
     // This skips move generation entirely when the previous iteration's winning move still works.
     if (ttBest !== -1 && this.proveAttackMove(position, ttBest, depthLeft - 1, ply + 1)) {
-      this.storeProofTT(ttIdx, hash, depthLeft, 1, ttBest);
+      this.rewardProofAttack(position, ttBest, depthLeft);
+      this.storeProofTT(ttIdx, hash, hashHigh, depthLeft, 1, ttBest);
       return true;
     }
 
     if (hintMove !== -1 && hintMove !== ttBest && this.proveAttackMove(position, hintMove, depthLeft - 1, ply + 1)) {
-      this.storeProofTT(ttIdx, hash, depthLeft, 1, hintMove);
+      this.rewardProofAttack(position, hintMove, depthLeft);
+      this.storeProofTT(ttIdx, hash, hashHigh, depthLeft, 1, hintMove);
       return true;
     }
 
@@ -2125,7 +2165,8 @@ export class GogoAI {
         if (m === ttBest || m === hintMove || this.proofAttackMarks[markBase + m] !== 0) continue;
         this.proofAttackMarks[markBase + m] = 1;
         if (this.proveAttackMove(position, m, depthLeft - 1, ply + 1)) {
-          this.storeProofTT(ttIdx, hash, depthLeft, 1, m);
+          this.rewardProofAttack(position, m, depthLeft);
+          this.storeProofTT(ttIdx, hash, hashHigh, depthLeft, 1, m);
           return true;
         }
       }
@@ -2135,8 +2176,19 @@ export class GogoAI {
       usedQuiet = true;
     }
 
-    this.storeProofTT(ttIdx, hash, depthLeft, -1);
+    this.storeProofTT(ttIdx, hash, hashHigh, depthLeft, -1);
     return false;
+  }
+
+  /** Reuse successful attacking continuations when ordering related proof nodes. */
+  private rewardProofAttack(position: GogoPosition, move: number, depth: number): void {
+    // Shared batches learn useful continuations within related proof subtrees.
+    // Independent probes retain discovery's ordering throughout their proof.
+    if (!this.reuseProofCache) return;
+    const index = (position.toMove - 1) * this.bufferArea + move;
+    // Gravity bounds accumulated history while retaining larger deep-proof bonuses.
+    const bonus = Math.min(depth * depth, 16384);
+    this.history[index] += bonus - this.history[index] * bonus / 16384;
   }
 
   /**
@@ -2152,10 +2204,11 @@ export class GogoAI {
     if (depthLeft <= 1) return false;
 
     // Proof TT probe
-    const hash = position.hash;
-    const ttIdx = Number(BigInt.asUintN(TT_SIZE_BITS, hash));
+    const hash = position.hashWords[0];
+    const hashHigh = position.hashWords[1];
+    const ttIdx = position.hashWords[HASH_LOW_WORD] & (TT_SIZE - 1);
     let ttBest = -1;
-    if (this.proofTTHash[ttIdx] === hash) {
+    if (this.proofHash32[ttIdx * 2] === hash && this.proofHash32[ttIdx * 2 + 1] === hashHigh) {
       // A proven win is an exact fact about this position. A failed proof
       // only rules out wins at the same or a smaller search depth.
       if (this.proofTTResult[ttIdx] === 1) return true;
@@ -2169,7 +2222,7 @@ export class GogoAI {
     // and explicit hints; ko can clear a forbidden winning point.
     if (this.reuseProofCache && ttBest === -1 && depthLeft <= 3
       && position.koPoint === -1 && this.findThreatResponses(position, ply) < 0) {
-      this.storeProofTT(ttIdx, hash, depthLeft, -1);
+      this.storeProofTT(ttIdx, hash, hashHigh, depthLeft, -1);
       return false;
     }
 
@@ -2222,7 +2275,7 @@ export class GogoAI {
         try {
           if (position.winner !== EMPTY || !this.proofAttack(position, depthLeft - 1, ply + 1)) {
             this.recordKillerMove(ply, move);
-            this.storeProofTT(ttIdx, hash, depthLeft, -1, move);
+            this.storeProofTT(ttIdx, hash, hashHigh, depthLeft, -1, move);
             return false;
           }
         } finally {
@@ -2233,7 +2286,7 @@ export class GogoAI {
       // Without ko, a nonempty threat-response set is complete: every other
       // move allows an immediate five. Ko requires the broader defense stages.
       if (stage === THREATS && count > 0 && position.koPoint === -1 && anyLegalCount > 0) {
-        this.storeProofTT(ttIdx, hash, depthLeft, 1);
+        this.storeProofTT(ttIdx, hash, hashHigh, depthLeft, 1);
         return true;
       }
       // Preserve discovery's nearby-defense shortcut. Loss proofs always
@@ -2244,7 +2297,7 @@ export class GogoAI {
     // No legal moves → neutral (not proven). Matches search()'s neutral semantics.
     if (anyLegalCount === 0) return false;
     // All defenses exhausted - attacker's win is proven
-    this.storeProofTT(ttIdx, hash, depthLeft, 1);
+    this.storeProofTT(ttIdx, hash, hashHigh, depthLeft, 1);
     return true;
   }
 
