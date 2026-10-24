@@ -6,6 +6,9 @@ export type Cell = 0 | 1 | 2;
 export type Player = 1 | 2;
 export type SupportedSize = 9 | 11 | 13;
 
+/** Keep hash-table indexing independent of the native typed-array byte order. */
+export const HASH_LOW_WORD = 1 ^ new Uint8Array(new Uint32Array([1]).buffer)[0];
+
 export interface PositionOptions {
   historyCapacity?: number;
   captureCapacity?: number;
@@ -31,11 +34,15 @@ export interface BoardMeta {
   readonly windowsByPoint: Int16Array;
   readonly centerBias: Int16Array;
   readonly zobristStones64: BigUint64Array;
+  readonly zobristStones32: Uint32Array;
   /** Stone placement combined with the side-to-move toggle for make-move. */
   readonly zobristMoves64: BigUint64Array;
+  readonly zobristMoves32: Uint32Array;
   readonly zobristBlackToMove64: bigint;
+  readonly zobristTurn32: Uint32Array;
   /** Zobrist keys for ko point: index 0..area-1 for each square, index area for "no ko". */
   readonly zobristKo64: BigUint64Array;
+  readonly zobristKo32: Uint32Array;
 }
 
 const SUPPORTED_SIZES = new Set<number>([9, 11, 13]);
@@ -191,9 +198,13 @@ function createBoardMeta(size: SupportedSize): BoardMeta {
     windowsByPoint,
     centerBias,
     zobristStones64,
+    zobristStones32: new Uint32Array(zobristStones64.buffer),
     zobristMoves64,
+    zobristMoves32: new Uint32Array(zobristMoves64.buffer),
     zobristBlackToMove64,
+    zobristTurn32: new Uint32Array(new BigUint64Array([zobristBlackToMove64]).buffer),
     zobristKo64,
+    zobristKo32: new Uint32Array(zobristKo64.buffer),
   };
 }
 
@@ -234,7 +245,12 @@ export class GogoPosition {
   stoneCount = 0;
   lastMove = -1;
   lastCapturedCount = 0;
-  hash = 0n;
+  /** Native-word view of the same 64-bit Zobrist key; no precision is lost. */
+  readonly hashWords = new Uint32Array(2);
+  private readonly hashValue = new BigUint64Array(this.hashWords.buffer);
+
+  get hash(): bigint { return this.hashValue[0]; }
+  set hash(value: bigint) { this.hashValue[0] = value; }
   /** Bounded, non-destructive board mutation journal for incremental consumers. */
   boardVersion = 0;
   readonly boardChanges = new Uint16Array(1024);
@@ -247,6 +263,7 @@ export class GogoPosition {
   private historyCaptureStart: Int32Array;
   private historyCaptureCount: Int16Array;
   private historyHash: BigUint64Array;
+  private historyHash32: Uint32Array;
   private capturePositions: Int16Array;
   private captureTop = 0;
 
@@ -277,6 +294,7 @@ export class GogoPosition {
     this.historyCaptureStart = new Int32Array(historyCapacity);
     this.historyCaptureCount = new Int16Array(historyCapacity);
     this.historyHash = new BigUint64Array(historyCapacity);
+    this.historyHash32 = new Uint32Array(this.historyHash.buffer);
     this.capturePositions = new Int16Array(captureCapacity);
 
     this.hash = this.meta.zobristBlackToMove64 ^ this.meta.zobristKo64[this.area];
@@ -402,14 +420,17 @@ export class GogoPosition {
     }
 
     this.ensureHistoryCapacity(this.ply + 1);
-    this.historyHash[this.ply] = this.hash;
+    this.historyHash32[this.ply * 2] = this.hashWords[0];
+    this.historyHash32[this.ply * 2 + 1] = this.hashWords[1];
     const player = this.toMove;
     const opponent = otherPlayer(player);
     const captureStart = this.captureTop;
     this.board[index] = player;
     this.recordBoardChange(index);
     this.stoneCount += 1;
-    this.hash ^= this.meta.zobristMoves64[index * 2 + (player - 1)];
+    const moveKey = (index * 2 + player - 1) * 2;
+    this.hashWords[0] ^= this.meta.zobristMoves32[moveKey];
+    this.hashWords[1] ^= this.meta.zobristMoves32[moveKey + 1];
 
     const capturedCount = this.captureAdjacentGroups(index, opponent);
 
@@ -420,7 +441,8 @@ export class GogoPosition {
     const ownLiberties = needsGroup ? this.scanGroup(index, player) : 1;
     const ownGroupSize = needsGroup ? this.scanGroupSize : 0;
     if (ownLiberties === 0 && !madeFive) {
-      this.hash = this.historyHash[this.ply];
+      this.hashWords[0] = this.historyHash32[this.ply * 2];
+      this.hashWords[1] = this.historyHash32[this.ply * 2 + 1];
       this.restoreStones(index, opponent, captureStart, capturedCount);
       return false;
     }
@@ -442,7 +464,8 @@ export class GogoPosition {
     if (nextKo !== this.koPoint) {
       const oldKoIdx = this.koPoint === -1 ? this.area : this.koPoint;
       const newKoIdx = nextKo === -1 ? this.area : nextKo;
-      this.hash ^= this.meta.zobristKo64[oldKoIdx] ^ this.meta.zobristKo64[newKoIdx];
+      this.hashWords[0] ^= this.meta.zobristKo32[oldKoIdx * 2] ^ this.meta.zobristKo32[newKoIdx * 2];
+      this.hashWords[1] ^= this.meta.zobristKo32[oldKoIdx * 2 + 1] ^ this.meta.zobristKo32[newKoIdx * 2 + 1];
     }
     this.koPoint = nextKo;
     this.toMove = opponent;
@@ -481,7 +504,9 @@ export class GogoPosition {
         this.captureTop += 1;
         this.board[point] = EMPTY;
         this.recordBoardChange(point);
-        this.hash ^= this.meta.zobristStones64[point * 2 + (opponent - 1)];
+        const key = (point * 2 + opponent - 1) * 2;
+        this.hashWords[0] ^= this.meta.zobristStones32[key];
+        this.hashWords[1] ^= this.meta.zobristStones32[key + 1];
       }
       capturedCount += this.scanGroupSize;
       this.stoneCount -= this.scanGroupSize;
@@ -495,7 +520,8 @@ export class GogoPosition {
       return false;
     }
     this.ply -= 1;
-    this.hash = this.historyHash[this.ply];
+    this.hashWords[0] = this.historyHash32[this.ply * 2];
+    this.hashWords[1] = this.historyHash32[this.ply * 2 + 1];
     const index = this.historyMoves[this.ply];
     const player = this.historyPlayers[this.ply] as Player;
     const opponent = otherPlayer(player);
@@ -594,6 +620,7 @@ export class GogoPosition {
     this.historyCaptureStart = growTypedArray(this.historyCaptureStart, minimumLength, Int32Array);
     this.historyCaptureCount = growTypedArray(this.historyCaptureCount, minimumLength, Int16Array);
     this.historyHash = growTypedArray(this.historyHash, minimumLength, BigUint64Array);
+    this.historyHash32 = new Uint32Array(this.historyHash.buffer);
   }
 
   private ensureCaptureCapacity(minimumLength: number): void {
